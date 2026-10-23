@@ -25,8 +25,8 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || '22' }}
-          # ED25519 217.144.184.232. Публичный отпечаток. Переустановка VPS — поменять, см. docs/infra.md.
-          fingerprint: SHA256:LpmjSctDQ1eIK1qjX8VOZKRIpLpVs6k1bh6BXzPBAfg
+          # ECDSA nistp256 217.144.184.232. drone-ssh берёт его раньше ED25519. Публичный отпечаток. Переустановка VPS — поменять, см. docs/infra.md.
+          fingerprint: SHA256:E+eFNJNFwH/+68XXrzlY+Gtpfs/5eRKrwHFmTWL+s3c
           command_timeout: 25m
           script: |
             set -eu
