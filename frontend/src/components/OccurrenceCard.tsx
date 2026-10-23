@@ -48,6 +48,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
         <p className="meta">
           <span>{item.responsible.full_name}</span>
           {item.template_archived && <span className="pill pill-neutral">шаблон снят</span>}
+          {item.telegram_reminded_at && <span className="pill pill-neutral count">в Telegram</span>}
           {item.note && <span>{item.note}</span>}
           {item.paid_by && mode === "history" && <span>закрыл {item.paid_by.full_name}</span>}
         </p>

@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:8080"
     worker_interval_seconds: int = 60
     telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
     telegram_force_ipv6: bool = True
 
     @property

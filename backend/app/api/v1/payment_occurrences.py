@@ -85,7 +85,16 @@ def _apply_paid_at(raw: str | None) -> datetime:
         raise HTTPException(status_code=422, detail="Некорректная дата оплаты") from None
 
 
-@router.post("/{occurrence_id}/confirm", response_model=OccurrenceOut, summary="Подтвердить оплату")
+@router.post(
+    "/{occurrence_id}/confirm",
+    response_model=OccurrenceOut,
+    summary="Подтвердить оплату",
+    description=(
+        "Веб: paid_by — текущий пользователь. "
+        "Кнопка «Оплачено» в Telegram этот метод не вызывает; worker пишет тот же paid_at "
+        "(сейчас в TIMEZONE) и paid_by = активный администратор ADMIN_EMAIL."
+    ),
+)
 def confirm(
     occurrence_id: UUID,
     payload: ConfirmIn,

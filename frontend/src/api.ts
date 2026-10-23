@@ -28,6 +28,7 @@ export type Occurrence = {
   days_delta: number;
   lateness_days: number | null;
   note: string | null;
+  telegram_reminded_at: string | null;
   template_archived: boolean;
   responsible: { id: string; full_name: string; email: string };
   paid_by: { id: string; full_name: string; email: string } | null;

@@ -1,25 +1,138 @@
-"""Второй экран инбокса. В этом куске отправитель намеренно не реализован.
+"""Клиент Bot API. Только worker.
 
-На VPS в Москве IPv4 до api.telegram.org таймаутится, IPv6 отвечает.
-Когда появится бот, HTTP-клиент воркера должен ходить на API по IPv6
-(или через прокси вне РФ). Напоминание: за SOON_DAYS и сразу, если уже
-просрочено; без дублей; архив шаблона останавливает новые напоминания,
-история периодов остаётся.
+На VPS в Москве IPv4 до api.telegram.org висит до таймаута, IPv6 отвечает.
+TELEGRAM_FORCE_IPV6 сажает сокет на ``::``: попытка IPv4 отваливается на bind,
+а не на connect. Клиент не читает HTTP_PROXY — прокси снова увёл бы на IPv4.
 """
 
-from app.core.config import get_settings
+from __future__ import annotations
+
+from typing import Any
+
+import httpx
+
+from app.core.config import Settings, get_settings
+
+API_HOST = "api.telegram.org"
+
+
+class TelegramError(Exception):
+    def __init__(self, method: str, description: str, status: int | None = None) -> None:
+        self.method = method
+        self.description = description
+        self.status = status
+        super().__init__(f"{method}: {description}")
 
 
 def describe_transport() -> dict[str, object]:
-    token = get_settings().telegram_bot_token.strip()
+    settings = get_settings()
+    token = settings.telegram_bot_token.strip()
+    chat = settings.telegram_chat_id.strip()
     return {
-        "sender": "not_implemented",
-        "host": "api.telegram.org",
-        "force_ipv6": get_settings().telegram_force_ipv6,
+        "sender": "long_poll" if token else "skipped",
+        "host": API_HOST,
+        "force_ipv6": settings.telegram_force_ipv6,
         "token_configured": bool(token),
+        "chat_configured": bool(chat),
         "vps_note": "Moscow VPS: IPv4 to api.telegram.org times out; use IPv6",
     }
 
 
-def send_message(*_args: object, **_kwargs: object) -> None:
-    raise NotImplementedError("Telegram sender is intentionally not implemented yet")
+def make_bot(settings: Settings | None = None) -> TelegramClient | None:
+    current = settings or get_settings()
+    token = current.telegram_bot_token.strip()
+    if not token:
+        return None
+    return TelegramClient(token, force_ipv6=current.telegram_force_ipv6)
+
+
+def _net_reason(exc: BaseException) -> str:
+    parts = [type(exc).__name__]
+    current: BaseException | None = exc
+    seen = 0
+    while current is not None and seen < 5:
+        if isinstance(current, OSError) and current.strerror:
+            parts.append(current.strerror)
+            break
+        current = current.__cause__ or current.__context__
+        seen += 1
+    return ": ".join(parts)
+
+
+class TelegramClient:
+    """Long polling и send/edit. Токен в лог и в repr не попадает."""
+
+    def __init__(self, token: str, force_ipv6: bool) -> None:
+        self._token = token.strip()
+        self.force_ipv6 = force_ipv6
+        local_address = "::" if force_ipv6 else None
+        transport = httpx.HTTPTransport(local_address=local_address, retries=0, trust_env=False)
+        self._http = httpx.Client(transport=transport, trust_env=False)
+
+    def close(self) -> None:
+        self._http.close()
+
+    def _call(self, method: str, payload: dict[str, Any], *, read_timeout: float) -> Any:
+        url = f"https://{API_HOST}/bot{self._token}/{method}"
+        timeout = httpx.Timeout(connect=10.0, read=read_timeout, write=10.0, pool=10.0)
+        try:
+            response = self._http.post(url, json=payload, timeout=timeout)
+        except httpx.HTTPError as exc:
+            raise TelegramError(method, _net_reason(exc)) from None
+        try:
+            body = response.json()
+        except ValueError:
+            raise TelegramError(method, "bad json", response.status_code) from None
+        if not isinstance(body, dict) or not body.get("ok") or response.status_code >= 400:
+            description = body.get("description") if isinstance(body, dict) else "error"
+            raise TelegramError(method, str(description or "error"), response.status_code)
+        return body.get("result")
+
+    def get_me(self) -> dict[str, Any]:
+        result = self._call("getMe", {}, read_timeout=20)
+        if not isinstance(result, dict):
+            raise TelegramError("getMe", "empty result")
+        return result
+
+    def delete_webhook(self) -> None:
+        self._call("deleteWebhook", {"drop_pending_updates": False}, read_timeout=20)
+
+    def get_updates(self, offset: int | None, timeout: int) -> list[dict[str, Any]]:
+        payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["callback_query"]}
+        if offset is not None:
+            payload["offset"] = offset
+        result = self._call("getUpdates", payload, read_timeout=timeout + 15)
+        if result is None:
+            return []
+        if not isinstance(result, list):
+            raise TelegramError("getUpdates", "unexpected result")
+        return [item for item in result if isinstance(item, dict)]
+
+    def send_message(self, chat_id: str, text: str, reply_markup: dict[str, Any]) -> int:
+        result = self._call(
+            "sendMessage",
+            {"chat_id": chat_id, "text": text, "reply_markup": reply_markup},
+            read_timeout=20,
+        )
+        if not isinstance(result, dict) or "message_id" not in result:
+            raise TelegramError("sendMessage", "no message_id")
+        return int(result["message_id"])
+
+    def edit_message(self, chat_id: str, message_id: int, text: str, reply_markup: dict[str, Any]) -> None:
+        self._call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+            },
+            read_timeout=20,
+        )
+
+    def answer_callback(self, callback_query_id: str, text: str) -> None:
+        self._call(
+            "answerCallbackQuery",
+            {"callback_query_id": callback_query_id, "text": text[:200]},
+            read_timeout=20,
+        )

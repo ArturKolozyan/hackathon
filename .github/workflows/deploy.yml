@@ -35,7 +35,7 @@ jobs:
             export GIT_TERMINAL_PROMPT=0
             git fetch origin main
             git reset --hard origin/main
-            docker compose up --build -d
+            docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
             # up -d возвращается, как только контейнер web создан. nginx и прокси могут ответить позже.
             for _ in $(seq 1 36); do
               if curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health; then

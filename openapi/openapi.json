@@ -264,7 +264,8 @@
               {
                 "type": "null"
               }
-            ]
+            ],
+            "description": "Кто подтвердил оплату. Веб (confirm и patch) — текущий пользователь. Кнопка «Оплачено» в общем Telegram-чате — активный администратор с почтой ADMIN_EMAIL; если такого администратора нет, null, а paid_at всё равно ставится. Заметку кнопка не меняет."
           },
           "paid_on": {
             "anyOf": [
@@ -309,6 +310,19 @@
             "title": "Status",
             "type": "string"
           },
+          "telegram_reminded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Когда напоминание по этому периоду успешно ушло в Telegram. Повторно не отправляется.",
+            "title": "Telegram Reminded At"
+          },
           "template_archived": {
             "title": "Template Archived",
             "type": "boolean"
@@ -338,7 +352,8 @@
           "note",
           "template_archived",
           "responsible",
-          "paid_by"
+          "paid_by",
+          "telegram_reminded_at"
         ],
         "title": "OccurrenceOut",
         "type": "object"
@@ -903,7 +918,7 @@
     }
   },
   "info": {
-    "description": "Шаблон регулярного платежа и период — разные сущности. Инбокс сортируется: просрочено, скоро, остальное. «Оплачено» — подтверждение человека, не банка. Суммы в итогах не конвертируются между валютами.",
+    "description": "Шаблон регулярного платежа и период — разные сущности. Инбокс сортируется: просрочено, скоро, остальное. «Оплачено» — подтверждение человека, не банка. Суммы в итогах не конвертируются между валютами. Telegram-бот живёт в worker (long polling): напоминание в общий чат и кнопка «Оплачено» ставят paid_at = сейчас в TIMEZONE. paid_by этой кнопки — активный администратор с почтой ADMIN_EMAIL, не тот, кто нажал. Если администратора нет, paid_by = null. Заметка не меняется.",
     "summary": "Инбокс обязательств команды",
     "title": "Invoice Keeper API",
     "version": "1.0.0"
@@ -1439,6 +1454,7 @@
     },
     "/api/v1/payment-occurrences/{occurrence_id}/confirm": {
       "post": {
+        "description": "Веб: paid_by — текущий пользователь. Кнопка «Оплачено» в Telegram этот метод не вызывает; worker пишет тот же paid_at (сейчас в TIMEZONE) и paid_by = активный администратор ADMIN_EMAIL.",
         "operationId": "confirm_api_v1_payment_occurrences__occurrence_id__confirm_post",
         "parameters": [
           {
