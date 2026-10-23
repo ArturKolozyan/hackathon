@@ -35,16 +35,46 @@ jobs:
             export GIT_TERMINAL_PROMPT=0
             git fetch origin main
             git reset --hard origin/main
-            docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
-            # up -d возвращается, как только контейнер web создан. nginx и прокси могут ответить позже.
+            # Файлы заданы флагами, не COMPOSE_FILE из серверного .env.
+            # .env деплой не правит: забытая строка оставила бы worker в bridge без IPv6,
+            # а health по HTTP при этом был бы зелёным.
+            COMPOSE="docker compose -f docker-compose.yml -f compose.telegram-host.yml"
+            $COMPOSE up --build -d
+            # up -d не ждёт, пока nginx и Caddy начнут слушать.
+            # Приложение: nginx на loopback :8080. Caddy: :80 с Host rekeeper.ru
+            # (до сертификата это 308 на https — для «слушает» достаточно).
+            # Worker должен быть running и в сети host, иначе Telegram снова без IPv6.
+            # https:// и curl -k не используем: без сертификата деплой падал бы зря, -k его не доказывает.
+            caddy_code=none
+            worker_state=missing
+            worker_net=missing
             for _ in $(seq 1 36); do
-              if curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health; then
-                printf '\n'
+              app_ok=0
+              caddy_ok=0
+              worker_ok=0
+              app=$(curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health || true)
+              if [ -n "$app" ]; then
+                app_ok=1
+              fi
+              caddy_code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 --connect-timeout 3 -H 'Host: rekeeper.ru' http://127.0.0.1/ || true)
+              case "$caddy_code" in
+                200|301|302|307|308) caddy_ok=1 ;;
+              esac
+              worker_id=$($COMPOSE ps -q worker || true)
+              if [ -n "$worker_id" ]; then
+                worker_state=$(docker inspect -f '{{.State.Status}}' "$worker_id" || true)
+                worker_net=$(docker inspect -f '{{.HostConfig.NetworkMode}}' "$worker_id" || true)
+                if [ "$worker_state" = running ] && [ "$worker_net" = host ]; then
+                  worker_ok=1
+                fi
+              fi
+              if [ "$app_ok" = 1 ] && [ "$caddy_ok" = 1 ] && [ "$worker_ok" = 1 ]; then
+                printf '%s\n' "$app"
                 exit 0
               fi
               sleep 5
             done
-            echo "healthcheck failed: http://127.0.0.1:8080/api/v1/health" >&2
-            docker compose ps >&2 || true
-            docker compose logs --tail=40 api web >&2 || true
+            echo "healthcheck failed: app http://127.0.0.1:8080/api/v1/health, caddy :80 Host rekeeper.ru (last HTTP ${caddy_code}), worker host-network (state ${worker_state}, net ${worker_net})" >&2
+            $COMPOSE ps >&2 || true
+            $COMPOSE logs --tail=80 api web caddy worker >&2 || true
             exit 1

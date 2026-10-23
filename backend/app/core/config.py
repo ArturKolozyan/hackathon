@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     session_days: int = 14
     cookie_secure: bool = False
     cors_origins: str = "http://localhost:5173,http://localhost:8080"
+    # Канонический адрес. Письмо-напоминание дописывает его в конец. Пустая строка — без ссылки.
+    app_public_url: str = "https://rekeeper.ru"
     worker_interval_seconds: int = 60
     telegram_bot_token: str = ""
     telegram_chat_id: str = ""

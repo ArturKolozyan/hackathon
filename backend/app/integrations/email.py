@@ -33,6 +33,15 @@ def _header(value: str) -> str:
     return value.replace("\r", " ").replace("\n", " ").strip()
 
 
+def public_url() -> str:
+    """Канонический адрес панели. В карточку Telegram не подставляется."""
+    raw = get_settings().app_public_url.strip()
+    raw = raw.replace("\r", "").replace("\n", "").replace(" ", "").rstrip("/")
+    if raw.startswith("https://") or raw.startswith("http://"):
+        return raw
+    return ""
+
+
 def send_reminder_email(payload: dict) -> str:
     if not configured():
         return "skipped"
@@ -44,21 +53,20 @@ def send_reminder_email(payload: dict) -> str:
     message["From"] = _header(settings.smtp_from)
     recipients = [item.strip() for item in settings.smtp_to.split(",") if item.strip()]
     message["To"] = ", ".join(_header(item) for item in recipients)
-    message.set_content(
-        "\n".join(
-            [
-                "rekeeper",
-                "",
-                body["title"],
-                f"Сумма: {body['amount']} {body['currency']}",
-                f"Срок: {body['due_date']}",
-                f"Статус: {status}",
-                "",
-                "Напоминание об обязательстве команды. Оплату отмечайте в панели.",
-            ]
-        ),
-        charset="utf-8",
-    )
+    lines = [
+        "rekeeper",
+        "",
+        body["title"],
+        f"Сумма: {body['amount']} {body['currency']}",
+        f"Срок: {body['due_date']}",
+        f"Статус: {status}",
+        "",
+        "Напоминание об обязательстве команды. Оплату отмечайте в панели.",
+    ]
+    panel = public_url()
+    if panel:
+        lines.append(panel)
+    message.set_content("\n".join(lines), charset="utf-8")
     try:
         if settings.smtp_port == 465:
             client_factory = smtplib.SMTP_SSL
