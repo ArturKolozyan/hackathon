@@ -1,7 +1,5 @@
-﻿# hackathon
+# hackathon
 
-Общий репозиторий команды на хакатон.
+Кейс: **Invoice Keeper** (AEZA). Правила агентов/ботов — [AGENTS.md](AGENTS.md). Документация — [docs/](docs/README.md).
 
-- Код пишем агентами локально и пушим сюда
-- Документы и ТЗ — в `docs/`
-- Друг и боты читают этот репо по ссылке: https://github.com/ArturKolozyan/hackathon
+Локально у Artur: `C:\Users\artur\Projects\hackathon`. GitHub: https://github.com/ArturKolozyan/hackathon
