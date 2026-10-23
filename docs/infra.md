@@ -22,18 +22,97 @@
 | ОС | Ubuntu 26.04 |
 | План | MSKs-2 · 2 CPU · 4 GB · 60 GB NVMe |
 | Страна | **Москва, РФ** (Aeza) |
-| Домен | нет |
+| Домен | нет своего. Живой URL — sslip.io, см. ниже |
+| Путь | `/opt/invoice-keeper` |
+| Порт приложения | **8080** (`web` / nginx). `/api` проксируется на API |
+
+## Как открывать
+
+| | |
+|--|--|
+| Живой URL | http://217.144.184.232.sslip.io:8080 |
+| По IP | http://217.144.184.232:8080 |
+| PTR | `hack-user-jiqud9.ptr.network` в браузере не открывается. Не URL |
+
+sslip.io резолвится в этот IP. HTTPS и certbot — не этот кусок.
 
 ## Telegram с этого VPS
 
 - IPv4 → `api.telegram.org` — таймаут (блокировка).
 - IPv6 → API отвечает. Worker должен ходить на Telegram по **IPv6** (или proxy вне РФ).
 
+Следующий кусок, не деплой.
+
+## Деплой
+
+Push в `main` и ручной `workflow_dispatch` → [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) → SSH:
+
+```bash
+cd /opt/invoice-keeper
+git fetch origin main
+git reset --hard origin/main
+docker compose up --build -d
+curl -fsS http://127.0.0.1:8080/api/v1/health
+```
+
+`up -d` может вернуться раньше, чем nginx ответит, поэтому workflow повторяет curl около трёх минут. `.env` в git нет: `reset --hard` его не трогает, `git clean` деплой не делает. Репозиторий публичный — для `git fetch` хватает `origin` = `https://github.com/ArturKolozyan/hackathon.git`.
+
+Actions ходит **ключом**, не паролем из таблицы SSH.
+
+### GitHub Secrets
+
+В репозиторий значения не коммитить. Пароль root сюда не класть.
+
+| Secret | Что |
+|--------|-----|
+| `DEPLOY_HOST` | `217.144.184.232` |
+| `DEPLOY_USER` | `root`. Владеет `/opt/invoice-keeper` и может `docker` |
+| `DEPLOY_SSH_KEY` | приватный ключ целиком (PEM, с `BEGIN`/`END`), без passphrase. Публичная часть — в `/root/.ssh/authorized_keys` |
+| `DEPLOY_PORT` | необязательно. Пусто = 22 |
+
+Отпечаток хоста (ED25519) зашит в workflow: `SHA256:LpmjSctDQ1eIK1qjX8VOZKRIpLpVs6k1bh6BXzPBAfg`. Переустановка VPS — обновить, иначе деплой отвергнет хост. Если клиент договорится о другом ключе: ECDSA `SHA256:E+eFNJNFwH/+68XXrzlY+Gtpfs/5eRKrwHFmTWL+s3c`, RSA `SHA256:liIVVkDgQWnXMutSjzvkJLfc2YL77kdOVtkF0pe6cqY`.
+
+### Первый раз
+
+Workflow каталог и `.env` не создаёт. Docker Compose на сервере уже есть. На хосте нужен `curl`. `WEB_PORT` оставить `8080`.
+
+```bash
+git clone https://github.com/ArturKolozyan/hackathon.git /opt/invoice-keeper
+cd /opt/invoice-keeper
+cp .env.example .env
+docker compose up --build -d
+curl -fsS http://127.0.0.1:8080/api/v1/health
+```
+
+### Ручной деплой
+
+```bash
+ssh root@217.144.184.232
+cd /opt/invoice-keeper && git fetch origin main && git reset --hard origin/main && docker compose up --build -d
+curl -fsS http://127.0.0.1:8080/api/v1/health
+```
+
+### CORS
+
+Страница и API на одном origin (`:8080`, nginx отдаёт `/api`). Браузер CORS для живого UI не спрашивает — ни для sslip.io, ни для IP.
+
+`CORS_ORIGINS` в серверном `.env` нужен только если API вызывают с другого origin (Vite `:5173`, прямой порт `8000`). Иначе хватает localhost из `.env.example`. Пример, если надо:
+
+```
+CORS_ORIGINS=http://217.144.184.232.sslip.io:8080,http://217.144.184.232:8080,http://localhost:5173,http://localhost:8080
+```
+
+Пока HTTP: `COOKIE_SECURE=false`.
+
+Postgres слушает хостовый `5432`, API — `8000`. Снаружи это лишнее; этот PR порты не закрывает.
+
 ## Чеклист
 
 - [x] SSH ок
 - [x] Страна / TG: Москва; IPv4 плохо, IPv6 ок
-- [ ] Docker + Compose; порты 22/80/443
+- [x] Docker + Compose на VPS; приложение на **8080**, не на 80/443
+- [ ] Публичный ключ в `authorized_keys` и GitHub Secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, опционально `DEPLOY_PORT`
+- [ ] Клон в `/opt/invoice-keeper`, свой `.env` (не в git), `WEB_PORT=8080`, `curl` на хосте
+- [ ] Деплой веб+api+worker, health `http://127.0.0.1:8080/api/v1/health`
 - [ ] BotFather → токен + chat_id; `getMe` с VPS по IPv6
-- [ ] Деплой веб+api+worker
-- [ ] (опц.) домен + DNS
+- [ ] (опц.) свой домен + DNS. PTR не использовать. HTTPS не в этом куске
