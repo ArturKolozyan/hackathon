@@ -4,20 +4,18 @@ from datetime import date, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
+import pytest
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.integrations.telegram import TelegramClient, TelegramError, describe_transport, make_bot
+from app.integrations.telegram import TelegramClient, TelegramError, deliver, describe_transport, make_bot
 from app.main import app
-from app.models import PaymentOccurrence, RecurringPayment, User
+from app.models import AuditLog, NotificationDelivery, PaymentOccurrence, RecurringPayment, User
 from app.seed import seed
+from app.services.notify import dispatch_due_reminders
 from app.services.occurrences import ensure_template
-from app.services.reminders import (
-    handle_callback,
-    send_due_reminders,
-    sync_rendered_messages,
-)
-from app.worker import maintain
+from app.services.telegram_cards import handle_callback, sync_telegram_cards
+from app.worker import tick
 
 CHAT = "-100"
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -32,6 +30,9 @@ class FakeBot:
         self.fail_sends = 0
         self.edit_error: str | None = None
         self._seq = 100
+
+    def close(self) -> None:
+        return None
 
     def send_message(self, chat_id: str, text: str, reply_markup: dict) -> int:
         if self.fail_sends:
@@ -52,6 +53,17 @@ class FakeBot:
 
     def answer_callback(self, callback_query_id: str, text: str) -> None:
         self.answers.append((callback_query_id, text))
+
+
+@pytest.fixture
+def tg_bot(monkeypatch):
+    bot = FakeBot()
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "12345:TESTTOKEN")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.integrations.telegram.make_bot", lambda settings=None: bot)
+    yield bot
+    get_settings.cache_clear()
 
 
 def _admin(db) -> User:
@@ -120,12 +132,25 @@ def _callback(occurrence_id, *, chat: str = CHAT, data: str | None = None, messa
     }
 
 
+def _channel(db, occurrence_id, channel: str) -> NotificationDelivery | None:
+    return db.scalar(
+        select(NotificationDelivery).where(
+            NotificationDelivery.occurrence_id == occurrence_id,
+            NotificationDelivery.channel == channel,
+            NotificationDelivery.event == "occurrence.reminder",
+        )
+    )
+
+
 def test_transport_skips_without_token_and_hides_it(monkeypatch):
+    get_settings.cache_clear()
     assert make_bot() is None
     skipped = describe_transport()
     assert skipped["sender"] == "skipped"
     assert skipped["token_configured"] is False
     assert skipped["force_ipv6"] is True
+    with pytest.raises(NotImplementedError):
+        deliver("текст", chat_id=CHAT, occurrence_id=str(uuid.uuid4()), event="occurrence.reminder")
 
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "12345:SUPERSECRET")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
@@ -174,7 +199,7 @@ def test_force_ipv6_binds_v6_and_does_not_leak_token(monkeypatch):
     assert seen["source"] is None
 
 
-def test_remind_window_dedup_archive_and_paid(db_session):
+def test_remind_window_dedup_archive_and_paid(db_session, tg_bot):
     soon = _template(db_session, title="Сервер", day=26)
     later = _template(db_session, title="Рано", day=27)
     late = _template(db_session, title="Аренда", day=20)
@@ -184,37 +209,82 @@ def test_remind_window_dedup_archive_and_paid(db_session):
     paid.paid_at = FROZEN
     db_session.commit()
 
-    bot = FakeBot()
-    assert send_due_reminders(db_session, bot, CHAT) == 2
-    titles = {item["text"].splitlines()[0] for item in bot.sent}
+    assert dispatch_due_reminders(db_session) == 2
+    titles = {item["text"].splitlines()[0] for item in tg_bot.sent}
     assert titles == {"Сервер", "Аренда"}
-    server = next(item for item in bot.sent if item["text"].startswith("Сервер"))
+    server = next(item for item in tg_bot.sent if item["text"].startswith("Сервер"))
     assert "40.00 USD" in server["text"]
     assert "Срок: 26.10.2026" in server["text"]
     assert "Статус: скоро" in server["text"]
     assert server["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == f"paid:{_october(db_session, soon).id}"
-    rent = next(item for item in bot.sent if item["text"].startswith("Аренда"))
+    rent = next(item for item in tg_bot.sent if item["text"].startswith("Аренда"))
     assert "Статус: просрочено" in rent["text"]
-    assert all(not item["text"].startswith("Рано") for item in bot.sent)
-    assert all(not item["text"].startswith("Закрыт") for item in bot.sent)
-    assert all(not item["text"].startswith("Архив") for item in bot.sent)
+    assert all(not item["text"].startswith("Рано") for item in tg_bot.sent)
+    assert all(not item["text"].startswith("Закрыт") for item in tg_bot.sent)
+    assert all(not item["text"].startswith("Архив") for item in tg_bot.sent)
 
-    assert send_due_reminders(db_session, bot, CHAT) == 0
-    assert len(bot.sent) == 2
-    assert _reload(db_session, _october(db_session, soon)).reminded_at == FROZEN
-    assert _reload(db_session, _october(db_session, later)).reminded_at is None
-    assert _reload(db_session, _october(db_session, archived)).reminded_at is None
+    assert dispatch_due_reminders(db_session) == 0
+    assert len(tg_bot.sent) == 2
+    assert _reload(db_session, _october(db_session, soon)).telegram_reminded_at == FROZEN
+    assert _channel(db_session, _october(db_session, soon).id, "telegram") is not None
+    assert _reload(db_session, _october(db_session, later)).telegram_reminded_at is None
+    assert _reload(db_session, _october(db_session, archived)).telegram_reminded_at is None
     assert _reload(db_session, paid).telegram_message_id is None
 
 
-def test_failed_send_retries_once(db_session):
+def test_failed_send_retries_once(db_session, tg_bot):
     template = _template(db_session, title="Сервер", day=26)
-    bot = FakeBot()
-    bot.fail_sends = 1
-    assert send_due_reminders(db_session, bot, CHAT) == 0
-    assert _reload(db_session, _october(db_session, template)).reminded_at is None
-    assert send_due_reminders(db_session, bot, CHAT) == 1
-    assert len(bot.sent) == 1
+    tg_bot.fail_sends = 1
+    assert dispatch_due_reminders(db_session) == 0
+    fresh = _reload(db_session, _october(db_session, template))
+    assert fresh.telegram_reminded_at is None
+    assert _channel(db_session, fresh.id, "telegram") is None
+    assert dispatch_due_reminders(db_session) == 1
+    assert len(tg_bot.sent) == 1
+    assert _channel(db_session, fresh.id, "telegram") is not None
+
+
+def test_email_does_not_block_telegram(db_session, tg_bot, monkeypatch):
+    monkeypatch.setenv("EMAIL_ENABLED", "true")
+    monkeypatch.setenv("SMTP_HOST", "smtp.test")
+    monkeypatch.setenv("SMTP_PORT", "587")
+    monkeypatch.setenv("SMTP_FROM", "keeper@test.local")
+    monkeypatch.setenv("SMTP_TO", "team@test.local")
+    monkeypatch.setenv("SMTP_TLS", "true")
+    get_settings.cache_clear()
+    sent: list = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            self.host = host
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self):
+            return None
+
+        def send_message(self, message):
+            sent.append(message)
+
+    monkeypatch.setattr("app.integrations.email.smtplib.SMTP", FakeSMTP)
+    template = _template(db_session, title="Сервер", day=26)
+    row = _october(db_session, template)
+    tg_bot.fail_sends = 1
+    assert dispatch_due_reminders(db_session) == 1
+    db_session.commit()
+    assert len(sent) == 1
+    assert _channel(db_session, row.id, "email") is not None
+    assert _channel(db_session, row.id, "telegram") is None
+
+    assert dispatch_due_reminders(db_session) == 1
+    db_session.commit()
+    assert len(tg_bot.sent) == 1
+    assert _channel(db_session, row.id, "telegram") is not None
+    assert dispatch_due_reminders(db_session) == 0
 
 
 def test_button_marks_paid_as_env_admin_and_keeps_note(db_session):
@@ -232,6 +302,8 @@ def test_button_marks_paid_as_env_admin_and_keeps_note(db_session):
     assert "Оплачено: 23.10.2026" in bot.edits[-1]["text"]
     assert bot.edits[-1]["reply_markup"] == {"inline_keyboard": []}
     assert fresh.telegram_message_id == 7
+    action = db_session.scalar(select(AuditLog.action).where(AuditLog.entity_id == row.id))
+    assert action == "occurrence.paid"
 
     handle_callback(db_session, bot, _callback(row.id, message_id=7), expected_chat_id=CHAT)
     again = _reload(db_session, row)
@@ -272,83 +344,89 @@ def test_button_ignores_other_chat_bad_payload_and_missing_period(db_session):
     ]
 
 
-def test_archived_period_can_still_be_paid_from_the_button(db_session):
+def test_archived_period_can_still_be_paid_from_the_button(db_session, tg_bot):
     template = _template(db_session, title="Архив", day=20, archived=True)
     row = _october(db_session, template)
-    bot = FakeBot()
-    assert send_due_reminders(db_session, bot, CHAT) == 0
-    handle_callback(db_session, bot, _callback(row.id), expected_chat_id=CHAT)
+    assert dispatch_due_reminders(db_session) == 0
+    handle_callback(db_session, tg_bot, _callback(row.id), expected_chat_id=CHAT)
     assert _reload(db_session, row).paid_at == FROZEN
 
 
-def test_web_pay_and_revoke_edit_the_same_message(db_session):
+def test_web_pay_and_revoke_edit_the_same_message(db_session, tg_bot):
     template = _template(db_session, title="Сервер", day=26)
-    bot = FakeBot()
-    assert send_due_reminders(db_session, bot, CHAT) == 1
+    assert dispatch_due_reminders(db_session) == 1
     row = _reload(db_session, _october(db_session, template))
     row.paid_at = FROZEN
     row.paid_by_id = _admin(db_session).id
     db_session.commit()
-    assert sync_rendered_messages(db_session, bot) == 1
-    assert bot.edits[-1]["reply_markup"] == {"inline_keyboard": []}
-    assert "Оплачено: 23.10.2026" in bot.edits[-1]["text"]
-    assert sync_rendered_messages(db_session, bot) == 0
+    assert sync_telegram_cards(db_session, tg_bot) == 1
+    assert tg_bot.edits[-1]["reply_markup"] == {"inline_keyboard": []}
+    assert "Оплачено: 23.10.2026" in tg_bot.edits[-1]["text"]
+    assert sync_telegram_cards(db_session, tg_bot) == 0
 
     row = _reload(db_session, row)
     row.paid_at = None
     row.paid_by_id = None
     db_session.commit()
-    assert sync_rendered_messages(db_session, bot) == 1
-    assert len(bot.sent) == 1
-    assert bot.edits[-1]["reply_markup"]["inline_keyboard"][0][0]["text"] == "Оплачено"
+    assert sync_telegram_cards(db_session, tg_bot) == 1
+    assert len(tg_bot.sent) == 1
+    assert tg_bot.edits[-1]["reply_markup"]["inline_keyboard"][0][0]["text"] == "Оплачено"
 
 
-def test_status_change_edits_message_lost_message_does_not_resend(db_session, monkeypatch):
+def test_status_change_edits_message_lost_message_does_not_resend(db_session, tg_bot, monkeypatch):
     template = _template(db_session, title="Сервер", day=26)
-    bot = FakeBot()
-    send_due_reminders(db_session, bot, CHAT)
+    dispatch_due_reminders(db_session)
     monkeypatch.setattr("app.services.time.today", lambda: date(2026, 10, 27))
-    assert sync_rendered_messages(db_session, bot) == 1
-    assert "Статус: просрочено" in bot.edits[-1]["text"]
+    assert sync_telegram_cards(db_session, tg_bot) == 1
+    assert "Статус: просрочено" in tg_bot.edits[-1]["text"]
 
     row = _reload(db_session, _october(db_session, template))
     row.telegram_fingerprint = "force-edit"
     db_session.commit()
-    bot.edit_error = "Bad Request: message to edit not found"
-    assert sync_rendered_messages(db_session, bot) == 0
+    tg_bot.edit_error = "Bad Request: message to edit not found"
+    assert sync_telegram_cards(db_session, tg_bot) == 0
     fresh = _reload(db_session, _october(db_session, template))
     assert fresh.telegram_message_id is None
-    assert fresh.reminded_at is not None
-    assert send_due_reminders(db_session, bot, CHAT) == 0
-    assert len(bot.sent) == 1
+    assert _channel(db_session, fresh.id, "telegram") is not None
+    assert dispatch_due_reminders(db_session) == 0
+    assert len(tg_bot.sent) == 1
 
 
-def test_not_modified_is_success(db_session):
+def test_not_modified_is_success(db_session, tg_bot):
     template = _template(db_session, title="Сервер", day=26)
-    bot = FakeBot()
-    send_due_reminders(db_session, bot, CHAT)
+    dispatch_due_reminders(db_session)
     row = _reload(db_session, _october(db_session, template))
     row.telegram_fingerprint = "stale"
     db_session.commit()
-    bot.edit_error = "Bad Request: message is not modified"
-    assert sync_rendered_messages(db_session, bot) == 0
-    assert len(bot.edits) == 1
-    assert sync_rendered_messages(db_session, bot) == 0
-    assert len(bot.edits) == 1
+    tg_bot.edit_error = "Bad Request: message is not modified"
+    assert sync_telegram_cards(db_session, tg_bot) == 0
+    assert len(tg_bot.edits) == 1
+    assert sync_telegram_cards(db_session, tg_bot) == 0
+    assert len(tg_bot.edits) == 1
 
 
-def test_maintain_without_token_keeps_horizon(db_session):
-    _template(db_session, title="Сервер", day=26)
-    stats = maintain(db_session, None, "")
-    assert stats["sent"] == 0
-    assert stats["edited"] == 0
+def test_tick_without_token_keeps_horizon_and_with_token_sends_once(db_session, monkeypatch):
+    template = _template(db_session, title="Сервер", day=26)
+    tick()
+    row = _reload(db_session, _october(db_session, template))
+    assert row.telegram_reminded_at is None
+    assert _channel(db_session, row.id, "telegram") is None
+
     bot = FakeBot()
-    assert maintain(db_session, bot, "")["sent"] == 0
-    assert bot.sent == []
-    assert maintain(db_session, bot, CHAT)["sent"] == 1
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "12345:TESTTOKEN")
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.integrations.telegram.make_bot", lambda settings=None: bot)
+    try:
+        tick()
+        tick()
+    finally:
+        get_settings.cache_clear()
+    assert len(bot.sent) == 1
+    assert _reload(db_session, row).telegram_reminded_at == FROZEN
 
 
-def test_api_shows_reminder_and_button_leaves_inbox(client, db_session):
+def test_api_shows_reminder_and_button_leaves_inbox(client, db_session, tg_bot):
     seed(demo=False)
     login = client.post("/api/v1/auth/login", json={"email": "admin@invoice.local", "password": "change-me"})
     assert login.status_code == 200, login.text
@@ -373,13 +451,12 @@ def test_api_shows_reminder_and_button_leaves_inbox(client, db_session):
     october = next(item for item in listed if item["period"] == "2026-10")
     assert october["telegram_reminded_at"] is None
 
-    bot = FakeBot()
-    assert send_due_reminders(db_session, bot, CHAT) == 1
+    assert dispatch_due_reminders(db_session) == 1
     reminded = client.get(f"/api/v1/payment-occurrences/{october['id']}", headers=headers)
     assert reminded.status_code == 200, reminded.text
     assert reminded.json()["telegram_reminded_at"].startswith("2026-10-23")
 
-    handle_callback(db_session, bot, _callback(october["id"]), expected_chat_id=CHAT)
+    handle_callback(db_session, tg_bot, _callback(october["id"]), expected_chat_id=CHAT)
     inbox = client.get("/api/v1/payment-occurrences/inbox", headers=headers).json()
     left = {item["id"] for name in ("overdue", "soon", "rest") for item in inbox[name]}
     assert october["id"] not in left

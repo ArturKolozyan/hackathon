@@ -1,5 +1,5 @@
 # Invoice Keeper. Данные Postgres лежат в томе pgdata и переживают рестарт.
-# worker — горизонт периодов и Telegram (long polling, IPv6).
+# worker — горизонт, dispatch_due_reminders (почта, webhook, Telegram deliver) и long polling.
 # На VPS Aeza bridge часто без IPv6: деплой добавляет compose.telegram-host.yml.
 
 name: invoice-keeper

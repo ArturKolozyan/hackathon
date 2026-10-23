@@ -33,10 +33,12 @@ class PaymentOccurrence(Base):
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    receipt_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    receipt_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     telegram_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    telegram_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

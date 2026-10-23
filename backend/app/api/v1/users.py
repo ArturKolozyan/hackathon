@@ -11,6 +11,7 @@ from app.core.security import hash_password
 from app.models import User
 from app.schemas.common import UserOut
 from app.schemas.user import UserCreate, UserUpdate
+from app.services.audit import record
 from app.services.templates import active_admin_count, touch
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -37,7 +38,7 @@ def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db)) 
 
 
 @router.post("", response_model=UserOut, status_code=201, summary="Создать человека")
-def create_user(payload: UserCreate, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> User:
+def create_user(payload: UserCreate, actor: User = Depends(require_admin), db: Session = Depends(get_db)) -> User:
     user = User(
         email=payload.email,
         full_name=payload.full_name,
@@ -47,10 +48,19 @@ def create_user(payload: UserCreate, _: User = Depends(require_admin), db: Sessi
     )
     db.add(user)
     try:
-        db.commit()
+        db.flush()
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже есть") from None
+    record(
+        db,
+        action="user.create",
+        actor=actor,
+        entity_type="user",
+        entity_id=user.id,
+        meta={"email": user.email, "role": user.role},
+    )
+    db.commit()
     db.refresh(user)
     return user
 
@@ -70,6 +80,8 @@ def update_user(
     user = _get_user(db, user_id)
     data = payload.model_dump(exclude_unset=True)
     _guard_last_admin(db, user, next_role=data.get("role"), next_active=data.get("is_active"), actor=actor)
+    password_changed = bool(data.get("password"))
+    fields = [key for key in data if key != "password"]
     if "password" in data:
         password = data.pop("password")
         if password:
@@ -77,6 +89,14 @@ def update_user(
     for key, value in data.items():
         setattr(user, key, value)
     touch(user)
+    record(
+        db,
+        action="user.update",
+        actor=actor,
+        entity_type="user",
+        entity_id=user.id,
+        meta={"fields": fields, "password_changed": password_changed, "email": user.email},
+    )
     try:
         db.commit()
     except IntegrityError:
@@ -92,6 +112,14 @@ def deactivate_user(user_id: UUID, actor: User = Depends(require_admin), db: Ses
     _guard_last_admin(db, user, next_role=None, next_active=False, actor=actor)
     user.is_active = False
     touch(user)
+    record(
+        db,
+        action="user.delete",
+        actor=actor,
+        entity_type="user",
+        entity_id=user.id,
+        meta={"email": user.email, "is_active": False},
+    )
     db.commit()
     db.refresh(user)
     return user

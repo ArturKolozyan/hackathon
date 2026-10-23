@@ -1,31 +1,42 @@
 import logging
 import time
 
-from sqlalchemy.orm import Session
-
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.integrations.telegram import TelegramClient, TelegramError, describe_transport, make_bot
+from app.services.notify import dispatch_due_reminders
 from app.services.occurrences import ensure_all
-from app.services.reminders import BotSender, handle_update, send_due_reminders, sync_rendered_messages
+from app.services.telegram_cards import handle_update, sync_telegram_cards
 
 log = logging.getLogger("invoice_keeper.worker")
 
 
-def maintain(db: Session, bot: BotSender | None, chat_id: str) -> dict[str, int]:
-    created = ensure_all(db)
-    db.commit()
-    sent = 0
-    edited = 0
-    if bot is not None and chat_id:
-        sent = send_due_reminders(db, bot, chat_id)
-    if bot is not None:
-        edited = sync_rendered_messages(db, bot)
-    return {"created": created, "sent": sent, "edited": edited}
+def tick() -> None:
+    """Один тик: горизонт, общий fan-out напоминаний, правка уже отправленных карточек.
+
+    Коммит горизонта до dispatch: deliver() пишет message id своей сессией
+    и должен увидеть период. Второго отбора сроков здесь нет.
+    """
+    db = SessionLocal()
+    bot = None
+    try:
+        created = ensure_all(db)
+        db.commit()
+        reminders = dispatch_due_reminders(db)
+        edited = 0
+        bot = make_bot()
+        if bot is not None:
+            edited = sync_telegram_cards(db, bot)
+        db.commit()
+        log.info("horizon ok, new_periods=%s reminders=%s synced=%s", created, reminders, edited)
+    finally:
+        if bot is not None:
+            bot.close()
+        db.close()
 
 
 def run() -> None:
-    # Горизонт периодов живёт и без токена. Telegram — long polling, не webhook.
+    # Горизонт, почта, webhook и Telegram — один процесс. Long polling, не webhook.
     log.info("worker started %s", describe_transport())
     bot: TelegramClient | None = make_bot()
     offset: int | None = None
@@ -36,23 +47,13 @@ def run() -> None:
         interval = max(5, settings.worker_interval_seconds)
         chat_id = settings.telegram_chat_id.strip()
         try:
-            db = SessionLocal()
-            try:
-                if bot is None and not announced_skip:
-                    log.info("telegram skipped: TELEGRAM_BOT_TOKEN empty")
-                    announced_skip = True
-                elif bot is not None and not chat_id and not announced_skip:
-                    log.info("telegram skipped: TELEGRAM_CHAT_ID empty")
-                    announced_skip = True
-                stats = maintain(db, bot, chat_id)
-            finally:
-                db.close()
-            log.info(
-                "horizon ok new_periods=%s reminded=%s synced=%s",
-                stats["created"],
-                stats["sent"],
-                stats["edited"],
-            )
+            if bot is None and not announced_skip:
+                log.info("telegram skipped: TELEGRAM_BOT_TOKEN empty")
+                announced_skip = True
+            elif bot is not None and not chat_id and not announced_skip:
+                log.info("telegram skipped: TELEGRAM_CHAT_ID empty")
+                announced_skip = True
+            tick()
         except Exception:
             log.exception("worker tick failed")
 

@@ -7,11 +7,16 @@ TELEGRAM_FORCE_IPV6 сажает сокет на ``::``: попытка IPv4 о�
 
 from __future__ import annotations
 
+import logging
+import uuid
 from typing import Any
 
 import httpx
+from sqlalchemy import update
 
 from app.core.config import Settings, get_settings
+
+log = logging.getLogger("invoice_keeper.telegram")
 
 API_HOST = "api.telegram.org"
 
@@ -136,3 +141,64 @@ class TelegramClient:
             {"callback_query_id": callback_query_id, "text": text[:200]},
             read_timeout=20,
         )
+
+
+def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str) -> None:
+    """Отправка в chat_id. Порог «пора ли напоминать» здесь не считается.
+
+    Контракт: успех — return, нет транспорта — NotImplementedError (канал
+    пропускается и не считается доставленным), сбой сети — другое исключение
+    (повтор на следующем тике воркера). Срок решает app.services.reminders.should_remind.
+    """
+    if not get_settings().telegram_bot_token.strip():
+        raise NotImplementedError("TELEGRAM_BOT_TOKEN empty")
+    client = make_bot()
+    if client is None:
+        raise NotImplementedError("TELEGRAM_BOT_TOKEN empty")
+    from app.services.telegram_cards import EMPTY_KEYBOARD, fingerprint, pay_keyboard
+
+    with_button = event == "occurrence.reminder"
+    try:
+        period_id = uuid.UUID(occurrence_id)
+    except ValueError:
+        client.close()
+        raise
+    markup = pay_keyboard(period_id) if with_button else EMPTY_KEYBOARD
+    try:
+        message_id = client.send_message(chat_id, text, markup)
+    finally:
+        client.close()
+    _remember(period_id, chat_id, message_id, fingerprint(text, with_button))
+
+
+def _remember(occurrence_id: uuid.UUID, chat_id: str, message_id: int, fingerprint_value: str) -> None:
+    """Своя сессия: вызывающий ещё не закоммитил строку доставки.
+
+    0 строк — период ещё не виден. Сообщение уже ушло, канал всё равно успешный,
+    иначе следующий тик пришлёт дубль.
+    """
+    from app.core.database import SessionLocal
+    from app.models import PaymentOccurrence
+    from app.services import time as clock
+
+    db = SessionLocal()
+    try:
+        result = db.execute(
+            update(PaymentOccurrence)
+            .where(PaymentOccurrence.id == occurrence_id)
+            .values(
+                telegram_chat_id=str(chat_id),
+                telegram_message_id=message_id,
+                telegram_fingerprint=fingerprint_value,
+                telegram_reminded_at=clock.now(),
+            ),
+            execution_options={"synchronize_session": False},
+        )
+        db.commit()
+        if result.rowcount == 0:
+            log.warning("telegram message stored nowhere, occurrence=%s is not visible yet", occurrence_id)
+    except Exception:
+        db.rollback()
+        log.exception("telegram message id was not stored for occurrence=%s", occurrence_id)
+    finally:
+        db.close()

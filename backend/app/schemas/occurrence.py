@@ -1,9 +1,27 @@
 from datetime import date, datetime
+from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import Money, UserBrief
+
+
+def clean_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = value.strip()
+    return cleaned or None
+
+
+def clean_receipt_url(value: str | None) -> str | None:
+    cleaned = clean_text(value)
+    if cleaned is None:
+        return None
+    parsed = urlparse(cleaned)
+    if parsed.scheme != "https" or not parsed.netloc or any(char in cleaned for char in " \r\n"):
+        raise ValueError("Нужна ссылка https://")
+    return cleaned
 
 
 class OccurrenceOut(BaseModel):
@@ -24,6 +42,8 @@ class OccurrenceOut(BaseModel):
     days_delta: int
     lateness_days: int | None
     note: str | None
+    receipt_url: str | None = None
+    receipt_note: str | None = None
     template_archived: bool
     responsible: UserBrief
     paid_by: UserBrief | None = Field(
@@ -34,7 +54,10 @@ class OccurrenceOut(BaseModel):
         )
     )
     telegram_reminded_at: datetime | None = Field(
-        description="Когда напоминание по этому периоду успешно ушло в Telegram. Повторно не отправляется."
+        description=(
+            "Когда карточка периода ушла в Telegram. "
+            "Повтор того же канала блокирует запись notification_deliveries, не это поле: письмо его не занимает."
+        )
     )
 
 
@@ -57,24 +80,32 @@ class InboxOut(BaseModel):
 class ConfirmIn(BaseModel):
     paid_at: str | None = None
     note: str | None = Field(default=None, max_length=2000)
+    receipt_url: str | None = Field(default=None, max_length=2000)
+    receipt_note: str | None = Field(default=None, max_length=2000)
 
-    @field_validator("note")
+    @field_validator("note", "receipt_note")
     @classmethod
     def clean_note(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None
+        return clean_text(value)
+
+    @field_validator("receipt_url")
+    @classmethod
+    def clean_url(cls, value: str | None) -> str | None:
+        return clean_receipt_url(value)
 
 
 class OccurrencePatch(BaseModel):
     paid_at: str | None = None
     note: str | None = Field(default=None, max_length=2000)
+    receipt_url: str | None = Field(default=None, max_length=2000)
+    receipt_note: str | None = Field(default=None, max_length=2000)
 
-    @field_validator("note")
+    @field_validator("note", "receipt_note")
     @classmethod
     def clean_note(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None
+        return clean_text(value)
+
+    @field_validator("receipt_url")
+    @classmethod
+    def clean_url(cls, value: str | None) -> str | None:
+        return clean_receipt_url(value)

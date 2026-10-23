@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ApiError, api, type Occurrence } from "../api";
 import { formatMoney, shortDue, statusPill } from "../format";
 
@@ -11,16 +11,26 @@ type Props = {
 
 export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
   const [open, setOpen] = useState(false);
+  const [receiptOpen, setReceiptOpen] = useState(false);
   const [paidOn, setPaidOn] = useState(mode === "history" ? item.paid_on ?? today : today);
   const [note, setNote] = useState("");
+  const [receiptUrl, setReceiptUrl] = useState(item.receipt_url ?? "");
+  const [receiptNote, setReceiptNote] = useState(item.receipt_note ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setReceiptUrl(item.receipt_url ?? "");
+    setReceiptNote(item.receipt_note ?? "");
+  }, [item.receipt_url, item.receipt_note]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError(null);
     try {
       await action();
+      setOpen(false);
+      setReceiptOpen(false);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Не сохранилось");
@@ -52,6 +62,16 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
           {item.note && <span>{item.note}</span>}
           {item.paid_by && mode === "history" && <span>закрыл {item.paid_by.full_name}</span>}
         </p>
+        {(item.receipt_url || item.receipt_note) && (
+          <p className="meta">
+            {item.receipt_url && (
+              <a className="text-link" href={item.receipt_url} target="_blank" rel="noreferrer">
+                Чек
+              </a>
+            )}
+            {item.receipt_note && <span>{item.receipt_note}</span>}
+          </p>
+        )}
         {item.description && <p className="desc">{item.description}</p>}
         {error && (
           <p className="error" role="alert">
@@ -71,9 +91,12 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
                   });
                   return;
                 }
+                const body: Record<string, string | null> = { paid_at: paidOn, note: note.trim() || null };
+                if ((receiptUrl.trim() || null) !== (item.receipt_url || null)) body.receipt_url = receiptUrl.trim() || null;
+                if ((receiptNote.trim() || null) !== (item.receipt_note || null)) body.receipt_note = receiptNote.trim() || null;
                 await api(`/api/v1/payment-occurrences/${item.id}/confirm`, {
                   method: "POST",
-                  body: JSON.stringify({ paid_at: paidOn, note: note.trim() || null }),
+                  body: JSON.stringify(body),
                 });
               });
             }}
@@ -83,10 +106,26 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
               <input type="date" value={paidOn} onChange={(event) => setPaidOn(event.target.value)} required />
             </label>
             {mode === "inbox" && (
-              <label>
-                Заметка
-                <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="необязательно" />
-              </label>
+              <>
+                <label>
+                  Заметка
+                  <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="необязательно" />
+                </label>
+                <label>
+                  Ссылка на чек
+                  <input
+                    value={receiptUrl}
+                    onChange={(event) => setReceiptUrl(event.target.value)}
+                    inputMode="url"
+                    placeholder="https://"
+                    maxLength={2000}
+                  />
+                </label>
+                <label>
+                  Комментарий к чеку
+                  <input value={receiptNote} onChange={(event) => setReceiptNote(event.target.value)} maxLength={2000} placeholder="необязательно" />
+                </label>
+              </>
             )}
             <div className="row-actions">
               <button type="submit" className="primary" disabled={busy}>
@@ -98,8 +137,48 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
             </div>
           </form>
         )}
+        {receiptOpen && (
+          <form
+            className="pay-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void run(() =>
+                api(`/api/v1/payment-occurrences/${item.id}`, {
+                  method: "PATCH",
+                  body: JSON.stringify({
+                    receipt_url: receiptUrl.trim() || null,
+                    receipt_note: receiptNote.trim() || null,
+                  }),
+                }),
+              );
+            }}
+          >
+            <label>
+              Ссылка на чек
+              <input
+                value={receiptUrl}
+                onChange={(event) => setReceiptUrl(event.target.value)}
+                inputMode="url"
+                placeholder="https://"
+                maxLength={2000}
+              />
+            </label>
+            <label>
+              Комментарий к чеку
+              <input value={receiptNote} onChange={(event) => setReceiptNote(event.target.value)} maxLength={2000} placeholder="номер счёта, касса" />
+            </label>
+            <div className="row-actions">
+              <button type="submit" className="primary" disabled={busy}>
+                {busy ? "Сохраняю…" : "Сохранить чек"}
+              </button>
+              <button type="button" className="ghost" onClick={() => setReceiptOpen(false)}>
+                Отмена
+              </button>
+            </div>
+          </form>
+        )}
       </div>
-      {!open && (
+      {!open && !receiptOpen && (
         <div className="card-actions">
           {mode === "inbox" ? (
             <button type="button" className="primary" onClick={() => setOpen(true)}>
@@ -123,6 +202,9 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
               </button>
             </>
           )}
+          <button type="button" className="ghost" onClick={() => setReceiptOpen(true)}>
+            Чек
+          </button>
         </div>
       )}
     </article>

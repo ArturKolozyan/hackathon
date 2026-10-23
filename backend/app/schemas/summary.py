@@ -17,6 +17,7 @@ class CurrencyTotals(BaseModel):
 class SummaryOut(BaseModel):
     timezone: str
     today: date
+    as_of: date | None = None
     soon_days: int
     counts: dict[str, int]
     by_currency: list[CurrencyTotals]

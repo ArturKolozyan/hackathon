@@ -35,11 +35,14 @@ export function Shell() {
           <NavLink to="/" end>
             Инбокс
           </NavLink>
+          <NavLink to="/calendar">Календарь</NavLink>
           <NavLink to="/history">История</NavLink>
+          <NavLink to="/budget">Бюджет</NavLink>
           {user?.role === "admin" && (
             <>
               <NavLink to="/admin/templates">Шаблоны</NavLink>
               <NavLink to="/admin/users">Люди</NavLink>
+              <NavLink to="/admin/audit">Логи</NavLink>
             </>
           )}
           <TeamMark />
