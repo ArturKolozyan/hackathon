@@ -1,0 +1,50 @@
+# Push в main и ручной запуск. Секреты приложения остаются в /opt/invoice-keeper/.env.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1.2.5
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          port: ${{ secrets.DEPLOY_PORT || '22' }}
+          # ED25519 217.144.184.232. Публичный отпечаток. Переустановка VPS — поменять, см. docs/infra.md.
+          fingerprint: SHA256:LpmjSctDQ1eIK1qjX8VOZKRIpLpVs6k1bh6BXzPBAfg
+          command_timeout: 25m
+          script: |
+            set -eu
+            cd /opt/invoice-keeper
+            git config --global --get-all safe.directory 2>/dev/null | grep -qx /opt/invoice-keeper || git config --global --add safe.directory /opt/invoice-keeper
+            export GIT_TERMINAL_PROMPT=0
+            git fetch origin main
+            git reset --hard origin/main
+            docker compose up --build -d
+            # up -d возвращается, как только контейнер web создан. nginx и прокси могут ответить позже.
+            for _ in $(seq 1 36); do
+              if curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health; then
+                printf '\n'
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "healthcheck failed: http://127.0.0.1:8080/api/v1/health" >&2
+            docker compose ps >&2 || true
+            docker compose logs --tail=40 api web >&2 || true
+            exit 1
