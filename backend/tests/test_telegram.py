@@ -27,6 +27,7 @@ class FakeBot:
         self.sent: list[dict] = []
         self.edits: list[dict] = []
         self.answers: list[tuple[str, str]] = []
+        self.alerts: list[bool] = []
         self.fail_sends = 0
         self.edit_error: str | None = None
         self._seq = 100
@@ -51,8 +52,9 @@ class FakeBot:
             self.edit_error = None
             raise TelegramError("editMessageText", message)
 
-    def answer_callback(self, callback_query_id: str, text: str) -> None:
+    def answer_callback(self, callback_query_id: str, text: str, show_alert: bool = False) -> None:
         self.answers.append((callback_query_id, text))
+        self.alerts.append(show_alert)
 
 
 @pytest.fixture
@@ -124,12 +126,28 @@ def _reload(db, row: PaymentOccurrence) -> PaymentOccurrence:
     return fresh
 
 
-def _callback(occurrence_id, *, chat: str = CHAT, data: str | None = None, message_id: int = 7) -> dict:
-    return {
+def _bind(db, user: User, tg_id: int = 501) -> None:
+    user.telegram_user_id = tg_id
+    user.telegram_username = "keeper"
+    db.commit()
+
+
+def _callback(
+    occurrence_id,
+    *,
+    chat: str = CHAT,
+    data: str | None = None,
+    message_id: int = 7,
+    sender: int | None = 501,
+) -> dict:
+    payload = {
         "id": "cb-1",
         "data": f"paid:{occurrence_id}" if data is None else data,
-        "message": {"message_id": message_id, "chat": {"id": int(chat)}},
+        "message": {"message_id": message_id, "chat": {"id": int(chat), "type": "supergroup"}},
     }
+    if sender is not None:
+        payload["from"] = {"id": sender, "first_name": "Админ", "username": "keeper"}
+    return payload
 
 
 def _channel(db, occurrence_id, channel: str) -> NotificationDelivery | None:
@@ -287,53 +305,77 @@ def test_email_does_not_block_telegram(db_session, tg_bot, monkeypatch):
     assert dispatch_due_reminders(db_session) == 0
 
 
-def test_button_marks_paid_as_env_admin_and_keeps_note(db_session):
+def test_button_marks_paid_by_linked_user_and_keeps_note(db_session, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
+    get_settings.cache_clear()
     template = _template(db_session, title="Сервер", day=20, note="не трогать")
+    maria = User(
+        email="maria@invoice.local",
+        full_name="Мария",
+        password_hash="x",
+        role="user",
+        is_active=True,
+    )
+    db_session.add(maria)
+    db_session.flush()
+    _bind(db_session, maria, 900)
     row = _october(db_session, template)
     bot = FakeBot()
-    handle_callback(db_session, bot, _callback(row.id), expected_chat_id=CHAT)
+    handle_callback(db_session, bot, _callback(row.id, sender=900))
     fresh = _reload(db_session, row)
     assert fresh.paid_at == FROZEN
     assert fresh.note == "не трогать"
     payer = db_session.get(User, fresh.paid_by_id)
     assert payer is not None
-    assert payer.email == "admin@invoice.local"
+    assert payer.email == "maria@invoice.local"
     assert bot.answers == [("cb-1", "Оплачено")]
-    assert "Оплачено: 23.10.2026" in bot.edits[-1]["text"]
+    assert bot.alerts == [False]
+    assert "✅ Оплачено — Мария, 23.10.2026" in bot.edits[-1]["text"]
     assert bot.edits[-1]["reply_markup"] == {"inline_keyboard": []}
     assert fresh.telegram_message_id == 7
-    action = db_session.scalar(select(AuditLog.action).where(AuditLog.entity_id == row.id))
-    assert action == "occurrence.paid"
+    action = db_session.scalar(select(AuditLog).where(AuditLog.entity_id == row.id))
+    assert action is not None
+    assert action.action == "occurrence.paid"
+    assert action.meta.get("source") == "telegram"
+    assert action.actor_user_id == maria.id
 
-    handle_callback(db_session, bot, _callback(row.id, message_id=7), expected_chat_id=CHAT)
+    handle_callback(db_session, bot, _callback(row.id, message_id=7, sender=900))
     again = _reload(db_session, row)
     assert again.paid_at == FROZEN
-    assert bot.answers[-1] == ("cb-1", "Уже оплачено")
+    assert bot.answers[-1] == ("cb-1", "Уже оплачено — Мария")
+    assert bot.alerts[-1] is True
     assert again.paid_by_id == payer.id
+    get_settings.cache_clear()
 
 
-def test_button_without_admin_still_sets_paid_at(db_session):
+def test_unlinked_click_does_not_pay(db_session, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
+    get_settings.cache_clear()
     template = _template(db_session, title="Сервер", day=20)
-    admin = _admin(db_session)
-    admin.is_active = False
-    db_session.commit()
     row = _october(db_session, template)
     bot = FakeBot()
-    handle_callback(db_session, bot, _callback(row.id), expected_chat_id=CHAT)
+    handle_callback(db_session, bot, _callback(row.id, sender=404))
     fresh = _reload(db_session, row)
-    assert fresh.paid_at == FROZEN
+    assert fresh.paid_at is None
     assert fresh.paid_by_id is None
-    assert bot.answers[-1][1] == "Оплачено"
+    assert bot.answers[-1][1] == "Сначала привяжи Telegram в профиле rekeeper"
+    assert bot.alerts[-1] is True
+    assert bot.edits == []
+    get_settings.cache_clear()
 
 
-def test_button_ignores_other_chat_bad_payload_and_missing_period(db_session):
+def test_button_ignores_other_chat_bad_payload_and_missing_period(db_session, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
+    get_settings.cache_clear()
     template = _template(db_session, title="Сервер", day=20)
     row = _october(db_session, template)
     bot = FakeBot()
-    handle_callback(db_session, bot, _callback(row.id, chat="-200"), expected_chat_id=CHAT)
-    handle_callback(db_session, bot, _callback(row.id, data="paid:nope"), expected_chat_id=CHAT)
-    handle_callback(db_session, bot, _callback(uuid.uuid4()), expected_chat_id=CHAT)
-    handle_callback(db_session, bot, _callback(row.id), expected_chat_id="")
+    handle_callback(db_session, bot, _callback(row.id, chat="-200"))
+    handle_callback(db_session, bot, _callback(row.id, data="paid:nope"))
+    handle_callback(db_session, bot, _callback(uuid.uuid4()))
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "")
+    get_settings.cache_clear()
+    handle_callback(db_session, bot, _callback(row.id))
     fresh = _reload(db_session, row)
     assert fresh.paid_at is None
     assert [item[1] for item in bot.answers] == [
@@ -342,13 +384,15 @@ def test_button_ignores_other_chat_bad_payload_and_missing_period(db_session):
         "Период не найден",
         "Чат не настроен",
     ]
+    get_settings.cache_clear()
 
 
 def test_archived_period_can_still_be_paid_from_the_button(db_session, tg_bot):
     template = _template(db_session, title="Архив", day=20, archived=True)
     row = _october(db_session, template)
     assert dispatch_due_reminders(db_session) == 0
-    handle_callback(db_session, tg_bot, _callback(row.id), expected_chat_id=CHAT)
+    _bind(db_session, _admin(db_session))
+    handle_callback(db_session, tg_bot, _callback(row.id))
     assert _reload(db_session, row).paid_at == FROZEN
 
 
@@ -361,7 +405,7 @@ def test_web_pay_and_revoke_edit_the_same_message(db_session, tg_bot):
     db_session.commit()
     assert sync_telegram_cards(db_session, tg_bot) == 1
     assert tg_bot.edits[-1]["reply_markup"] == {"inline_keyboard": []}
-    assert "Оплачено: 23.10.2026" in tg_bot.edits[-1]["text"]
+    assert "✅ Оплачено — Админ, 23.10.2026" in tg_bot.edits[-1]["text"]
     assert sync_telegram_cards(db_session, tg_bot) == 0
 
     row = _reload(db_session, row)
@@ -456,7 +500,10 @@ def test_api_shows_reminder_and_button_leaves_inbox(client, db_session, tg_bot):
     assert reminded.status_code == 200, reminded.text
     assert reminded.json()["telegram_reminded_at"].startswith("2026-10-23")
 
-    handle_callback(db_session, tg_bot, _callback(october["id"]), expected_chat_id=CHAT)
+    admin = db_session.scalar(select(User).where(User.email == "admin@invoice.local"))
+    assert admin is not None
+    _bind(db_session, admin)
+    handle_callback(db_session, tg_bot, _callback(october["id"]))
     inbox = client.get("/api/v1/payment-occurrences/inbox", headers=headers).json()
     left = {item["id"] for name in ("overdue", "soon", "rest") for item in inbox[name]}
     assert october["id"] not in left
@@ -467,8 +514,52 @@ def test_api_shows_reminder_and_button_leaves_inbox(client, db_session, tg_bot):
     assert paid["note"] is None
 
 
+def test_personal_reminder_dedup_and_toggle(db_session, tg_bot):
+    template = _template(db_session, title="Сервер", day=26)
+    ivan = User(
+        email="ivan@invoice.local",
+        full_name="Иван",
+        password_hash="x",
+        role="user",
+        is_active=True,
+        telegram_user_id=777,
+        telegram_reminders=False,
+    )
+    db_session.add(ivan)
+    db_session.flush()
+    template.responsible_user_id = ivan.id
+    db_session.commit()
+
+    assert dispatch_due_reminders(db_session) == 1
+    assert [item["chat_id"] for item in tg_bot.sent] == [CHAT]
+    assert _reload(db_session, _october(db_session, template)).dm_message_id is None
+
+    ivan.telegram_reminders = True
+    db_session.commit()
+    assert dispatch_due_reminders(db_session) == 1
+    assert tg_bot.sent[-1]["chat_id"] == "777"
+    assert "Оплачено" in tg_bot.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"]
+    fresh = _reload(db_session, _october(db_session, template))
+    assert fresh.dm_chat_id == "777"
+    assert fresh.telegram_chat_id == CHAT
+
+    assert dispatch_due_reminders(db_session) == 0
+    assert len(tg_bot.sent) == 2
+    rows = list(
+        db_session.scalars(
+            select(NotificationDelivery).where(
+                NotificationDelivery.occurrence_id == fresh.id,
+                NotificationDelivery.channel == "telegram",
+            )
+        ).all()
+    )
+    assert {row.recipient for row in rows} == {"team", f"user:{ivan.id}"}
+
+
 def test_openapi_documents_telegram_actor():
     schema = app.openapi()["components"]["schemas"]["OccurrenceOut"]["properties"]
     assert "telegram_reminded_at" in schema
-    assert "ADMIN_EMAIL" in schema["paid_by"]["description"]
-    assert "ADMIN_EMAIL" in app.openapi()["info"]["description"]
+    description = schema["paid_by"]["description"]
+    assert "привязан" in description
+    assert "ADMIN_EMAIL" not in description
+    assert "ADMIN_EMAIL" not in app.openapi()["info"]["description"]

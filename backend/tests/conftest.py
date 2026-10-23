@@ -85,8 +85,9 @@ def db_session(migrated):
     db = SessionLocal()
     db.execute(
         text(
-            "TRUNCATE notification_deliveries, audit_logs, budgets, payment_occurrences, "
-            "recurring_payments, auth_sessions, users RESTART IDENTITY CASCADE"
+            "TRUNCATE telegram_link_tokens, telegram_integration, notification_deliveries, audit_logs, "
+            "budgets, payment_occurrences, recurring_payments, auth_sessions, users "
+            "RESTART IDENTITY CASCADE"
         )
     )
     db.commit()

@@ -40,7 +40,7 @@ sslip.io резолвится в этот IP. HTTPS и certbot — не этот
 
 - IPv4 → `api.telegram.org` — таймаут (блокировка).
 - IPv6 → API отвечает. Клиент в `worker`, `TELEGRAM_FORCE_IPV6=true` (сокет только `::`).
-- Транспорт — long polling, не webhook. Токен и chat id только в `.env` на сервере.
+- Транспорт — long polling, не webhook. Токен в `.env` на сервере. Чат команды и личные аккаунты привязываются из веба. `TELEGRAM_CHAT_ID` — запасной, если в базе чата ещё нет и его явно не отключали.
 - Сеть bridge у Docker часто без IPv6. Деплой добавляет [compose.telegram-host.yml](../compose.telegram-host.yml): worker в сети хоста, Postgres для него — `127.0.0.1`.
 
 ## Деплой
@@ -114,5 +114,5 @@ Postgres слушает хостовый `5432`, API — `8000`. Снаружи 
 - [ ] Публичный ключ в `authorized_keys` и GitHub Secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, опционально `DEPLOY_PORT`
 - [ ] Клон в `/opt/invoice-keeper`, свой `.env` (не в git), `WEB_PORT=8080`, `curl` на хосте
 - [ ] Деплой веб+api+worker, health `http://127.0.0.1:8080/api/v1/health`
-- [ ] BotFather → токен + chat_id; `getMe` с VPS по IPv6
+- [ ] BotFather → токен в `TELEGRAM_BOT_TOKEN`; `getMe` с VPS по IPv6. Чат — из веба, не из chat_id
 - [ ] (опц.) свой домен + DNS. PTR не использовать. HTTPS не в этом куске

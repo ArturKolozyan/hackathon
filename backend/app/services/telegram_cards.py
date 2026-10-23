@@ -11,7 +11,7 @@ import logging
 import uuid
 from typing import Any, Protocol
 
-from sqlalchemy import func, select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -36,7 +36,7 @@ _STATUS_RU = {
 class BotSender(Protocol):
     def edit_message(self, chat_id: str, message_id: int, text: str, reply_markup: dict[str, Any]) -> None: ...
 
-    def answer_callback(self, callback_query_id: str, text: str) -> None: ...
+    def answer_callback(self, callback_query_id: str, text: str, *, show_alert: bool = False) -> None: ...
 
 
 def pay_keyboard(occurrence_id: uuid.UUID) -> dict[str, Any]:
@@ -57,6 +57,16 @@ def fingerprint(text: str, with_button: bool) -> str:
     return hashlib.sha256(f"{text}\n{marker}".encode()).hexdigest()[:32]
 
 
+def _payer_name(occurrence: PaymentOccurrence) -> str | None:
+    if occurrence.paid_by_id is None:
+        return None
+    payer = occurrence.payer
+    if payer is None:
+        return None
+    name = payer.full_name.strip()
+    return name or None
+
+
 def telegram_text(occurrence: PaymentOccurrence) -> str:
     settings = get_settings()
     status = classify(occurrence.due_date, occurrence.paid_at, clock.today(), settings.soon_days)
@@ -68,7 +78,12 @@ def telegram_text(occurrence: PaymentOccurrence) -> str:
     ]
     if occurrence.paid_at is not None:
         paid_on = occurrence.paid_at.astimezone(settings.zone).date()
-        lines.append(f"Оплачено: {paid_on.strftime('%d.%m.%Y')}")
+        stamp = paid_on.strftime("%d.%m.%Y")
+        who = _payer_name(occurrence)
+        if who:
+            lines.append(f"✅ Оплачено — {who}, {stamp}")
+        else:
+            lines.append(f"Оплачено: {stamp}")
     return "\n".join(lines)
 
 
@@ -79,7 +94,12 @@ def _exec(db: Session, stmt):
 def _load_sent(db: Session) -> list[PaymentOccurrence]:
     stmt = (
         select(PaymentOccurrence)
-        .where(PaymentOccurrence.telegram_message_id.is_not(None))
+        .where(
+            or_(
+                PaymentOccurrence.telegram_message_id.is_not(None),
+                PaymentOccurrence.dm_message_id.is_not(None),
+            )
+        )
         .execution_options(populate_existing=True)
         .order_by(PaymentOccurrence.due_date, PaymentOccurrence.id)
     )
@@ -91,17 +111,6 @@ def _load_one(db: Session, occurrence_id: uuid.UUID) -> PaymentOccurrence | None
     return db.scalars(stmt).one_or_none()
 
 
-def telegram_payer(db: Session) -> User | None:
-    """Кнопка общего чата. Не веб-пользователь, а активный админ из ADMIN_EMAIL."""
-    email = get_settings().admin_email.strip().lower()
-    if not email:
-        return None
-    user = db.scalar(select(User).where(func.lower(User.email) == email))
-    if user is None or not user.is_active or user.role != "admin":
-        return None
-    return user
-
-
 def _edit_is_gone(description: str) -> bool:
     text = description.lower()
     return "message to edit not found" in text or "message_id_invalid" in text or "message can't be edited" in text
@@ -111,131 +120,186 @@ def _edit_not_modified(description: str) -> bool:
     return "message is not modified" in description.lower()
 
 
-def _store_fingerprint(db: Session, occurrence_id: uuid.UUID, fingerprint_value: str) -> None:
+def _drop_slot(db: Session, occurrence_id: uuid.UUID, slot: str) -> None:
+    # Сообщение уже не отредактировать. Повторно не шлём: строка канала остаётся.
+    if slot == "dm":
+        values = {"dm_message_id": None, "dm_chat_id": None, "dm_fingerprint": None}
+    else:
+        values = {"telegram_message_id": None, "telegram_chat_id": None, "telegram_fingerprint": None}
+    _exec(db, update(PaymentOccurrence).where(PaymentOccurrence.id == occurrence_id).values(**values))
+    db.commit()
+
+
+def _store_slot_fingerprint(db: Session, occurrence_id: uuid.UUID, slot: str, fingerprint_value: str) -> None:
+    column = "dm_fingerprint" if slot == "dm" else "telegram_fingerprint"
     _exec(
         db,
-        update(PaymentOccurrence)
-        .where(PaymentOccurrence.id == occurrence_id)
-        .values(telegram_fingerprint=fingerprint_value),
+        update(PaymentOccurrence).where(PaymentOccurrence.id == occurrence_id).values(**{column: fingerprint_value}),
     )
     db.commit()
 
 
-def _drop_message(db: Session, occurrence_id: uuid.UUID) -> None:
-    # Сообщение в чате уже не отредактировать. Повторно не шлём: строка канала остаётся.
-    _exec(
-        db,
-        update(PaymentOccurrence)
-        .where(PaymentOccurrence.id == occurrence_id)
-        .values(telegram_message_id=None, telegram_chat_id=None),
-    )
-    db.commit()
+def _slots(row: PaymentOccurrence) -> list[tuple[str, str, int, str | None]]:
+    found: list[tuple[str, str, int, str | None]] = []
+    if row.telegram_message_id is not None and row.telegram_chat_id:
+        found.append(("team", row.telegram_chat_id, int(row.telegram_message_id), row.telegram_fingerprint))
+    if row.dm_message_id is not None and row.dm_chat_id:
+        found.append(("dm", row.dm_chat_id, int(row.dm_message_id), row.dm_fingerprint))
+    return found
 
 
 def sync_telegram_cards(db: Session, bot: BotSender) -> int:
-    """Правит уже отправленные карточки. Новых сообщений не создаёт."""
+    """Правит уже отправленные карточки команды и лички. Новых сообщений не создаёт."""
     edited = 0
     for row in _load_sent(db):
-        if row.telegram_message_id is None or not row.telegram_chat_id:
-            continue
         text = telegram_text(row)
         with_button = row.paid_at is None
         current = fingerprint(text, with_button)
-        if row.telegram_fingerprint == current:
-            continue
         markup = pay_keyboard(row.id) if with_button else EMPTY_KEYBOARD
-        try:
-            bot.edit_message(row.telegram_chat_id, int(row.telegram_message_id), text, markup)
-        except TelegramError as exc:
-            if _edit_not_modified(exc.description):
-                _store_fingerprint(db, row.id, current)
+        for slot, chat_id, message_id, stored in _slots(row):
+            if stored == current:
                 continue
-            if _edit_is_gone(exc.description):
-                log.warning("telegram message gone occurrence=%s; delivery row stays", row.id)
-                _drop_message(db, row.id)
+            try:
+                bot.edit_message(chat_id, message_id, text, markup)
+            except TelegramError as exc:
+                if _edit_not_modified(exc.description):
+                    _store_slot_fingerprint(db, row.id, slot, current)
+                    continue
+                if _edit_is_gone(exc.description):
+                    log.warning("telegram message gone occurrence=%s slot=%s; delivery row stays", row.id, slot)
+                    _drop_slot(db, row.id, slot)
+                    continue
+                log.warning("edit failed occurrence=%s slot=%s (%s)", row.id, slot, exc.description)
                 continue
-            log.warning("edit failed occurrence=%s (%s)", row.id, exc.description)
-            continue
-        _store_fingerprint(db, row.id, current)
-        edited += 1
+            _store_slot_fingerprint(db, row.id, slot, current)
+            edited += 1
     return edited
 
 
-def handle_update(db: Session, bot: BotSender, update: dict[str, Any], *, expected_chat_id: str) -> None:
-    callback = update.get("callback_query")
-    if not isinstance(callback, dict):
-        return
-    handle_callback(db, bot, callback, expected_chat_id=expected_chat_id)
-
-
-def handle_callback(db: Session, bot: BotSender, callback: dict[str, Any], *, expected_chat_id: str) -> None:
+def handle_callback(db: Session, bot: BotSender, callback: dict[str, Any]) -> None:
     callback_id = str(callback.get("id") or "")
     try:
-        toast = _apply_callback(db, bot, callback, expected_chat_id=expected_chat_id.strip())
+        toast, alert = _apply_callback(db, bot, callback)
     except Exception:
         db.rollback()
         log.exception("telegram callback failed")
-        toast = "Не получилось"
+        toast, alert = "Не получилось", True
     if not callback_id:
         return
     try:
-        bot.answer_callback(callback_id, toast)
+        bot.answer_callback(callback_id, toast, show_alert=alert)
     except TelegramError as exc:
         log.warning("answerCallbackQuery failed (%s)", exc.description)
 
 
-def _apply_callback(db: Session, bot: BotSender, callback: dict[str, Any], *, expected_chat_id: str) -> str:
+def _apply_callback(db: Session, bot: BotSender, callback: dict[str, Any]) -> tuple[str, bool]:
+    from app.services.telegram_links import UNLINKED_ALERT, is_private_chat, resolve_team_chat_id
+
     message = callback.get("message") if isinstance(callback.get("message"), dict) else {}
     chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
     chat_id = chat.get("id")
     message_id = message.get("message_id")
-    if not expected_chat_id:
-        return "Чат не настроен"
-    if chat_id is None or str(chat_id) != expected_chat_id:
-        return "Чат не подключён к инбоксу"
+    private = is_private_chat(chat)
+    team_id, _source = resolve_team_chat_id(db)
+    if chat_id is None:
+        return "Чат не подключён к инбоксу", True
+    if not private:
+        if not team_id:
+            return "Чат не настроен", True
+        if str(chat_id) != team_id:
+            return "Чат не подключён к инбоксу", True
 
     occurrence_id = parse_paid_callback(str(callback.get("data") or ""))
     if occurrence_id is None:
-        return "Некорректная кнопка"
+        return "Некорректная кнопка", True
     row = _load_one(db, occurrence_id)
     if row is None:
-        return "Период не найден"
+        return "Период не найден", True
+
+    sender = callback.get("from") if isinstance(callback.get("from"), dict) else {}
+    payer = _linked_sender(db, sender)
+    if payer is None:
+        return UNLINKED_ALERT, True
 
     if row.paid_at is None:
-        _mark_paid(db, row)
-        toast = "Оплачено"
+        _mark_paid(db, row, payer)
+        toast, alert = "Оплачено", False
     else:
-        toast = "Уже оплачено"
+        who = _payer_name(row) or "ранее"
+        toast, alert = f"Уже оплачено — {who}", True
 
     if message_id is None:
-        return toast
+        return toast, alert
+    _edit_known(db, bot, row, clicked_chat=str(chat_id), clicked_message=int(message_id), private=private)
+    return toast, alert
+
+
+def _linked_sender(db: Session, sender: dict[str, Any]) -> User | None:
+    try:
+        tg_id = int(sender.get("id"))
+    except (TypeError, ValueError):
+        return None
+    user = db.scalar(select(User).where(User.telegram_user_id == tg_id))
+    if user is None or not user.is_active:
+        return None
+    return user
+
+
+def _assign_slot(row: PaymentOccurrence, slot: str, chat_id: str, message_id: int, fingerprint_value: str) -> None:
+    if slot == "dm":
+        row.dm_chat_id = chat_id
+        row.dm_message_id = message_id
+        row.dm_fingerprint = fingerprint_value
+        return
+    row.telegram_chat_id = chat_id
+    row.telegram_message_id = message_id
+    row.telegram_fingerprint = fingerprint_value
+    if row.telegram_reminded_at is None:
+        row.telegram_reminded_at = clock.now()
+
+
+def _edit_known(
+    db: Session,
+    bot: BotSender,
+    row: PaymentOccurrence,
+    *,
+    clicked_chat: str,
+    clicked_message: int,
+    private: bool,
+) -> None:
     text = telegram_text(row)
     with_button = row.paid_at is None
     markup = pay_keyboard(row.id) if with_button else EMPTY_KEYBOARD
     current = fingerprint(text, with_button)
-    try:
-        bot.edit_message(str(chat_id), int(message_id), text, markup)
-    except TelegramError as exc:
-        if not _edit_not_modified(exc.description):
-            log.warning("callback edit failed occurrence=%s (%s)", row.id, exc.description)
-            return toast
-    row.telegram_chat_id = str(chat_id)
-    row.telegram_message_id = int(message_id)
-    row.telegram_fingerprint = current
-    if row.telegram_reminded_at is None:
-        row.telegram_reminded_at = clock.now()
+    clicked_slot = "dm" if private else "team"
+    targets: list[tuple[str, str, int]] = [(clicked_slot, clicked_chat, clicked_message)]
+    for slot, chat_id, message_id, _stored in _slots(row):
+        if slot == clicked_slot:
+            continue
+        if chat_id == clicked_chat and message_id == clicked_message:
+            continue
+        targets.append((slot, chat_id, message_id))
+    for slot, chat_id, message_id in targets:
+        try:
+            bot.edit_message(chat_id, message_id, text, markup)
+        except TelegramError as exc:
+            if not _edit_not_modified(exc.description):
+                log.warning("callback edit failed occurrence=%s slot=%s (%s)", row.id, slot, exc.description)
+                continue
+        _assign_slot(row, slot, chat_id, message_id, current)
+        if row.telegram_reminded_at is None:
+            row.telegram_reminded_at = clock.now()
     db.commit()
-    return toast
 
 
-def _mark_paid(db: Session, row: PaymentOccurrence) -> None:
+def _mark_paid(db: Session, row: PaymentOccurrence, payer: User) -> None:
     from app.services.audit import record
     from app.services.notify import PAID, notify_event
 
-    payer = telegram_payer(db)
     paid_at = clock.now()
     row.paid_at = paid_at
-    row.paid_by_id = payer.id if payer is not None else None
+    row.paid_by_id = payer.id
+    row.payer = payer
     touch(row)
     record(
         db,
@@ -243,7 +307,11 @@ def _mark_paid(db: Session, row: PaymentOccurrence) -> None:
         actor=payer,
         entity_type="payment_occurrence",
         entity_id=row.id,
-        meta={"paid_on": paid_at.astimezone(get_settings().zone).date().isoformat(), "title": row.title},
+        meta={
+            "paid_on": paid_at.astimezone(get_settings().zone).date().isoformat(),
+            "title": row.title,
+            "source": "telegram",
+        },
     )
     notify_event(db, row, PAID)
     db.commit()

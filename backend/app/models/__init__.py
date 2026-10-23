@@ -7,6 +7,7 @@ from app.models.delivery import NotificationDelivery
 from app.models.occurrence import PaymentOccurrence
 from app.models.recurring import RecurringPayment
 from app.models.session import AuthSession
+from app.models.telegram import TelegramIntegration, TelegramLinkToken
 from app.models.user import User
 
 configure_mappers()
@@ -19,5 +20,7 @@ __all__ = [
     "NotificationDelivery",
     "PaymentOccurrence",
     "RecurringPayment",
+    "TelegramIntegration",
+    "TelegramLinkToken",
     "User",
 ]

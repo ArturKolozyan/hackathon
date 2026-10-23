@@ -418,6 +418,35 @@ input:-webkit-autofill:focus {
 .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
 .note { padding: 20px; display: grid; gap: 8px; max-width: 560px; }
 
+.hint {
+  margin-top: 16px;
+  padding: 14px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.stack { display: grid; gap: 12px; }
+.settings-card { padding: 16px; display: grid; gap: 12px; }
+.settings-card h2 { font-size: 1.05rem; }
+.link-box {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.link-box a { color: var(--accent); font-weight: 600; word-break: break-all; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+a.primary, a.outline, a.ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .login-grid {
   flex: 1;
   display: grid;
@@ -483,7 +512,8 @@ input:-webkit-autofill:focus {
   .login-grid { padding: 28px 16px; gap: 24px; align-items: start; }
   .login-copy h1 { font-size: 2.2rem; }
   .login-foot { padding: 8px 16px 16px; }
-  .card { flex-direction: column; }
+  .card, .hint { flex-direction: column; align-items: stretch; }
+  .hint a, .hint .primary, .hint .outline, .hint .ghost { width: 100%; }
   .card-actions { width: 100%; }
   .card-actions .primary,
   .card-actions .outline,

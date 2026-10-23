@@ -39,6 +39,9 @@ class PaymentOccurrence(Base):
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     telegram_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     telegram_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    dm_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    dm_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    dm_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

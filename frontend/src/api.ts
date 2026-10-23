@@ -110,6 +110,32 @@ export type AuditList = {
   total: number;
 };
 
+export type TelegramSelf = {
+  linked: boolean;
+  username: string | null;
+  display_name: string | null;
+  reminders_enabled: boolean;
+  bot_ready: boolean;
+  bot_username: string | null;
+};
+
+export type TelegramLink = {
+  url: string;
+  expires_at: string;
+};
+
+export type TeamTelegram = {
+  status: "connected" | "disconnected" | "absent";
+  source: "database" | "env" | "none";
+  chat_title: string | null;
+  chat_id: string | null;
+  bot_username: string | null;
+  bot_ready: boolean;
+  test_pending: boolean;
+  test_sent_at: string | null;
+  test_error: string | null;
+};
+
 export type Template = {
   id: string;
   title: string;

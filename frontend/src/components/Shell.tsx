@@ -38,6 +38,7 @@ export function Shell() {
           <NavLink to="/calendar">Календарь</NavLink>
           <NavLink to="/history">История</NavLink>
           <NavLink to="/budget">Бюджет</NavLink>
+          <NavLink to="/settings">Настройки</NavLink>
           {user?.role === "admin" && (
             <>
               <NavLink to="/admin/templates">Шаблоны</NavLink>

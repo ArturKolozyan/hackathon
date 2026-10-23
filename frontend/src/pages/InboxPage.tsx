@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { ApiError, api, type Inbox, type Occurrence, type Summary } from "../api";
+import { Link, useSearchParams } from "react-router-dom";
+import { ApiError, api, type Inbox, type Occurrence, type Summary, type TeamTelegram, type TelegramSelf } from "../api";
+import { useAuth } from "../auth";
 import { OccurrenceCard } from "../components/OccurrenceCard";
 import { chipTone, formatMoney } from "../format";
 
 export function InboxPage() {
+  const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const mine = params.get("mine") === "1";
   const [asOf, setAsOf] = useState("");
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [selfTg, setSelfTg] = useState<TelegramSelf | null>(null);
+  const [teamTg, setTeamTg] = useState<TeamTelegram | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -31,6 +35,16 @@ export function InboxPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    api<TelegramSelf>("/api/v1/me/telegram")
+      .then(setSelfTg)
+      .catch(() => setSelfTg(null));
+    if (user?.role !== "admin") return;
+    api<TeamTelegram>("/api/v1/telegram/status")
+      .then(setTeamTg)
+      .catch(() => setTeamTg(null));
+  }, [user?.role]);
 
   const totalOpen = inbox ? inbox.overdue.length + inbox.soon.length + inbox.rest.length : 0;
 
@@ -94,6 +108,22 @@ export function InboxPage() {
             )}
           </p>
         </>
+      )}
+      {user?.role === "admin" && teamTg && teamTg.status !== "connected" && (
+        <aside className="panel hint">
+          <p>Подключи Telegram, чтобы получать напоминания.</p>
+          <Link className="outline" to="/settings">
+            Подключить
+          </Link>
+        </aside>
+      )}
+      {selfTg && !selfTg.linked && (
+        <aside className="panel hint">
+          <p>Привяжи Telegram, чтобы кнопка «Оплачено» была твоей.</p>
+          <Link className="outline" to="/settings">
+            Привязать
+          </Link>
+        </aside>
       )}
       {error && (
         <p className="error" role="alert">
