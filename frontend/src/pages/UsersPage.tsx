@@ -136,7 +136,7 @@ export function UsersPage() {
       </form>
       <div className="list">
         {items.map((person) => (
-          <article key={person.id} className={`card tone-${person.is_active ? "rest" : "history"}`}>
+          <article key={person.id} className="card">
             <div className="card-main">
               <div className="card-top">
                 <h3>{person.full_name}</h3>
@@ -144,7 +144,7 @@ export function UsersPage() {
               </div>
               <p className="meta">
                 <span>{person.email}</span>
-                {!person.is_active && <span className="badge">отключён</span>}
+                {!person.is_active && <span className="pill pill-neutral">отключён</span>}
               </p>
             </div>
             <div className="card-actions">

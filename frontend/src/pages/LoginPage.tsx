@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { ApiError, api, type User } from "../api";
 import { useAuth } from "../auth";
+import { TeamMark, ThemeToggle, Wordmark } from "../components/Brand";
 
 const adminEmail = import.meta.env.VITE_DEMO_ADMIN_EMAIL || "admin@invoice.local";
 const adminPassword = import.meta.env.VITE_DEMO_ADMIN_PASSWORD || "change-me";
@@ -39,15 +40,8 @@ export function LoginPage() {
   return (
     <div className="login-page">
       <header className="topbar">
-        <div className="brand">
-          <span className="mark" aria-hidden="true">
-            ИК
-          </span>
-          <span>
-            <strong>Invoice Keeper</strong>
-            <small>очередь платежей</small>
-          </span>
-        </div>
+        <Wordmark />
+        <ThemeToggle />
       </header>
       <div className="login-grid">
         <section className="login-copy">
@@ -112,6 +106,9 @@ export function LoginPage() {
           </dl>
         </form>
       </div>
+      <footer className="login-foot">
+        <TeamMark />
+      </footer>
     </div>
   );
 }

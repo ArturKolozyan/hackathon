@@ -178,7 +178,7 @@ export function TemplatesPage() {
       </form>
       <div className="list">
         {items.map((item) => (
-          <article key={item.id} className={`card tone-${item.is_archived ? "history" : "rest"}`}>
+          <article key={item.id} className="card">
             <div className="card-main">
               <div className="card-top">
                 <h3>{item.title}</h3>
@@ -192,7 +192,12 @@ export function TemplatesPage() {
                 </span>
               </p>
               {item.description && <p className="desc">{item.description}</p>}
-              {item.is_archived && <p className="meta">Архив: новые периоды не создаются, история на месте.</p>}
+              {item.is_archived && (
+                <p className="meta">
+                  <span className="pill pill-neutral">архив</span>
+                  <span>новые периоды не создаются, история на месте</span>
+                </p>
+              )}
             </div>
             <div className="card-actions">
               <button

@@ -42,7 +42,7 @@ export function AdminOnly() {
   const { user } = useAuth();
   if (user?.role !== "admin") {
     return (
-      <section className="panel">
+      <section className="panel note">
         <h1>Только для админа</h1>
         <p>Шаблоны и состав команды меняет администратор. Очередь платежей видна всем.</p>
       </section>
