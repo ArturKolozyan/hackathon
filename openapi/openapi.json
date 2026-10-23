@@ -523,6 +523,19 @@
         "title": "LoginIn",
         "type": "object"
       },
+      "NotificationsIn": {
+        "properties": {
+          "telegram_reminders": {
+            "title": "Telegram Reminders",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "telegram_reminders"
+        ],
+        "title": "NotificationsIn",
+        "type": "object"
+      },
       "OccurrenceList": {
         "properties": {
           "items": {
@@ -637,7 +650,7 @@
                 "type": "null"
               }
             ],
-            "description": "Кто подтвердил оплату. Веб (confirm и patch) — текущий пользователь. Кнопка «Оплачено» в общем Telegram-чате — активный администратор с почтой ADMIN_EMAIL; если такого администратора нет, null, а paid_at всё равно ставится. Заметку кнопка не меняет."
+            "description": "Кто подтвердил оплату. Веб (confirm и patch) — текущий пользователь. Кнопка «Оплачено» в Telegram — пользователь rekeeper, чей привязанный аккаунт нажал. Непривязанный клик оплату не ставит. Заметку кнопка не меняет."
           },
           "paid_on": {
             "anyOf": [
@@ -1098,6 +1111,167 @@
         "title": "SummaryOut",
         "type": "object"
       },
+      "TeamTelegram": {
+        "properties": {
+          "bot_ready": {
+            "title": "Bot Ready",
+            "type": "boolean"
+          },
+          "bot_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bot Username"
+          },
+          "chat_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Id"
+          },
+          "chat_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Title"
+          },
+          "source": {
+            "description": "database, env или none",
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "description": "connected, disconnected или absent",
+            "title": "Status",
+            "type": "string"
+          },
+          "test_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Error"
+          },
+          "test_pending": {
+            "title": "Test Pending",
+            "type": "boolean"
+          },
+          "test_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Sent At"
+          }
+        },
+        "required": [
+          "status",
+          "source",
+          "bot_ready",
+          "test_pending"
+        ],
+        "title": "TeamTelegram",
+        "type": "object"
+      },
+      "TelegramLinkOut": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "expires_at"
+        ],
+        "title": "TelegramLinkOut",
+        "type": "object"
+      },
+      "TelegramSelf": {
+        "properties": {
+          "bot_ready": {
+            "title": "Bot Ready",
+            "type": "boolean"
+          },
+          "bot_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bot Username"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "linked": {
+            "title": "Linked",
+            "type": "boolean"
+          },
+          "reminders_enabled": {
+            "title": "Reminders Enabled",
+            "type": "boolean"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "linked",
+          "reminders_enabled",
+          "bot_ready"
+        ],
+        "title": "TelegramSelf",
+        "type": "object"
+      },
       "TokenOut": {
         "properties": {
           "access_token": {
@@ -1289,18 +1463,6 @@
               }
             ],
             "title": "Role"
-          },
-          "telegram_chat_id": {
-            "anyOf": [
-              {
-                "maxLength": 64,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Telegram Chat Id"
           }
         },
         "title": "UserUpdate",
@@ -1348,7 +1510,7 @@
     }
   },
   "info": {
-    "description": "Шаблон регулярного платежа и период — разные сущности. Инбокс сортируется: просрочено, скоро, остальное. «Оплачено» — подтверждение человека, не банка. Суммы в итогах не конвертируются между валютами. Telegram-бот живёт в worker (long polling): напоминание в общий чат и кнопка «Оплачено» ставят paid_at = сейчас в TIMEZONE. paid_by этой кнопки — активный администратор с почтой ADMIN_EMAIL, не тот, кто нажал. Если администратора нет, paid_by = null. Заметка не меняется.",
+    "description": "Шаблон регулярного платежа и период — разные сущности. Инбокс сортируется: просрочено, скоро, остальное. «Оплачено» — подтверждение человека, не банка. Суммы в итогах не конвертируются между валютами. Telegram-бот живёт в worker (long polling). Напоминание уходит в чат команды и, если ответственный привязал Telegram, ему в личку. Кнопка «Оплачено» ставит paid_at = сейчас в TIMEZONE и paid_by = пользователя rekeeper, чей Telegram нажал. Непривязанный клик ничего не меняет. Заметка не меняется.",
     "summary": "Инбокс обязательств команды",
     "title": "Invoice Keeper API",
     "version": "1.0.0"
@@ -1956,6 +2118,230 @@
         ]
       }
     },
+    "/api/v1/me/notifications": {
+      "patch": {
+        "operationId": "my_notifications_api_v1_me_notifications_patch",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramSelf"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Личные напоминания",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
+    "/api/v1/me/telegram": {
+      "delete": {
+        "operationId": "my_unlink_api_v1_me_telegram_delete",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramSelf"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Отвязать Telegram",
+        "tags": [
+          "telegram"
+        ]
+      },
+      "get": {
+        "operationId": "my_telegram_api_v1_me_telegram_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramSelf"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Личный Telegram",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
+    "/api/v1/me/telegram/link": {
+      "post": {
+        "operationId": "my_link_api_v1_me_telegram_link_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ссылка для привязки Telegram",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
     "/api/v1/payment-occurrences": {
       "get": {
         "operationId": "list_occurrences_api_v1_payment_occurrences_get",
@@ -2318,7 +2704,7 @@
     },
     "/api/v1/payment-occurrences/{occurrence_id}/confirm": {
       "post": {
-        "description": "Веб: paid_by — текущий пользователь. Кнопка «Оплачено» в Telegram этот метод не вызывает; worker пишет тот же paid_at (сейчас в TIMEZONE) и paid_by = активный администратор ADMIN_EMAIL.",
+        "description": "Веб: paid_by — текущий пользователь. Кнопка «Оплачено» в Telegram этот метод не вызывает; worker пишет тот же paid_at (сейчас в TIMEZONE) и paid_by того пользователя rekeeper, чей Telegram нажал.",
         "operationId": "confirm_api_v1_payment_occurrences__occurrence_id__confirm_post",
         "parameters": [
           {
@@ -2943,6 +3329,222 @@
         "summary": "Изменить шаблон",
         "tags": [
           "recurring-payments"
+        ]
+      }
+    },
+    "/api/v1/telegram/status": {
+      "get": {
+        "operationId": "team_status_api_v1_telegram_status_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTelegram"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Чат команды в Telegram",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
+    "/api/v1/telegram/team-chat": {
+      "delete": {
+        "operationId": "team_unlink_api_v1_telegram_team_chat_delete",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTelegram"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Отключить чат команды",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
+    "/api/v1/telegram/team-chat/link": {
+      "post": {
+        "operationId": "team_link_api_v1_telegram_team_chat_link_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ссылка для чата команды",
+        "tags": [
+          "telegram"
+        ]
+      }
+    },
+    "/api/v1/telegram/team-chat/test": {
+      "post": {
+        "operationId": "team_test_api_v1_telegram_team_chat_test_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamTelegram"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Тестовое сообщение в чат команды",
+        "tags": [
+          "telegram"
         ]
       }
     },

@@ -19,6 +19,7 @@ from app.core.config import Settings, get_settings
 log = logging.getLogger("invoice_keeper.telegram")
 
 API_HOST = "api.telegram.org"
+ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 
 
 class TelegramError(Exception):
@@ -103,7 +104,7 @@ class TelegramClient:
         self._call("deleteWebhook", {"drop_pending_updates": False}, read_timeout=20)
 
     def get_updates(self, offset: int | None, timeout: int) -> list[dict[str, Any]]:
-        payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": ["callback_query"]}
+        payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": ALLOWED_UPDATES}
         if offset is not None:
             payload["offset"] = offset
         result = self._call("getUpdates", payload, read_timeout=timeout + 15)
@@ -135,15 +136,14 @@ class TelegramClient:
             read_timeout=20,
         )
 
-    def answer_callback(self, callback_query_id: str, text: str) -> None:
-        self._call(
-            "answerCallbackQuery",
-            {"callback_query_id": callback_query_id, "text": text[:200]},
-            read_timeout=20,
-        )
+    def answer_callback(self, callback_query_id: str, text: str, *, show_alert: bool = False) -> None:
+        payload: dict[str, Any] = {"callback_query_id": callback_query_id, "text": text[:200]}
+        if show_alert:
+            payload["show_alert"] = True
+        self._call("answerCallbackQuery", payload, read_timeout=20)
 
 
-def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str) -> None:
+def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str, slot: str = "team") -> None:
     """Отправка в chat_id. Порог «пора ли напоминать» здесь не считается.
 
     Контракт: успех — return, нет транспорта — NotImplementedError (канал
@@ -168,10 +168,17 @@ def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str) -> None:
         message_id = client.send_message(chat_id, text, markup)
     finally:
         client.close()
-    _remember(period_id, chat_id, message_id, fingerprint(text, with_button))
+    _remember(period_id, chat_id, message_id, fingerprint(text, with_button), slot=slot)
 
 
-def _remember(occurrence_id: uuid.UUID, chat_id: str, message_id: int, fingerprint_value: str) -> None:
+def _remember(
+    occurrence_id: uuid.UUID,
+    chat_id: str,
+    message_id: int,
+    fingerprint_value: str,
+    *,
+    slot: str,
+) -> None:
     """Своя сессия: вызывающий ещё не закоммитил строку доставки.
 
     0 строк — период ещё не виден. Сообщение уже ушло, канал всё равно успешный,
@@ -183,15 +190,24 @@ def _remember(occurrence_id: uuid.UUID, chat_id: str, message_id: int, fingerpri
 
     db = SessionLocal()
     try:
+        if slot == "dm":
+            values = {
+                "dm_chat_id": str(chat_id),
+                "dm_message_id": message_id,
+                "dm_fingerprint": fingerprint_value,
+                "telegram_reminded_at": clock.now(),
+            }
+        else:
+            values = {
+                "telegram_chat_id": str(chat_id),
+                "telegram_message_id": message_id,
+                "telegram_fingerprint": fingerprint_value,
+                "telegram_reminded_at": clock.now(),
+            }
         result = db.execute(
             update(PaymentOccurrence)
             .where(PaymentOccurrence.id == occurrence_id)
-            .values(
-                telegram_chat_id=str(chat_id),
-                telegram_message_id=message_id,
-                telegram_fingerprint=fingerprint_value,
-                telegram_reminded_at=clock.now(),
-            ),
+            .values(**values),
             execution_options={"synchronize_session": False},
         )
         db.commit()

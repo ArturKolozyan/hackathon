@@ -7,6 +7,7 @@ import { CalendarPage } from "./pages/CalendarPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { InboxPage } from "./pages/InboxPage";
 import { LoginPage } from "./pages/LoginPage";
+import { SettingsPage } from "./pages/SettingsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { UsersPage } from "./pages/UsersPage";
 
@@ -20,6 +21,7 @@ export function App() {
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/budget" element={<BudgetPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route element={<AdminOnly />}>
             <Route path="/admin/templates" element={<TemplatesPage />} />
             <Route path="/admin/users" element={<UsersPage />} />

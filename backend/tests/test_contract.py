@@ -28,6 +28,13 @@ STAR_PATHS = [
     "/api/v1/budgets/report",
     "/api/v1/budgets/{budget_id}",
     "/api/v1/audit-logs",
+    "/api/v1/telegram/status",
+    "/api/v1/telegram/team-chat/link",
+    "/api/v1/telegram/team-chat",
+    "/api/v1/telegram/team-chat/test",
+    "/api/v1/me/telegram",
+    "/api/v1/me/telegram/link",
+    "/api/v1/me/notifications",
 ]
 
 

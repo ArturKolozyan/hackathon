@@ -85,6 +85,7 @@ ssh -L 8080:127.0.0.1:8080 root@217.144.184.232
 - IPv4 → `api.telegram.org` — таймаут. С хоста это проверено.
 - IPv6 → API отвечает (`curl -6` на `https://api.telegram.org` даёт ответ). Клиент в worker сажает сокет на `::`, когда `TELEGRAM_FORCE_IPV6=true`.
 - Транспорт — long polling, не webhook. Токен и chat id только в `.env` на сервере.
+- Чат команды и личный Telegram привязываются из веба. `TELEGRAM_CHAT_ID` — только запасной.
 - У bridge Docker на этом хосте нет маршрута IPv6 в интернет (`docker info` без IPv6). Worker поэтому в `network_mode: host` ([compose.telegram-host.yml](../compose.telegram-host.yml)): у него тот же IPv6, что у VPS (`2a14:a084:12e3::2`).
 - `api`, `web` и `caddy` остаются в bridge. Caddy резолвит имя `web`. Им IPv6 не нужен.
 - Postgres для worker — `127.0.0.1:5432`, не имя `db` (в сети хоста его нет). На VPS включён docker-proxy, и worker уже так ходит. Публикация порта только на `127.0.0.1` этот путь не меняет: proxy слушает loopback, контейнер в host network — тот же loopback. В URL именно `127.0.0.1`, не `localhost`: `localhost` может уехать на `::1`, а порт на `[::1]` не публикуется.

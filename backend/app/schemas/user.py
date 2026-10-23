@@ -45,7 +45,6 @@ class UserUpdate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=200)
     role: str | None = None
     is_active: bool | None = None
-    telegram_chat_id: str | None = Field(default=None, max_length=64)
 
     @field_validator("email")
     @classmethod
@@ -75,11 +74,3 @@ class UserUpdate(BaseModel):
         if value not in {"admin", "user"}:
             raise ValueError("Роль: admin или user")
         return value
-
-    @field_validator("telegram_chat_id")
-    @classmethod
-    def strip_chat(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        cleaned = value.strip()
-        return cleaned or None

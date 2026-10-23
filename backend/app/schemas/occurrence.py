@@ -49,8 +49,8 @@ class OccurrenceOut(BaseModel):
     paid_by: UserBrief | None = Field(
         description=(
             "Кто подтвердил оплату. Веб (confirm и patch) — текущий пользователь. "
-            "Кнопка «Оплачено» в общем Telegram-чате — активный администратор с почтой ADMIN_EMAIL; "
-            "если такого администратора нет, null, а paid_at всё равно ставится. Заметку кнопка не меняет."
+            "Кнопка «Оплачено» в Telegram — пользователь rekeeper, чей привязанный аккаунт нажал. "
+            "Непривязанный клик оплату не ставит. Заметку кнопка не меняет."
         )
     )
     telegram_reminded_at: datetime | None = Field(

@@ -16,10 +16,11 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import get_settings
 from app.integrations.email import send_reminder_email
 from app.integrations.webhook import send_webhook
-from app.models import NotificationDelivery, PaymentOccurrence
+from app.models import NotificationDelivery, PaymentOccurrence, RecurringPayment, User
 from app.services import time as clock
 from app.services.reminders import should_remind
 from app.services.schedule import classify, period_key
+from app.services.telegram_links import TEAM_RECIPIENT, resolve_team_chat_id
 
 log = logging.getLogger("invoice_keeper.notify")
 
@@ -48,16 +49,17 @@ def occurrence_payload(occurrence: PaymentOccurrence, event: str) -> dict:
     }
 
 
-def _already(db: Session, occurrence_id: uuid.UUID, event: str, channel: str) -> bool:
+def _already(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recipient: str) -> bool:
     stmt = select(NotificationDelivery.id).where(
         NotificationDelivery.occurrence_id == occurrence_id,
         NotificationDelivery.event == event,
         NotificationDelivery.channel == channel,
+        NotificationDelivery.recipient == recipient,
     )
     return db.scalar(stmt) is not None
 
 
-def _mark(db: Session, occurrence_id: uuid.UUID, event: str, channel: str) -> None:
+def _mark(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recipient: str) -> None:
     try:
         with db.begin_nested():
             db.add(
@@ -65,6 +67,7 @@ def _mark(db: Session, occurrence_id: uuid.UUID, event: str, channel: str) -> No
                     occurrence_id=occurrence_id,
                     event=event,
                     channel=channel,
+                    recipient=recipient,
                     created_at=clock.now(),
                 )
             )
@@ -73,16 +76,26 @@ def _mark(db: Session, occurrence_id: uuid.UUID, event: str, channel: str) -> No
         return
 
 
-def _telegram(text: str, occurrence: PaymentOccurrence, event: str) -> str:
-    settings = get_settings()
-    token = settings.telegram_bot_token.strip()
-    chat_id = settings.telegram_chat_id.strip()
+def _personal_user(occurrence: PaymentOccurrence) -> User | None:
+    template = occurrence.template
+    if template is None:
+        return None
+    user = template.responsible
+    if user is None or not user.is_active:
+        return None
+    if not user.telegram_reminders or user.telegram_user_id is None:
+        return None
+    return user
+
+
+def _telegram(text: str, occurrence: PaymentOccurrence, event: str, *, chat_id: str, slot: str) -> str:
+    token = get_settings().telegram_bot_token.strip()
     if not token or not chat_id:
         return "skipped"
     try:
         from app.integrations import telegram
 
-        telegram.deliver(text, chat_id=chat_id, occurrence_id=str(occurrence.id), event=event)
+        telegram.deliver(text, chat_id=chat_id, occurrence_id=str(occurrence.id), event=event, slot=slot)
     except NotImplementedError:
         return "skipped"
     except Exception:
@@ -91,37 +104,55 @@ def _telegram(text: str, occurrence: PaymentOccurrence, event: str) -> str:
     return "sent"
 
 
-def _channels(event: str):
-    if event == REMINDER:
-        return ("email", "webhook", "telegram")
-    return ("webhook",)
+def _plan(occurrence: PaymentOccurrence, event: str) -> list[tuple[str, str]]:
+    if event != REMINDER:
+        return [("webhook", "")]
+    plan = [("email", ""), ("webhook", ""), ("telegram", TEAM_RECIPIENT)]
+    user = _personal_user(occurrence)
+    if user is not None:
+        plan.append(("telegram", f"user:{user.id}"))
+    return plan
 
 
-def _send(channel: str, occurrence: PaymentOccurrence, event: str, payload: dict) -> str:
+def _send(
+    db: Session,
+    channel: str,
+    recipient: str,
+    occurrence: PaymentOccurrence,
+    event: str,
+    payload: dict,
+) -> str:
     if channel == "email":
         return send_reminder_email(payload)
     if channel == "webhook":
         return send_webhook(payload)
-    if channel == "telegram":
-        from app.services.telegram_cards import telegram_text
+    if channel != "telegram":
+        return "skipped"
+    from app.services.telegram_cards import telegram_text
 
-        return _telegram(telegram_text(occurrence), occurrence, event)
-    return "skipped"
+    text = telegram_text(occurrence)
+    if recipient == TEAM_RECIPIENT:
+        chat_id, _source = resolve_team_chat_id(db)
+        return _telegram(text, occurrence, event, chat_id=chat_id or "", slot="team")
+    user = _personal_user(occurrence)
+    if user is None or f"user:{user.id}" != recipient or user.telegram_user_id is None:
+        return "skipped"
+    return _telegram(text, occurrence, event, chat_id=str(user.telegram_user_id), slot="dm")
 
 
 def fanout(db: Session, occurrence: PaymentOccurrence, event: str) -> int:
     payload = occurrence_payload(occurrence, event)
     sent = 0
-    for channel in _channels(event):
-        if _already(db, occurrence.id, event, channel):
+    for channel, recipient in _plan(occurrence, event):
+        if _already(db, occurrence.id, event, channel, recipient):
             continue
         try:
-            result = _send(channel, occurrence, event, payload)
+            result = _send(db, channel, recipient, occurrence, event, payload)
         except Exception:
             log.exception("channel %s failed", channel)
             result = "failed"
         if result == "sent":
-            _mark(db, occurrence.id, event, channel)
+            _mark(db, occurrence.id, event, channel, recipient)
             sent += 1
     return sent
 
@@ -138,7 +169,9 @@ def dispatch_due_reminders(db: Session) -> int:
     settings = get_settings()
     today = clock.today()
     rows = db.scalars(
-        select(PaymentOccurrence).options(joinedload(PaymentOccurrence.template))
+        select(PaymentOccurrence).options(
+            joinedload(PaymentOccurrence.template).joinedload(RecurringPayment.responsible)
+        )
     ).unique().all()
     sent = 0
     for row in rows:

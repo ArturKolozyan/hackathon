@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 
 from app.core.config import get_settings
@@ -6,7 +7,9 @@ from app.core.database import SessionLocal
 from app.integrations.telegram import TelegramClient, TelegramError, describe_transport, make_bot
 from app.services.notify import dispatch_due_reminders
 from app.services.occurrences import ensure_all
-from app.services.telegram_cards import handle_update, sync_telegram_cards
+from app.services.telegram_cards import sync_telegram_cards
+from app.services.telegram_links import flush_test_message, remember_bot
+from app.services.telegram_updates import handle_update
 
 log = logging.getLogger("invoice_keeper.worker")
 
@@ -42,37 +45,57 @@ def run() -> None:
     offset: int | None = None
     warm = bot is None
     announced_skip = False
-    while True:
-        settings = get_settings()
-        interval = max(5, settings.worker_interval_seconds)
-        chat_id = settings.telegram_chat_id.strip()
-        try:
-            if bot is None and not announced_skip:
-                log.info("telegram skipped: TELEGRAM_BOT_TOKEN empty")
-                announced_skip = True
-            elif bot is not None and not chat_id and not announced_skip:
-                log.info("telegram skipped: TELEGRAM_CHAT_ID empty")
-                announced_skip = True
-            tick()
-        except Exception:
-            log.exception("worker tick failed")
+    stop = threading.Event()
+    side: threading.Thread | None = None
+    if bot is not None:
+        side = threading.Thread(target=_pending_loop, args=(stop,), name="telegram-test", daemon=True)
+        side.start()
+    try:
+        while True:
+            settings = get_settings()
+            interval = max(5, settings.worker_interval_seconds)
+            try:
+                if bot is None and not announced_skip:
+                    log.info("telegram skipped: TELEGRAM_BOT_TOKEN empty")
+                    announced_skip = True
+                tick()
+            except Exception:
+                log.exception("worker tick failed")
 
-        if bot is None:
-            time.sleep(interval)
-            continue
-        if not warm:
-            warm = _warm(bot, interval)
-            if not warm:
+            if bot is None:
+                time.sleep(interval)
                 continue
-        offset, conflict = _poll(bot, offset, chat_id, interval)
-        if conflict:
-            warm = False
+            if not warm:
+                warm = _warm(bot, interval)
+                if not warm:
+                    continue
+            offset, conflict = _poll(bot, offset, interval)
+            if conflict:
+                warm = False
+    finally:
+        stop.set()
+        if side is not None:
+            side.join(timeout=3)
+
+
+def _pending_loop(stop: threading.Event) -> None:
+    """Тестовое сообщение. API в bridge без IPv6 до Bot API не дотягивается."""
+    client = make_bot()
+    if client is None:
+        return
+    try:
+        while not stop.is_set():
+            flush_test_message(client)
+            stop.wait(2)
+    finally:
+        client.close()
 
 
 def _warm(bot: TelegramClient, interval: int) -> bool:
     try:
         bot.delete_webhook()
         me = bot.get_me()
+        remember_bot(me)
         log.info("telegram long poll as @%s force_ipv6=%s", me.get("username"), bot.force_ipv6)
         return True
     except TelegramError as exc:
@@ -87,7 +110,7 @@ def _warm(bot: TelegramClient, interval: int) -> bool:
         return False
 
 
-def _poll(bot: TelegramClient, offset: int | None, chat_id: str, interval: int) -> tuple[int | None, bool]:
+def _poll(bot: TelegramClient, offset: int | None, interval: int) -> tuple[int | None, bool]:
     timeout = min(50, interval)
     try:
         updates = bot.get_updates(offset, timeout)
@@ -105,7 +128,7 @@ def _poll(bot: TelegramClient, offset: int | None, chat_id: str, interval: int) 
         try:
             db = SessionLocal()
             try:
-                handle_update(db, bot, update, expected_chat_id=chat_id)
+                handle_update(db, bot, update)
             finally:
                 db.close()
         except Exception:

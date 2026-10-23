@@ -562,7 +562,7 @@ def test_telegram_hook_skipped_until_implemented(client, monkeypatch, settings_g
     headers = _admin(client)
     calls = {"n": 0}
 
-    def not_ready(text, *, chat_id, occurrence_id, event):
+    def not_ready(text, *, chat_id, occurrence_id, event, slot="team"):
         calls["n"] += 1
         raise NotImplementedError
 
@@ -581,10 +581,11 @@ def test_telegram_hook_skipped_until_implemented(client, monkeypatch, settings_g
     assert calls["n"] == 1
     calls["n"] = 0
 
-    def ready(text, *, chat_id, occurrence_id, event):
+    def ready(text, *, chat_id, occurrence_id, event, slot="team"):
         calls["n"] += 1
         assert chat_id == "100"
         assert event == "occurrence.reminder"
+        assert slot == "team"
         assert "Ждёт бота" in text
 
     monkeypatch.setattr("app.integrations.telegram.deliver", ready)
