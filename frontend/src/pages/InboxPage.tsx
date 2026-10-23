@@ -53,11 +53,15 @@ export function InboxPage() {
           <div className="totals">
             {summary.by_currency.map((row) => {
               const chip = chipTone(row);
+              const tone = chip.tone === "rest" ? "neutral" : chip.tone;
+              const caption = chip.tone === "paid" ? "Закрыто" : "К оплате";
               return (
-                <article key={row.currency} className={`total tone-${chip.tone}`}>
-                  <span className="code">{row.currency}</span>
-                  <strong className="money">{formatMoney(chip.amount, row.currency)}</strong>
-                  <span>{chip.label}</span>
+                <article key={row.currency} className="total">
+                  <span className="code">
+                    {caption} · {row.currency}
+                  </span>
+                  <strong className="money rule">{formatMoney(chip.amount, row.currency)}</strong>
+                  <span className={`pill pill-${tone}`}>{chip.label}</span>
                 </article>
               );
             })}
@@ -108,10 +112,10 @@ function Group({
 }) {
   if (items.length === 0) return null;
   return (
-    <section className={`group tone-${tone}`}>
+    <section className="group">
       <header>
         <h2>{title}</h2>
-        <span className="count">{items.length}</span>
+        <span className={`pill count pill-${tone === "rest" ? "neutral" : tone}`}>{items.length}</span>
       </header>
       <div className="cards">
         {items.map((item) => (

@@ -40,6 +40,14 @@ export function urgency(item: Occurrence): string {
   return `через ${item.days_delta} ${daysWord(item.days_delta)}`;
 }
 
+export function statusPill(item: Occurrence): { tone: "overdue" | "soon" | "paid" | "neutral"; label: string } {
+  const label = urgency(item);
+  if (item.status === "paid") return { tone: "paid", label };
+  if (item.status === "overdue" || item.bucket === "overdue") return { tone: "overdue", label };
+  if (item.status === "due_soon" || item.bucket === "soon") return { tone: "soon", label };
+  return { tone: "neutral", label };
+}
+
 export function chipTone(row: CurrencyTotals): { amount: string; label: string; tone: string } {
   const overdue = Number(row.overdue_amount);
   const soon = Number(row.due_soon_amount);

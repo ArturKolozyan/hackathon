@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ApiError, api, type Occurrence } from "../api";
-import { formatMoney, shortDue, urgency } from "../format";
+import { formatMoney, shortDue, statusPill } from "../format";
 
 type Props = {
   item: Occurrence;
@@ -29,22 +29,26 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
     }
   }
 
+  const pill = statusPill(item);
+
   return (
-    <article className={`card tone-${item.bucket}`}>
+    <article className="card">
       <div className="card-main">
         <div className="card-top">
           <h3>{item.title}</h3>
-          <strong className="money">{formatMoney(item.amount, item.currency)}</strong>
+          <strong className={mode === "inbox" ? "money rule" : "money"}>{formatMoney(item.amount, item.currency)}</strong>
         </div>
-        <p className="phrase">
-          <span>{item.period_label}</span>
-          <span>до {shortDue(item.due_date)}</span>
-          <span>{urgency(item)}</span>
-        </p>
+        <div className="card-sub">
+          <p className="phrase">
+            <span>{item.period_label}</span>
+            <span>до {shortDue(item.due_date)}</span>
+          </p>
+          <span className={`pill pill-${pill.tone}`}>{pill.label}</span>
+        </div>
         <p className="meta">
           <span>{item.responsible.full_name}</span>
-          {item.template_archived && <span className="badge">шаблон снят</span>}
-          {item.note && <span className="note">{item.note}</span>}
+          {item.template_archived && <span className="pill pill-neutral">шаблон снят</span>}
+          {item.note && <span>{item.note}</span>}
           {item.paid_by && mode === "history" && <span>закрыл {item.paid_by.full_name}</span>}
         </p>
         {item.description && <p className="desc">{item.description}</p>}
@@ -102,7 +106,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
             </button>
           ) : (
             <>
-              <button type="button" className="ghost" onClick={() => setOpen(true)}>
+              <button type="button" className="outline" onClick={() => setOpen(true)}>
                 Дата
               </button>
               <button
