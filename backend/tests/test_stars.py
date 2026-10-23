@@ -67,6 +67,7 @@ def settings_guard():
         "WEBHOOK_BACKOFF_SECONDS",
         "TELEGRAM_BOT_TOKEN",
         "TELEGRAM_CHAT_ID",
+        "APP_PUBLIC_URL",
     ]
     saved = {key: os.environ.get(key) for key in keys}
     get_settings.cache_clear()
@@ -382,6 +383,7 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
     assert "40.00" in text
     assert "USD" in text
     assert "2026-10-01" in text
+    assert "https://rekeeper.ru" in text
     assert len(posts) == 1
     reminder = json.loads(posts[0][0].decode())
     assert reminder["event"] == "occurrence.reminder"
@@ -481,6 +483,64 @@ def test_webhook_retries_then_gives_up(monkeypatch, settings_guard):
     assert attempts["n"] == 3
     _use_env(WEBHOOK_ENABLED="false", WEBHOOK_URL="")
     assert send_webhook({"event": "occurrence.unpaid"}) == "skipped"
+
+
+def test_email_appends_public_url(monkeypatch, settings_guard):
+    messages: list = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def starttls(self):
+            return None
+
+        def login(self, user, password):
+            return None
+
+        def send_message(self, message):
+            messages.append(message)
+
+    monkeypatch.setattr("app.integrations.email.smtplib.SMTP", FakeSMTP)
+    _use_env(
+        EMAIL_ENABLED="true",
+        SMTP_HOST="smtp.test",
+        SMTP_PORT="587",
+        SMTP_FROM="keeper@test.local",
+        SMTP_TO="team@test.local",
+        SMTP_TLS="true",
+        APP_PUBLIC_URL="https://rekeeper.ru/inbox/",
+    )
+    from app.integrations.email import public_url, send_reminder_email
+
+    payload = {
+        "occurrence": {
+            "title": "X",
+            "amount": "1.00",
+            "currency": "RUB",
+            "due_date": "2026-10-01",
+            "status": "overdue",
+        }
+    }
+    assert public_url() == "https://rekeeper.ru/inbox"
+    assert send_reminder_email(payload) == "sent"
+    body = messages[0].get_content()
+    assert body.rstrip().endswith("https://rekeeper.ru/inbox")
+    assert "Оплату отмечайте в панели." in body
+
+    messages.clear()
+    _use_env(APP_PUBLIC_URL="javascript:alert(1)")
+    assert public_url() == ""
+    assert send_reminder_email(payload) == "sent"
+    body = messages[0].get_content()
+    assert "javascript" not in body
+    assert body.rstrip().endswith("Оплату отмечайте в панели.")
 
 
 def test_email_disabled_is_noop(monkeypatch, settings_guard):
