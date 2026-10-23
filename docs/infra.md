@@ -70,7 +70,7 @@ Actions ходит **ключом**, не паролем из таблицы SSH
 | `DEPLOY_SSH_KEY` | приватный ключ целиком (PEM, с `BEGIN`/`END`), без passphrase. Публичная часть — в `/root/.ssh/authorized_keys` |
 | `DEPLOY_PORT` | необязательно. Пусто = 22 |
 
-Отпечаток хоста (ED25519) зашит в workflow: `SHA256:LpmjSctDQ1eIK1qjX8VOZKRIpLpVs6k1bh6BXzPBAfg`. Переустановка VPS — обновить, иначе деплой отвергнет хост. Если клиент договорится о другом ключе: ECDSA `SHA256:E+eFNJNFwH/+68XXrzlY+Gtpfs/5eRKrwHFmTWL+s3c`, RSA `SHA256:liIVVkDgQWnXMutSjzvkJLfc2YL77kdOVtkF0pe6cqY`.
+Отпечаток для деплоя — **ECDSA** `SHA256:E+eFNJNFwH/+68XXrzlY+Gtpfs/5eRKrwHFmTWL+s3c`. Он зашит в workflow. `appleboy/ssh-action` v1.2.5 не задаёт `HostKeyAlgorithms`: drone-ssh 1.8.2 (`golang.org/x/crypto` v0.45.0) предлагает `ecdsa-sha2-nistp256` раньше `ssh-ed25519`, и сервер отдаёт ECDSA. ED25519 `SHA256:LpmjSctDQ1eIK1qjX8VOZKRIpLpVs6k1bh6BXzPBAfg` подходит обычному OpenSSH, в этом Action он не совпадёт. RSA `SHA256:liIVVkDgQWnXMutSjzvkJLfc2YL77kdOVtkF0pe6cqY`. Переустановка VPS — снять отпечатки заново, иначе деплой отвергнет хост.
 
 ### Первый раз
 
