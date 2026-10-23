@@ -181,6 +181,7 @@ main { padding: 28px 32px 40px; }
   color: var(--text);
   opacity: 0.22;
   user-select: none;
+  white-space: nowrap;
 }
 
 .page { max-width: 1040px; }

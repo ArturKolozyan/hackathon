@@ -1,6 +1,8 @@
 # Worker в сети хоста: IPv6 до api.telegram.org тот же, что у VPS Aeza.
-# Postgres остаётся в bridge и слушает опубликованный порт на 127.0.0.1.
-# Docker Desktop без host network для панели не нужен — хватает docker-compose.yml.
+# Postgres остаётся в bridge и слушает 127.0.0.1 на хосте (docker-compose.yml).
+# network_mode: host делит loopback с VPS, поэтому 127.0.0.1:5432 — это опубликованный Postgres.
+# api, web и caddy этот файл не трогает: они остаются в bridge, имя web резолвится у Caddy.
+# Локально на Docker Desktop для панели достаточно docker-compose.yml, без этого файла.
 
 services:
   worker:

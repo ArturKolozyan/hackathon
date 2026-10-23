@@ -16,7 +16,7 @@ export function Wordmark({ to }: { to?: string }) {
 }
 
 export function TeamMark() {
-  return <p className="team-mark">404 mercy</p>;
+  return <p className="team-mark">404 mercy not found</p>;
 }
 
 export function ThemeToggle() {

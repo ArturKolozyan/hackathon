@@ -1,0 +1,27 @@
+# Публичный вход rekeeper.ru. Сертификаты Let's Encrypt лежат в томе caddy_data.
+# Этот том не удалять: docker compose down -v сотрёт аккаунт ACME.
+# Пока сертификата нет, :80 всё равно отвечает редиректом. Деплой считает это успехом.
+# AAAA у домена нет — либо он равен IPv6 этого VPS. Чужой AAAA ломает выпуск.
+# HSTS нет: сорвавшийся первый сертификат не должен залипать в браузере.
+
+http://www.rekeeper.ru {
+	redir https://rekeeper.ru{uri} 301
+}
+
+www.rekeeper.ru {
+	redir https://rekeeper.ru{uri} 301
+}
+
+rekeeper.ru {
+	encode zstd gzip
+	header {
+		defer
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options SAMEORIGIN
+		-Server
+	}
+	reverse_proxy web:80 {
+		header_up Host {host}
+	}
+}

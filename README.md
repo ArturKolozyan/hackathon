@@ -6,28 +6,32 @@ Telegram — второй экран того же инбокса. `worker` зо
 
 ## Сервер
 
-http://217.144.184.232.sslip.io:8080
+https://rekeeper.ru
 
-Push в `main` деплоит. Секреты и ручной запуск: [docs/infra.md](docs/infra.md).
+`www.rekeeper.ru` отвечает 301 сюда. TLS выпускает Caddy. Push в `main` деплоит. DNS, куки, порты и Telegram по IPv6: [docs/infra.md](docs/infra.md).
 
 ## Запуск
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build db api worker web
 ```
 
 Windows:
 
 ```powershell
 copy .env.example .env
-docker compose up --build
+docker compose up --build db api worker web
 ```
+
+Без `caddy` в списке сервисов: полный `up` на ноутбуке начнёт выпуск сертификата `rekeeper.ru` и может на час занять лимит неудачных попыток Let's Encrypt перед первым выпуском на VPS.
 
 - Приложение: http://localhost:8080
 - Swagger: http://localhost:8080/api/v1/docs
 - API напрямую: http://localhost:8000/api/v1/docs
 - OpenAPI в репозитории: [openapi/openapi.json](openapi/openapi.json)
+
+Порты `8080`, `8000` и `5432` на хосте слушаются только на `127.0.0.1`. Наружу приложение выходит через Caddy: `80` и `443` (и `443/udp` для HTTP/3). Для разработки хватает http://localhost:8080. Если на VPS порты 80/443 заняты чужим процессом, сайт снаружи не встанет — см. [docs/infra.md](docs/infra.md). Локально, если они заняты и Caddy всё же нужен, в `.env` задают `CADDY_HTTP_PORT` и `CADDY_HTTPS_PORT`. На VPS эти переменные не задавать.
 
 Данные Postgres лежат в томе `pgdata` и переживают `docker compose restart`. Демо-шаблоны создаются один раз; пароль админа при старте API синхронизируется с `ADMIN_PASSWORD`.
 
@@ -51,8 +55,9 @@ docker compose up --build
 |--------|------|
 | `db` | PostgreSQL 16, том `pgdata` |
 | `api` | FastAPI, миграции Alembic, сид, `/api/v1` |
-| `worker` | Горизонт периодов и Telegram: long polling, напоминания, кнопка «Оплачено» |
-| `web` | Собранный React за nginx, `/api` проксируется на `api` |
+| `worker` | Горизонт периодов и Telegram: long polling, напоминания, кнопка «Оплачено». На VPS — сеть хоста |
+| `web` | Собранный React за nginx, `/api` проксируется на `api`. На хосте только `127.0.0.1:8080` |
+| `caddy` | HTTPS для `rekeeper.ru`, 301 с `www` на https://rekeeper.ru, gzip/zstd |
 
 Локально без Docker: поднять Postgres, `pip install -r backend/requirements.txt`, из `backend/` выполнить `alembic upgrade head` и `python -m app.entrypoint serve`, воркер — `python -m app.entrypoint worker`, фронт — `npm install && npm run dev` в `frontend/` (прокси `/api` на порт 8000).
 
@@ -78,7 +83,7 @@ docker compose exec api python -m pytest -q
 - Бюджет: админ задаёт план на месяц (`2026-10`) или год (`2026`) по каждой валюте. Факт — сумма закрытых периодов этого месяца или года, «ожидается» — ещё открытые. Отчёт видят все.
 - Журнал (`GET /api/v1/audit-logs`) — только админ. Вход, выход, шаблоны, люди, оплаты, бюджет, чек. Пароли и токены в журнал не пишутся.
 - Напоминание решает один сервис `should_remind`: не оплачен, шаблон не в архиве, до срока ≤ `SOON_DAYS` (просрочка тоже). Каналы это правило не копируют.
-- Почта: `EMAIL_ENABLED=true` и заполненные `SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`. Иначе воркер молча пропускает письмо.
+- Почта: `EMAIL_ENABLED=true` и заполненные `SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`. Иначе воркер молча пропускает письмо. В конце письма строка `APP_PUBLIC_URL` (в примере `https://rekeeper.ru`). Пустое или без `http://`/`https://` — строка не добавляется.
 - Webhook: `WEBHOOK_ENABLED=true` и `WEBHOOK_URL`. События `occurrence.reminder`, `occurrence.paid`, `occurrence.unpaid`. До `WEBHOOK_ATTEMPTS` попыток. Секрет даёт заголовок `X-Rekeeper-Signature: sha256=<hmac тела>`.
 - Успешная отправка помнится отдельно по каналу (`notification_deliveries`). Письмо не блокирует Telegram. Пустой токен — канал пропускается и не помечается отправленным.
 - Сессия: opaque-токен в httpOnly-куке и в теле логина (`Authorization: Bearer`). Logout отзывает её на сервере.
@@ -113,7 +118,9 @@ docker compose exec api python -m pytest -q
 
 Тестовое сообщение из веба отправляет worker: контейнер API на VPS часто без IPv6 до Bot API.
 
-На VPS Aeza у контейнера в bridge часто нет маршрута IPv6, хотя с хоста `api.telegram.org` по IPv6 открывается. Деплой поднимает worker в сети хоста: [compose.telegram-host.yml](compose.telegram-host.yml). Локально на Docker Desktop обычного `docker compose up` достаточно для панели; живой бот с хоста Linux — тем же файлом:
+На VPS Aeza у контейнера в bridge нет маршрута IPv6, хотя с хоста `api.telegram.org` по IPv6 открывается. Деплой поднимает worker в сети хоста: [compose.telegram-host.yml](compose.telegram-host.yml). Postgres при этом опубликован на `127.0.0.1`, и worker (тот же loopback, что у VPS) ходит туда, а не на имя `db`. `api`, `web` и `caddy` остаются в bridge. Локально на Docker Desktop для панели второй файл не нужен.
+
+Живой бот и HTTPS на VPS — одной командой, её же выполняет workflow:
 
 ```bash
 docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
