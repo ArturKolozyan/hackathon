@@ -28,6 +28,8 @@ export type Occurrence = {
   days_delta: number;
   lateness_days: number | null;
   note: string | null;
+  receipt_url: string | null;
+  receipt_note: string | null;
   template_archived: boolean;
   responsible: { id: string; full_name: string; email: string };
   paid_by: { id: string; full_name: string; email: string } | null;
@@ -61,9 +63,50 @@ export type CurrencyTotals = {
 export type Summary = {
   timezone: string;
   today: string;
+  as_of: string | null;
   soon_days: number;
   counts: { overdue: number; due_soon: number; upcoming: number; paid: number };
   by_currency: CurrencyTotals[];
+};
+
+export type CalendarMonth = {
+  timezone: string;
+  year: number;
+  month: number;
+  today: string;
+  days: { date: string; items: Occurrence[] }[];
+};
+
+export type BudgetLine = {
+  id: string | null;
+  currency: string;
+  plan_amount: string | null;
+  fact_amount: string;
+  expected_amount: string;
+};
+
+export type BudgetReport = {
+  period_type: "month" | "year";
+  period_key: string;
+  timezone: string;
+  rows: BudgetLine[];
+};
+
+export type AuditItem = {
+  id: string;
+  at: string;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  actor_email: string | null;
+  action: string;
+  entity_type: string | null;
+  entity_id: string | null;
+  meta: Record<string, unknown>;
+};
+
+export type AuditList = {
+  items: AuditItem[];
+  total: number;
 };
 
 export type Template = {

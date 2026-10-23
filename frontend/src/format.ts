@@ -11,6 +11,37 @@ export function formatMoney(amount: string, currency: string): string {
   return `${value} ₽`;
 }
 
+const MONTHS = [
+  "январь",
+  "февраль",
+  "март",
+  "апрель",
+  "май",
+  "июнь",
+  "июль",
+  "август",
+  "сентябрь",
+  "октябрь",
+  "ноябрь",
+  "декабрь",
+];
+
+export function monthTitle(year: number, month: number): string {
+  return `${MONTHS[month - 1]} ${year}`;
+}
+
+export function shiftMonth(year: number, month: number, delta: number): { year: number; month: number } {
+  const index = year * 12 + (month - 1) + delta;
+  return { year: Math.floor(index / 12), month: (index % 12) + 1 };
+}
+
+export function statusTone(status: Occurrence["status"]): "overdue" | "soon" | "paid" | "neutral" {
+  if (status === "overdue") return "overdue";
+  if (status === "due_soon") return "soon";
+  if (status === "paid") return "paid";
+  return "neutral";
+}
+
 export function shortDue(iso: string): string {
   const [, month, day] = iso.slice(0, 10).split("-");
   return `${day}.${month}`;

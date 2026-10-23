@@ -21,5 +21,16 @@ def describe_transport() -> dict[str, object]:
     }
 
 
+def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str) -> None:
+    """Хук для Telegram-агента. Замените тело на реальную отправку в chat_id.
+
+    Контракт: успех — return, нет транспорта — NotImplementedError (канал
+    пропускается и не считается доставленным), сбой сети — другое исключение
+    (повтор на следующем тике воркера). Срок «пора ли напоминать» не считайте
+    здесь: его решает app.services.reminders.should_remind.
+    """
+    raise NotImplementedError("Telegram sender is intentionally not implemented yet")
+
+
 def send_message(*_args: object, **_kwargs: object) -> None:
     raise NotImplementedError("Telegram sender is intentionally not implemented yet")

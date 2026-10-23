@@ -7,6 +7,7 @@ import { chipTone, formatMoney } from "../format";
 export function InboxPage() {
   const [params, setParams] = useSearchParams();
   const mine = params.get("mine") === "1";
+  const [asOf, setAsOf] = useState("");
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -15,16 +16,17 @@ export function InboxPage() {
     setError(null);
     try {
       const query = mine ? "?mine=true" : "";
+      const summaryQuery = asOf ? `?as_of=${asOf}` : "";
       const [nextInbox, nextSummary] = await Promise.all([
         api<Inbox>(`/api/v1/payment-occurrences/inbox${query}`),
-        api<Summary>("/api/v1/payments/summary"),
+        api<Summary>(`/api/v1/payments/summary${summaryQuery}`),
       ]);
       setInbox(nextInbox);
       setSummary(nextSummary);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Инбокс не загрузился");
     }
-  }, [mine]);
+  }, [mine, asOf]);
 
   useEffect(() => {
     void load();
@@ -39,14 +41,25 @@ export function InboxPage() {
           <p className="kicker">Инбокс</p>
           <h1>Что сделать сейчас</h1>
         </div>
-        <button
-          type="button"
-          className={mine ? "primary" : "ghost"}
-          aria-pressed={mine}
-          onClick={() => setParams(mine ? {} : { mine: "1" })}
-        >
-          {mine ? "Только мои" : "Вся команда"}
-        </button>
+        <div className="head-actions">
+          <label className="as-of">
+            Итоги на дату
+            <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} />
+          </label>
+          {asOf && (
+            <button type="button" className="ghost" onClick={() => setAsOf("")}>
+              Сейчас
+            </button>
+          )}
+          <button
+            type="button"
+            className={mine ? "primary" : "ghost"}
+            aria-pressed={mine}
+            onClick={() => setParams(mine ? {} : { mine: "1" })}
+          >
+            {mine ? "Только мои" : "Вся команда"}
+          </button>
+        </div>
       </div>
       {summary && (
         <>
@@ -69,6 +82,9 @@ export function InboxPage() {
           <p className="caption">
             Суммы по валютам, без пересчёта
             {mine ? ", по всей команде" : ""}. Скоро — в пределах {summary.soon_days} дней, включая день срока.
+            {summary.as_of
+              ? ` Итоги на конец ${summary.as_of}: оплата позже этой даты ещё не засчитана. Очередь ниже — на сегодня.`
+              : ""}
             {!mine && (
               <>
                 {" "}
