@@ -1,10 +1,11 @@
 # Docs
 
-Правила для агентов и ботов: [../AGENTS.md](../AGENTS.md)
+Оркестратор: [../AGENTS.md](../AGENTS.md)
 
 | Файл | Зона |
 |------|------|
-| [product.md](product.md) | Кейс, скоуп, логика, сценарии |
-| [design.md](design.md) | UI / Figma |
-| [pitch.md](pitch.md) | Защита и демо |
-| [qa.md](qa.md) | Приёмка и баги |
+| [product.md](product.md) | Идея, боль, логика, скоуп |
+| [infra.md](infra.md) | Aeza / сервер / деплой |
+| [design.md](design.md) | UI |
+| [pitch.md](pitch.md) | Защита |
+| [qa.md](qa.md) | Приёмка |

@@ -1,5 +1,5 @@
 # hackathon
 
-Кейс: **Invoice Keeper** (AEZA). Правила агентов/ботов — [AGENTS.md](AGENTS.md). Документация — [docs/](docs/README.md).
+**Invoice Keeper** — инбокс регулярных обязательств + Telegram. Правила: [AGENTS.md](AGENTS.md). Docs: [docs/](docs/README.md).
 
-Локально у Artur: `C:\Users\artur\Projects\hackathon`. GitHub: https://github.com/ArturKolozyan/hackathon
+Локально: `C:\Users\artur\Projects\hackathon` · GitHub: https://github.com/ArturKolozyan/hackathon
