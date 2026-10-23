@@ -4,7 +4,7 @@
 
 **Решение Artur, 2026-10-23.** Этот файл заменяет прежние контракты (светлый paper, cyan AEZA, тёмный кабинет с `#FF7A00` и светлой primary). В интерфейсе продукт называется **rekeeper**. «Invoice Keeper» остаётся именем кейса в продукте, API и README — не в UI.
 
-Команда: **404 mercy** (mercy через **y**).
+Команда: **404 mercy not found** (mercy через **y**).
 
 ## Настроение
 
@@ -67,7 +67,7 @@ Wordmark: lowercase **rekeeper**. «re» — `#FF6B1A`, «keeper» — `#FFFFFF`
 
 Shell и вход показывают svg через `<img>` (переключение вместе с темой). Favicon — тёмный знак с «re».
 
-**404 mercy** — тот же гротеск, вес 800, мелко, opacity около 0.22. Слева внизу навигации; на узком экране и на входе — в подвале. Отдельный питч-ассет не в этом проходе.
+**404 mercy not found** — тот же гротеск, вес 800, мелко, opacity около 0.22. Слева внизу навигации; на узком экране и на входе — в подвале. Отдельный питч-ассет не в этом проходе.
 
 UI-шрифт: Inter 400 / 500 / 600 / 700 / 800, latin + cyrillic, `@fontsource/inter`. Не Manrope, не IBM Plex.
 
@@ -100,6 +100,6 @@ UI-шрифт: Inter 400 / 500 / 600 / 700 / 800, latin + cyrillic, `@fontsource
 
 ## Do / Don’t
 
-**Do:** один orange · тёмный дефолт · мягкие статусы · инбокс очередью · Inter · wordmark rekeeper · 404 mercy мелко.
+**Do:** один orange · тёмный дефолт · мягкие статусы · инбокс очередью · Inter · wordmark rekeeper · 404 mercy not found мелко.
 
 **Don’t:** paper / Manrope · cyan AEZA · второй оранжевый · залитые статус-кнопки · Excel-таблица инбокса · «Invoice Keeper» в UI · светлая кнопка как primary · копировать мудборд пилюль один в один (там solid fill).
