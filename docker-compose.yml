@@ -1,6 +1,6 @@
 # Invoice Keeper. Данные Postgres лежат в томе pgdata и переживают рестарт.
-# worker — отдельный процесс: сейчас только горизонт периодов.
-# Telegram позже живёт в worker и с московского VPS ходит на api.telegram.org по IPv6.
+# worker — горизонт периодов и напоминания (email/webhook; Telegram — deliver()).
+# С московского VPS к api.telegram.org нужен IPv6.
 
 name: invoice-keeper
 

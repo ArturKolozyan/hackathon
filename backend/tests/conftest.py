@@ -17,6 +17,12 @@ os.environ["TIMEZONE"] = "Europe/Moscow"
 os.environ["SOON_DAYS"] = "3"
 os.environ["HORIZON_MONTHS"] = "2"
 os.environ["SESSION_DAYS"] = "14"
+os.environ["EMAIL_ENABLED"] = "false"
+os.environ["WEBHOOK_ENABLED"] = "false"
+os.environ["WEBHOOK_URL"] = ""
+os.environ["SMTP_HOST"] = ""
+os.environ["TELEGRAM_BOT_TOKEN"] = ""
+os.environ["TELEGRAM_CHAT_ID"] = ""
 
 
 def _with_db(url: str, name: str) -> str:
@@ -79,7 +85,8 @@ def db_session(migrated):
     db = SessionLocal()
     db.execute(
         text(
-            "TRUNCATE payment_occurrences, recurring_payments, auth_sessions, users RESTART IDENTITY CASCADE"
+            "TRUNCATE notification_deliveries, audit_logs, budgets, payment_occurrences, "
+            "recurring_payments, auth_sessions, users RESTART IDENTITY CASCADE"
         )
     )
     db.commit()

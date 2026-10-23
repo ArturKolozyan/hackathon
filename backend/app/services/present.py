@@ -42,6 +42,8 @@ def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, to
         days_delta=(occurrence.due_date - today).days,
         lateness_days=lateness,
         note=occurrence.note,
+        receipt_url=occurrence.receipt_url,
+        receipt_note=occurrence.receipt_note,
         template_archived=template.is_archived,
         responsible=user_brief(responsible),
         paid_by=user_brief(occurrence.payer) if occurrence.payer is not None else None,

@@ -26,7 +26,21 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://localhost:8080"
     worker_interval_seconds: int = 60
     telegram_bot_token: str = ""
+    telegram_chat_id: str = ""
     telegram_force_ipv6: bool = True
+    email_enabled: bool = False
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""
+    smtp_to: str = ""
+    smtp_tls: bool = True
+    webhook_enabled: bool = False
+    webhook_url: str = ""
+    webhook_secret: str = ""
+    webhook_attempts: int = 3
+    webhook_backoff_seconds: float = 0.4
 
     @property
     def cors_origin_list(self) -> list[str]:
