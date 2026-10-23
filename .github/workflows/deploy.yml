@@ -36,15 +36,27 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             docker compose up --build -d
-            # up -d возвращается, как только контейнер web создан. nginx и прокси могут ответить позже.
+            # up -d не ждёт, пока nginx и Caddy начнут слушать.
+            # Приложение: nginx на loopback :8080 (в интернет не опубликован).
+            # Caddy: :80 с Host rekeeper.ru. До сертификата это 308 на https — для проверки «слушает» достаточно.
+            # Не curl'им https и не используем -k: без DNS/сертификата деплой падал бы зря, а -k не доказывает Let's Encrypt.
             for _ in $(seq 1 36); do
-              if curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health; then
-                printf '\n'
+              app_ok=0
+              caddy_ok=0
+              if app=$(curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health); then
+                app_ok=1
+              fi
+              caddy_code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 5 --connect-timeout 3 -H 'Host: rekeeper.ru' http://127.0.0.1/ || true)
+              case "$caddy_code" in
+                200|301|302|307|308) caddy_ok=1 ;;
+              esac
+              if [ "$app_ok" = 1 ] && [ "$caddy_ok" = 1 ]; then
+                printf '%s\n' "$app"
                 exit 0
               fi
               sleep 5
             done
-            echo "healthcheck failed: http://127.0.0.1:8080/api/v1/health" >&2
+            echo "healthcheck failed: app http://127.0.0.1:8080/api/v1/health and caddy :80 Host rekeeper.ru (last HTTP ${caddy_code:-none})" >&2
             docker compose ps >&2 || true
-            docker compose logs --tail=40 api web >&2 || true
+            docker compose logs --tail=80 api web caddy >&2 || true
             exit 1

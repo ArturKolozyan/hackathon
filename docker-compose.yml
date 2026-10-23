@@ -14,8 +14,9 @@ services:
       TZ: ${TIMEZONE:-Europe/Moscow}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # Только loopback хоста. Healthcheck ниже ходит в pg_isready внутри контейнера.
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -32,8 +33,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # Только loopback хоста. Healthcheck ходит на 127.0.0.1:8000 внутри контейнера.
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     healthcheck:
       test:
         [
@@ -69,12 +71,41 @@ services:
         VITE_DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-ivan@invoice.local}
         VITE_DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-change-me-user}
         VITE_DEMO_USER_TWO_EMAIL: ${DEMO_USER_TWO_EMAIL:-maria@invoice.local}
+    # Не в интернет. Аварийный вход с самого VPS и health деплоя. Снаружи сайт отдаёт Caddy.
     ports:
-      - "${WEB_PORT:-8080}:80"
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_healthy
     restart: unless-stopped
 
+  # Официальный образ, тег зафиксирован. Сертификаты только в caddy_data — не удалять том.
+  caddy:
+    image: caddy:2.11.7-alpine
+    environment:
+      XDG_DATA_HOME: /data
+      XDG_CONFIG_HOME: /config
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+      # HTTP/3. Предупреждение quic про размер UDP-буфера не ломает HTTPS по TCP.
+      - "${CADDY_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    # curl -f считает 308 успехом и не идёт по редиректу. Так и надо: до сертификата Caddy отвечает 308.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--max-time", "4", "-H", "Host: rekeeper.ru", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
 volumes:
   pgdata:
+  caddy_data:
+  caddy_config:

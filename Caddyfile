@@ -1,0 +1,8 @@
+# rekeeper.ru и www. Сертификаты — Let's Encrypt, каталог /data (том caddy_data).
+# HTTP :80 сразу редиректит на HTTPS, даже пока сертификата нет.
+# Оба имени должны иметь публичную A на этот VPS, иначе у имени без A не будет сертификата.
+# Чужой AAAA (не IPv6 этого VPS) ломает выпуск: ACME проверяет и IPv6.
+
+rekeeper.ru, www.rekeeper.ru {
+	reverse_proxy web:80
+}

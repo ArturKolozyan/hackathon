@@ -6,9 +6,9 @@ Telegram — второй экран того же инбокса — в это�
 
 ## Сервер
 
-http://217.144.184.232.sslip.io:8080
+https://rekeeper.ru
 
-Push в `main` деплоит. Секреты и ручной запуск: [docs/infra.md](docs/infra.md).
+Тот же сайт: https://www.rekeeper.ru. TLS выпускает Caddy, когда публичный DNS смотрит на VPS. Push в `main` деплоит. DNS, куки и порты: [docs/infra.md](docs/infra.md).
 
 ## Запуск
 
@@ -28,6 +28,8 @@ docker compose up --build
 - Swagger: http://localhost:8080/api/v1/docs
 - API напрямую: http://localhost:8000/api/v1/docs
 - OpenAPI в репозитории: [openapi/openapi.json](openapi/openapi.json)
+
+Порты `8080`, `8000` и `5432` на хосте слушаются только на `127.0.0.1`. Наружу приложение выходит через Caddy: `80` и `443` (и `443/udp` для HTTP/3). Локально сертификат для rekeeper.ru не выпустится — это нормально, для разработки достаточно http://localhost:8080. Если `80`/`443` заняты, в `.env` можно задать `CADDY_HTTP_PORT` и `CADDY_HTTPS_PORT`. На VPS эти переменные не задавать.
 
 Данные Postgres лежат в томе `pgdata` и переживают `docker compose restart`. Демо-шаблоны создаются один раз; пароль админа при старте API синхронизируется с `ADMIN_PASSWORD`.
 
@@ -52,7 +54,8 @@ docker compose up --build
 | `db` | PostgreSQL 16, том `pgdata` |
 | `api` | FastAPI, миграции Alembic, сид, `/api/v1` |
 | `worker` | Горизонт периодов. Telegram сюда, не в API |
-| `web` | Собранный React за nginx, `/api` проксируется на `api` |
+| `web` | Собранный React за nginx, `/api` проксируется на `api`. На хосте только `127.0.0.1:8080` |
+| `caddy` | HTTPS для `rekeeper.ru` и `www.rekeeper.ru`, reverse proxy на `web:80` |
 
 Локально без Docker: поднять Postgres, `pip install -r backend/requirements.txt`, из `backend/` выполнить `alembic upgrade head` и `python -m app.entrypoint serve`, фронт — `npm install && npm run dev` в `frontend/` (прокси `/api` на порт 8000).
 
