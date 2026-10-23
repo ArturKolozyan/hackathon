@@ -2,7 +2,7 @@
 
 Инбокс регулярных обязательств команды: сверху просрочено, потом скоро, потом остальное. Период — это карточка («Сервер · ноябрь · $40 · до 12.11»), шаблон — только правило. «Оплачено» подтверждает человек, не банк.
 
-Telegram — второй экран того же инбокса — в этом куске ещё не ходит в Bot API. `worker` уже догоняет периоды и зовёт общий пайплайн напоминаний: почта и webhook, если они включены. Хук бота — `app.integrations.telegram.deliver`.
+Telegram — второй экран того же инбокса. `worker` зовёт общий `dispatch_due_reminders`: почта, webhook и `deliver()`. Кнопка «Оплачено» приходит long polling-ом в том же процессе.
 
 ## Сервер
 
@@ -51,10 +51,10 @@ docker compose up --build
 |--------|------|
 | `db` | PostgreSQL 16, том `pgdata` |
 | `api` | FastAPI, миграции Alembic, сид, `/api/v1` |
-| `worker` | Горизонт периодов. Telegram сюда, не в API |
+| `worker` | Горизонт периодов и Telegram: long polling, напоминания, кнопка «Оплачено» |
 | `web` | Собранный React за nginx, `/api` проксируется на `api` |
 
-Локально без Docker: поднять Postgres, `pip install -r backend/requirements.txt`, из `backend/` выполнить `alembic upgrade head` и `python -m app.entrypoint serve`, фронт — `npm install && npm run dev` в `frontend/` (прокси `/api` на порт 8000).
+Локально без Docker: поднять Postgres, `pip install -r backend/requirements.txt`, из `backend/` выполнить `alembic upgrade head` и `python -m app.entrypoint serve`, воркер — `python -m app.entrypoint worker`, фронт — `npm install && npm run dev` в `frontend/` (прокси `/api` на порт 8000).
 
 Тесты:
 
@@ -80,11 +80,29 @@ docker compose exec api python -m pytest -q
 - Напоминание решает один сервис `should_remind`: не оплачен, шаблон не в архиве, до срока ≤ `SOON_DAYS` (просрочка тоже). Каналы это правило не копируют.
 - Почта: `EMAIL_ENABLED=true` и заполненные `SMTP_HOST`, `SMTP_FROM`, `SMTP_TO`. Иначе воркер молча пропускает письмо.
 - Webhook: `WEBHOOK_ENABLED=true` и `WEBHOOK_URL`. События `occurrence.reminder`, `occurrence.paid`, `occurrence.unpaid`. До `WEBHOOK_ATTEMPTS` попыток. Секрет даёт заголовок `X-Rekeeper-Signature: sha256=<hmac тела>`.
-- Успешная отправка помнится отдельно по каналу. Неподключённый Telegram не считается отправленным.
+- Успешная отправка помнится отдельно по каналу (`notification_deliveries`). Письмо не блокирует Telegram. Пустой токен — канал пропускается и не помечается отправленным.
 - Сессия: opaque-токен в httpOnly-куке и в теле логина (`Authorization: Bearer`). Logout отзывает её на сервере.
 
-## Не в этом куске
+## Telegram
 
-Живой Telegram-бот и кнопка «Оплачено» в чате. С московского VPS к `api.telegram.org` по IPv4 таймаут, по IPv6 ответ есть — клиент бота должен жить в `worker` и ходить по IPv6 (`TELEGRAM_FORCE_IPV6`).
+Бот живёт только в `worker`. Транспорт — long polling (`getUpdates`), webhook не используем. Секреты только в `.env`, в git их нет.
 
-Чтобы подключить бота, реализуйте `deliver(text, *, chat_id, occurrence_id, event)` в `backend/app/integrations/telegram.py`. Не заводите второй отбор «кому пора напомнить» — его уже делает воркер. `NotImplementedError` значит «пропустить», сеть — «повторить на следующем тике». Чат: `TELEGRAM_CHAT_ID`, токен: `TELEGRAM_BOT_TOKEN`.
+| Переменная | Смысл |
+|------------|--------|
+| `TELEGRAM_BOT_TOKEN` | токен BotFather. Пусто — worker молча держит горизонт периодов и пишет в лог, что Telegram пропущен |
+| `TELEGRAM_CHAT_ID` | числовой id общего чата (у группы обычно отрицательный), не `@username`. Пусто — новые сообщения не шлём |
+| `TELEGRAM_FORCE_IPV6` | `true` по умолчанию. Сокет сажается на `::`, IPv4 даже не коннектится (на московском VPS он таймаутится) |
+
+После правки `.env` перезапустите `worker`. Клиент не берёт `HTTP_PROXY` из окружения.
+
+Порог один: `should_remind` (не оплачен, шаблон не в архиве, до срока ≤ `SOON_DAYS`, просрочка тоже). `deliver()` этот порог не считает. Успех помечает только канал `telegram`. `NotImplementedError` — пропуск, сетевая ошибка — повтор на следующем тике. Первый запуск с демо-сидом пришлёт по одному сообщению на каждый уже открытый период в этом окне.
+
+Кнопка «Оплачено» ставит `paid_at` = сейчас в `TIMEZONE` — тот же смысл, что пустая дата в веб-подтверждении. `paid_by` — **активный администратор с почтой `ADMIN_EMAIL`**, не человек из Telegram: общий чат не мапится на веб-пользователя. Заметка периода не меняется. Если такого администратора нет, оплата всё равно фиксируется, `paid_by` остаётся пустым. В истории веб покажет «закрыл» этого админа.
+
+Оплата и возврат в инбокс с веба правят то же сообщение в чате. Это синхронизация, не второе напоминание. На карточке периода после отправки есть пометка «в Telegram».
+
+На VPS Aeza у контейнера в bridge часто нет маршрута IPv6, хотя с хоста `api.telegram.org` по IPv6 открывается. Деплой поднимает worker в сети хоста: [compose.telegram-host.yml](compose.telegram-host.yml). Локально на Docker Desktop обычного `docker compose up` достаточно для панели; живой бот с хоста Linux — тем же файлом:
+
+```bash
+docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
+```

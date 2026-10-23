@@ -46,7 +46,19 @@ class OccurrenceOut(BaseModel):
     receipt_note: str | None = None
     template_archived: bool
     responsible: UserBrief
-    paid_by: UserBrief | None
+    paid_by: UserBrief | None = Field(
+        description=(
+            "Кто подтвердил оплату. Веб (confirm и patch) — текущий пользователь. "
+            "Кнопка «Оплачено» в общем Telegram-чате — активный администратор с почтой ADMIN_EMAIL; "
+            "если такого администратора нет, null, а paid_at всё равно ставится. Заметку кнопка не меняет."
+        )
+    )
+    telegram_reminded_at: datetime | None = Field(
+        description=(
+            "Когда карточка периода ушла в Telegram. "
+            "Повтор того же канала блокирует запись notification_deliveries, не это поле: письмо его не занимает."
+        )
+    )
 
 
 class OccurrenceList(BaseModel):

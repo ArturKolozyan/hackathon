@@ -1,0 +1,10 @@
+# Worker в сети хоста: IPv6 до api.telegram.org тот же, что у VPS Aeza.
+# Postgres остаётся в bridge и слушает опубликованный порт на 127.0.0.1.
+# Docker Desktop без host network для панели не нужен — хватает docker-compose.yml.
+
+services:
+  worker:
+    network_mode: host
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}
+      TZ: ${TIMEZONE:-Europe/Moscow}

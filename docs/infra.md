@@ -39,9 +39,9 @@ sslip.io резолвится в этот IP. HTTPS и certbot — не этот
 ## Telegram с этого VPS
 
 - IPv4 → `api.telegram.org` — таймаут (блокировка).
-- IPv6 → API отвечает. Worker должен ходить на Telegram по **IPv6** (или proxy вне РФ).
-
-Следующий кусок, не деплой.
+- IPv6 → API отвечает. Клиент в `worker`, `TELEGRAM_FORCE_IPV6=true` (сокет только `::`).
+- Транспорт — long polling, не webhook. Токен и chat id только в `.env` на сервере.
+- Сеть bridge у Docker часто без IPv6. Деплой добавляет [compose.telegram-host.yml](../compose.telegram-host.yml): worker в сети хоста, Postgres для него — `127.0.0.1`.
 
 ## Деплой
 
@@ -51,11 +51,11 @@ Push в `main` и ручной `workflow_dispatch` → [`.github/workflows/deplo
 cd /opt/invoice-keeper
 git fetch origin main
 git reset --hard origin/main
-docker compose up --build -d
+docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
-`up -d` может вернуться раньше, чем nginx ответит, поэтому workflow повторяет curl около трёх минут. `.env` в git нет: `reset --hard` его не трогает, `git clean` деплой не делает. Репозиторий публичный — для `git fetch` хватает `origin` = `https://github.com/ArturKolozyan/hackathon.git`.
+`up -d` может вернуться раньше, чем nginx ответит, поэтому workflow повторяет curl около трёх минут. `.env` в git нет: `reset --hard` его не трогает, `git clean` деплой не делает. Репозиторий публичный — для `git fetch` хватает `origin` = `https://github.com/ArturKolozyan/hackathon.git`. Второй compose-файл нужен, чтобы worker видел IPv6 хоста.
 
 Actions ходит **ключом**, не паролем из таблицы SSH.
 
@@ -80,7 +80,7 @@ Workflow каталог и `.env` не создаёт. Docker Compose на се�
 git clone https://github.com/ArturKolozyan/hackathon.git /opt/invoice-keeper
 cd /opt/invoice-keeper
 cp .env.example .env
-docker compose up --build -d
+docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 
@@ -88,7 +88,7 @@ curl -fsS http://127.0.0.1:8080/api/v1/health
 
 ```bash
 ssh root@217.144.184.232
-cd /opt/invoice-keeper && git fetch origin main && git reset --hard origin/main && docker compose up --build -d
+cd /opt/invoice-keeper && git fetch origin main && git reset --hard origin/main && docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
 curl -fsS http://127.0.0.1:8080/api/v1/health
 ```
 

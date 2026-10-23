@@ -47,6 +47,7 @@ def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, to
         template_archived=template.is_archived,
         responsible=user_brief(responsible),
         paid_by=user_brief(occurrence.payer) if occurrence.payer is not None else None,
+        telegram_reminded_at=occurrence.telegram_reminded_at,
     )
 
 

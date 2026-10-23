@@ -1,8 +1,8 @@
 """Один пайплайн событий периода для email, webhook и Telegram.
 
-Telegram-агент подключается через app.integrations.telegram.deliver.
-Пока функция бросает NotImplementedError, канал пропускается
-и не помечается доставленным — бот сможет отправить позже.
+Telegram подключается через app.integrations.telegram.deliver.
+NotImplementedError — транспорта нет: канал пропускается и не помечается,
+следующий тик попробует снова. Другая ошибка — сбой сети, тоже без пометки.
 """
 
 import logging
@@ -103,14 +103,9 @@ def _send(channel: str, occurrence: PaymentOccurrence, event: str, payload: dict
     if channel == "webhook":
         return send_webhook(payload)
     if channel == "telegram":
-        occurrence_body = payload["occurrence"]
-        text = (
-            f"{occurrence_body['title']}\n"
-            f"{occurrence_body['amount']} {occurrence_body['currency']}\n"
-            f"Срок: {occurrence_body['due_date']}\n"
-            f"Статус: {occurrence_body['status']}"
-        )
-        return _telegram(text, occurrence, event)
+        from app.services.telegram_cards import telegram_text
+
+        return _telegram(telegram_text(occurrence), occurrence, event)
     return "skipped"
 
 

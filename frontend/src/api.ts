@@ -30,6 +30,7 @@ export type Occurrence = {
   note: string | null;
   receipt_url: string | null;
   receipt_note: string | null;
+  telegram_reminded_at: string | null;
   template_archived: boolean;
   responsible: { id: string; full_name: string; email: string };
   paid_by: { id: string; full_name: string; email: string } | null;

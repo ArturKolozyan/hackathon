@@ -137,7 +137,16 @@ def _apply_receipt(occurrence: PaymentOccurrence, data: dict) -> list[str]:
     return changed
 
 
-@router.post("/{occurrence_id}/confirm", response_model=OccurrenceOut, summary="Подтвердить оплату")
+@router.post(
+    "/{occurrence_id}/confirm",
+    response_model=OccurrenceOut,
+    summary="Подтвердить оплату",
+    description=(
+        "Веб: paid_by — текущий пользователь. "
+        "Кнопка «Оплачено» в Telegram этот метод не вызывает; worker пишет тот же paid_at "
+        "(сейчас в TIMEZONE) и paid_by = активный администратор ADMIN_EMAIL."
+    ),
+)
 def confirm(
     occurrence_id: UUID,
     payload: ConfirmIn,
