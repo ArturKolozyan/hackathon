@@ -9,6 +9,9 @@ from app.schemas.telegram import TeamTelegram
 class PersonalChannelOut(BaseModel):
     enabled: bool
     team_ids: list[UUID]
+    notify_scope: str = "mine"
+    notify_overdue: bool = True
+    bot_alive: bool = False
     address: str | None = None
     linked: bool = False
     username: str | None = None
@@ -47,6 +50,8 @@ class PersonalNotificationsIn(BaseModel):
     email_team_ids: list[UUID] = Field(default_factory=list)
     telegram_enabled: bool
     telegram_team_ids: list[UUID] = Field(default_factory=list)
+    notify_scope: str | None = None
+    notify_overdue: bool | None = None
 
 
 class WebhookIn(BaseModel):

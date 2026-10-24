@@ -1,8 +1,8 @@
-# Invoice Keeper. Данные Postgres лежат в томе pgdata и переживают рестарт.
-# worker — горизонт, dispatch_due_reminders (почта, webhook, Telegram deliver) и long polling.
-# На VPS Aeza bridge часто без IPv6: деплой добавляет compose.telegram-host.yml.
-# Снаружи сайт отдаёт caddy (80/443). 5432, 8000 и 8080 опубликованы только на 127.0.0.1.
-# backup — pg_dump той же 16-й версии в ./backups (на VPS это /opt/invoice-keeper/backups).
+# Invoice Keeper. Одна установка — одна организация.
+# Контейнеры: web, api, worker, bot, assistant (профиль), db, caddy.
+# backup — служебный pg_dump, в список продукта не входит, но на сервере остаётся.
+# Отличия жюри и rekeeper.ru — только .env. Отдельных override-файлов нет.
+# Ассистент стартует, только если в .env задан COMPOSE_PROFILES=assistant.
 
 name: invoice-keeper
 
@@ -16,9 +16,6 @@ services:
       TZ: ${TIMEZONE:-Europe/Moscow}
     volumes:
       - pgdata:/var/lib/postgresql/data
-    # Только loopback хоста. Worker в network_mode: host (compose.telegram-host.yml)
-    # ходит сюда же: 127.0.0.1 — это loopback VPS, не loopback контейнера db.
-    # pg_isready ниже выполняется внутри контейнера и порт хоста не использует.
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -28,15 +25,8 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # Тот же мажор, что у db: pg_dump 16 и сервер 16. Отдельный образ не собираем.
-  # entrypoint образа — инициализация Postgres; его заменяем, иначе поднимется второй сервер.
-  # command затирает CMD ["postgres"], чтобы он не приехал аргументом в loop.sh.
-  # Сеть bridge: имя db резолвится. В host (compose.telegram-host.yml) backup не переводим.
-  # .env целиком не подключаем: туда попал бы токен бота. Пароль только для pg_dump.
   backup:
     image: postgres:16-alpine
-    # Образ сам переключает USER на postgres. Дамп пишем на хост в ./backups
-    # и ставим каталогу 700, поэтому здесь root. Сервер БД этот контейнер не запускает.
     user: "0:0"
     entrypoint: ["/bin/sh", "/opt/backup/loop.sh"]
     command: ["run"]
@@ -65,11 +55,11 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ASSISTANT_URL: http://assistant:8002
       TZ: ${TIMEZONE:-Europe/Moscow}
     depends_on:
       db:
         condition: service_healthy
-    # Только loopback хоста. Healthcheck ходит на 127.0.0.1:8000 внутри контейнера.
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     healthcheck:
@@ -93,11 +83,75 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TZ: ${TIMEZONE:-Europe/Moscow}
     command: ["worker"]
-    # Сеть compose, чтобы имя db резолвилось и на Docker Desktop.
-    # IPv6 до Telegram с хоста Linux — compose.telegram-host.yml.
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  bot:
+    build: ./backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      ASSISTANT_URL: http://assistant:8002
+      TZ: ${TIMEZONE:-Europe/Moscow}
+    command: ["bot"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+  assistant:
+    profiles: ["assistant"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.assistant
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      TZ: ${TIMEZONE:-Europe/Moscow}
+    command: ["assistant"]
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
     restart: unless-stopped
 
   web:
@@ -109,41 +163,46 @@ services:
         VITE_DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-ivan@invoice.local}
         VITE_DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-change-me-user}
         VITE_DEMO_USER_TWO_EMAIL: ${DEMO_USER_TWO_EMAIL:-maria@invoice.local}
-        VITE_DEMO_USER_THREE_EMAIL: ${DEMO_USER_THREE_EMAIL:-oleg@invoice.local}
-    # Не в интернет. Аварийный вход — SSH-туннель на этот порт, health деплоя тоже.
-    # Снаружи сайт отдаёт Caddy. На VPS оставить WEB_PORT=8080.
-    ports:
-      - "127.0.0.1:${WEB_PORT:-8080}:80"
     depends_on:
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     restart: unless-stopped
 
-  # Образ зафиксирован. Сертификаты только в caddy_data — не удалять том.
   caddy:
     image: caddy:2.11.7-alpine
     environment:
       XDG_DATA_HOME: /data
       XDG_CONFIG_HOME: /config
+      DOMAIN: ${DOMAIN:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     ports:
-      - "${CADDY_HTTP_PORT:-80}:80"
-      - "${CADDY_HTTPS_PORT:-443}:443"
-      - "${CADDY_HTTPS_PORT:-443}:443/udp"
+      - "${HTTP_PORT:-8080}:80"
+      - "${HTTPS_PORT:-8443}:443"
+      - "${HTTPS_PORT:-8443}:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./ops/caddy/entrypoint.sh:/entrypoint.sh:ro
       - caddy_data:/data
       - caddy_config:/config
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
     depends_on:
       - web
-    # В caddy:2.11.7-alpine curl есть. -f не считает 308 ошибкой и без -L
-    # редирект не открывает: до сертификата «Caddy слушает» — уже успех.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--max-time", "4", "-H", "Host: rekeeper.ru", "http://127.0.0.1/"]
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "--max-time", "4", "http://127.0.0.1/healthz"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 5s
     restart: unless-stopped
+
+networks:
+  default:
+    enable_ipv6: ${ENABLE_IPV6:-false}
 
 volumes:
   pgdata:

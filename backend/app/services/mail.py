@@ -28,6 +28,44 @@ def send_code(*, email: str, purpose: str, code: str) -> str:
     return delivery
 
 
+def send_account_created(db, user) -> str:
+    """Логин, ссылка на вход и ссылка привязки Telegram. Без SMTP запрос не падает."""
+    from app.services.telegram_links import bot_username, deep_link, issue_token
+
+    panel = public_url() or "http://localhost:8080"
+    login = f"{panel}/login"
+    lines = [
+        f"Для вас создана учётная запись rekeeper.",
+        f"Почта: {user.email}",
+        f"Вход: {login}",
+        "Пароль вам передаст администратор. При первом входе его нужно сменить.",
+    ]
+    html_bits = [
+        f"<p>Почта: <b>{html.escape(user.email)}</b></p>",
+        f'<p><a href="{html.escape(login, quote=True)}">Войти в rekeeper</a></p>',
+        "<p>Пароль вам передаст администратор. При первом входе его нужно сменить.</p>",
+    ]
+    username = bot_username(db)
+    if username:
+        token = issue_token(db, purpose="user", user=user)
+        link = deep_link(username, token.token, group=False)
+        lines.append(f"Привязать Telegram: {link}")
+        lines.append("Ссылка действует 15 минут. Позже её можно запросить ещё раз в разделе «Люди».")
+        html_bits.append(f'<p><a href="{html.escape(link, quote=True)}">Привязать Telegram</a></p>')
+    else:
+        lines.append("Привязку Telegram можно сделать после входа: Уведомления → Привязать Telegram.")
+    text, html_body = _letter(
+        "Доступ в rekeeper",
+        "Вас добавили в систему регулярных платежей.",
+        "\n".join(lines),
+        "".join(html_bits),
+    )
+    delivery = send_auth_email(to=user.email, subject="Доступ в rekeeper", text=text, html=html_body)
+    if delivery == "log":
+        log.warning("SMTP не настроен: учётка %s создана, письмо не отправлено", user.email)
+    return delivery
+
+
 def send_invite(*, email: str, team_name: str, role: str, url: str) -> str:
     role_ru = "администратором" if role == "admin" else "участником"
     title = f"Вас зовут в «{team_name}»"

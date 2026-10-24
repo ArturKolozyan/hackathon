@@ -11,6 +11,7 @@ from app.schemas.recurring import RecurringCreate, RecurringOut, RecurringUpdate
 from app.services import time as clock
 from app.services.access import TeamContext
 from app.services.audit import record
+from app.services.notify import dispatch_due_reminders
 from app.services.occurrences import ensure_template
 from app.services.teams import require_participant
 from app.services.templates import load_template, to_out, touch
@@ -51,8 +52,9 @@ def create_payment(
         description=payload.description,
         amount=payload.amount,
         currency=payload.currency,
-        day_of_month=payload.day_of_month,
-        starts_on=payload.starts_on,
+        day_of_month=int(payload.day_of_month or 1),
+        starts_on=payload.starts_on or clock.today(),
+        periodicity=payload.periodicity,
         responsible_user_id=responsible.id if responsible is not None else None,
         created_by_id=ctx.user.id,
         is_archived=False,
@@ -71,28 +73,33 @@ def create_payment(
         meta={"title": template.title, "currency": template.currency, "amount": f"{template.amount:.2f}"},
     )
     db.commit()
-    db.refresh(template)
+    dispatch_due_reminders(db)
+    db.commit()
     return to_out(db, load_template(db, template.id, ctx.team.id))
 
 
-@router.get("/{payment_id}", response_model=RecurringOut, summary="Карточка шаблона")
+@router.get("/{id}", response_model=RecurringOut, summary="Карточка шаблона")
 def get_payment(
-    payment_id: UUID,
+    id: UUID,
     ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> RecurringOut:
-    return to_out(db, load_template(db, payment_id, ctx.team.id))
+    return to_out(db, load_template(db, id, ctx.team.id))
 
 
-@router.patch("/{payment_id}", response_model=RecurringOut, summary="Изменить шаблон")
+@router.patch("/{id}", response_model=RecurringOut, summary="Изменить шаблон")
 def update_payment(
-    payment_id: UUID,
+    id: UUID,
     payload: RecurringUpdate,
     ctx: TeamContext = Depends(require_manager),
     db: Session = Depends(get_db),
 ) -> RecurringOut:
-    template = load_template(db, payment_id, ctx.team.id)
+    template = load_template(db, id, ctx.team.id)
     data = payload.model_dump(exclude_unset=True)
+    if data.get("next_payment_date") is not None:
+        data["day_of_month"] = data["next_payment_date"].day
+        data["starts_on"] = data["next_payment_date"]
+    data.pop("next_payment_date", None)
     if "responsible_user_id" in data:
         raw = data["responsible_user_id"]
         if raw is None:
@@ -114,16 +121,18 @@ def update_payment(
         meta={"title": template.title, "fields": sorted(data.keys())},
     )
     db.commit()
+    dispatch_due_reminders(db)
+    db.commit()
     return to_out(db, load_template(db, template.id, ctx.team.id))
 
 
-@router.delete("/{payment_id}", response_model=RecurringOut, summary="Архивировать шаблон")
+@router.delete("/{id}", response_model=RecurringOut, summary="Архивировать шаблон")
 def archive_payment(
-    payment_id: UUID,
+    id: UUID,
     ctx: TeamContext = Depends(require_manager),
     db: Session = Depends(get_db),
 ) -> RecurringOut:
-    template = load_template(db, payment_id, ctx.team.id)
+    template = load_template(db, id, ctx.team.id)
     if template.is_archived:
         return to_out(db, template)
     template.is_archived = True

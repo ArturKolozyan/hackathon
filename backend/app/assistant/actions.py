@@ -339,7 +339,7 @@ def _fresh_context(db: Session, ctx: TeamContext) -> TeamContext:
     if user is None or team is None or not user.is_active:
         raise AssistantDenied("Недостаточно прав")
     row = membership(db, team.id, user.id)
-    if row is None:
+    if row is None and not user.is_owner:
         raise AssistantDenied("Вы не в этой команде")
     return TeamContext(user=user, team=team, membership=row)
 

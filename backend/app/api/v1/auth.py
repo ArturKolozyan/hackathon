@@ -5,27 +5,9 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, read_token
 from app.core.security import attach_cookie, clear_cookie, issue_session, revoke_token, user_from_token
 from app.models import User
-from app.schemas.auth import (
-    ConfirmIn,
-    ForgotIn,
-    LoginIn,
-    RegisterIn,
-    ResendIn,
-    ResetIn,
-    SentOut,
-    TokenOut,
-    sent_message,
-)
+from app.schemas.auth import ForgotIn, LoginIn, ResetIn, TokenOut
 from app.schemas.me import MeOut
-from app.services.accounts import (
-    authenticate,
-    confirm_registration,
-    register_account,
-    request_password_reset,
-    resend_registration,
-    reset_password,
-    to_me,
-)
+from app.services.accounts import authenticate, request_password_reset, reset_password, to_me
 from app.services.audit import record
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,30 +26,6 @@ def _session(db: Session, response: Response, user: User) -> TokenOut:
     db.commit()
     attach_cookie(response, token)
     return TokenOut(access_token=token, user=to_me(db, user))
-
-
-@router.post("/register", response_model=SentOut, status_code=201, summary="Регистрация")
-def register(payload: RegisterIn, db: Session = Depends(get_db)) -> SentOut:
-    delivery = register_account(
-        db,
-        email=payload.email,
-        full_name=payload.full_name,
-        password=payload.password,
-        invite_token=payload.invite_token,
-    )
-    return SentOut(delivery=delivery, message=sent_message(delivery))
-
-
-@router.post("/register/resend", response_model=SentOut, summary="Повтор кода регистрации")
-def register_resend(payload: ResendIn, db: Session = Depends(get_db)) -> SentOut:
-    delivery = resend_registration(db, payload.email)
-    return SentOut(delivery=delivery, message=sent_message(delivery))
-
-
-@router.post("/register/confirm", response_model=TokenOut, summary="Подтвердить почту")
-def register_confirm(payload: ConfirmIn, response: Response, db: Session = Depends(get_db)) -> TokenOut:
-    user = confirm_registration(db, email=payload.email, code=payload.code)
-    return _session(db, response, user)
 
 
 @router.post("/login", response_model=TokenOut, summary="Вход")

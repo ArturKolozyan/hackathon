@@ -2,8 +2,20 @@ from sqlalchemy import select
 
 from app.assistant.telegram_bridge import handle_assistant_callback, handle_private_message
 from app.models import RecurringPayment, User
+from app.core.config import get_settings
 from app.seed import seed
 from app.services.telegram_updates import handle_update
+
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def assistant_enabled(monkeypatch):
+    monkeypatch.setenv("GIGACHAT_AUTH_KEY", "test-key")
+    monkeypatch.delenv("ASSISTANT_URL", raising=False)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 class Bot:

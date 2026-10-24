@@ -1,4 +1,4 @@
-"""Привязка чата команды и личного Telegram. Deep link собирает API, бот живёт в worker.
+"""Привязка чата отдела и личного Telegram. Deep link собирает API, бот — отдельный процесс.
 
 Токен одноразовый, 15 минут. Сырой токен в журнал не пишем.
 TELEGRAM_CHAT_ID — запасной чат, только когда в базе ровно одна команда
@@ -88,9 +88,12 @@ def resolve_team_chat_id(db: Session, team_id: uuid.UUID | None = None) -> tuple
 
 def bot_username(db: Session) -> str | None:
     row = bot_row(db)
-    if row is None or not row.bot_username:
-        return None
-    return row.bot_username.strip().lstrip("@") or None
+    if row is not None and row.bot_username:
+        name = row.bot_username.strip().lstrip("@")
+        if name:
+            return name
+    env_name = get_settings().telegram_bot_username.strip().lstrip("@")
+    return env_name or None
 
 
 def remember_bot(me: dict[str, Any]) -> None:
@@ -395,7 +398,7 @@ def _connect_team(db: Session, token: TelegramLinkToken, chat: dict[str, Any]) -
     if creator is None or not creator.is_active or token.team_id is None:
         return "Ссылку может выдать только администратор. Создайте новую в rekeeper."
     seat = membership(db, token.team_id, creator.id)
-    if seat is None or seat.role not in _MANAGERS:
+    if not creator.is_owner and (seat is None or seat.role not in _MANAGERS):
         return "Ссылку может выдать только администратор. Создайте новую в rekeeper."
     row = team_row(db, token.team_id, create=True)
     assert row is not None
@@ -439,6 +442,7 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
     owner.telegram_user_id = tg_id
     owner.telegram_username = str(username).lstrip("@")[:32] if isinstance(username, str) and username else None
     owner.telegram_display_name = _display_name(sender)
+    owner.telegram_onboarding_done = True
     owner.updated_at = clock.now()
     token.used_at = clock.now()
     try:

@@ -51,6 +51,18 @@ def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, to
     )
 
 
+def _next_due(template: RecurringPayment, occurrences: list[PaymentOccurrence], today: date) -> date:
+    from app.services.schedule import add_months, due_date
+
+    open_dates = [row.due_date for row in occurrences if row.paid_at is None and row.due_date >= today]
+    if open_dates:
+        return min(open_dates)
+    candidate = due_date(today.year, today.month, template.day_of_month)
+    if candidate < today:
+        return add_months(candidate, 1)
+    return candidate
+
+
 def recurring_out(template: RecurringPayment, occurrences: list[PaymentOccurrence]) -> RecurringOut:
     today = clock.today()
     settings = get_settings()
@@ -70,6 +82,8 @@ def recurring_out(template: RecurringPayment, occurrences: list[PaymentOccurrenc
         currency=template.currency,
         day_of_month=template.day_of_month,
         starts_on=template.starts_on,
+        next_payment_date=_next_due(template, occurrences, today),
+        periodicity=template.periodicity,
         is_archived=template.is_archived,
         responsible=user_brief(template.responsible) if template.responsible is not None else None,
         open_count=open_count,

@@ -10,7 +10,6 @@ const adminPassword = import.meta.env.VITE_DEMO_ADMIN_PASSWORD || "change-me";
 const userEmail = import.meta.env.VITE_DEMO_USER_EMAIL || "ivan@invoice.local";
 const userPassword = import.meta.env.VITE_DEMO_USER_PASSWORD || "change-me-user";
 const secondEmail = import.meta.env.VITE_DEMO_USER_TWO_EMAIL || "maria@invoice.local";
-const thirdEmail = import.meta.env.VITE_DEMO_USER_THREE_EMAIL || "oleg@invoice.local";
 
 export function LoginPage() {
   const { user, ready, setUser } = useAuth();
@@ -96,35 +95,27 @@ export function LoginPage() {
             {busy ? "Вхожу…" : "Войти"}
           </button>
           <p className="auth-links">
-            <Link to="/register">Регистрация</Link>
             <Link to="/forgot">Забыли пароль</Link>
           </p>
           <dl className="demo">
             <div>
-              <dt>Админ</dt>
+              <dt>Владелец</dt>
               <dd>
                 {adminEmail}
                 <span>{adminPassword}</span>
               </dd>
             </div>
             <div>
-              <dt>Иван</dt>
+              <dt>Пользователь</dt>
               <dd>
                 {userEmail}
                 <span>{userPassword}</span>
               </dd>
             </div>
             <div>
-              <dt>Мария</dt>
+              <dt>Админ отдела</dt>
               <dd>
                 {secondEmail}
-                <span>тот же пароль</span>
-              </dd>
-            </div>
-            <div>
-              <dt>Олег</dt>
-              <dd>
-                {thirdEmail}
                 <span>тот же пароль</span>
               </dd>
             </div>

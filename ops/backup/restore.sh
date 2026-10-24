@@ -33,11 +33,11 @@ if [ ! -f "$file" ]; then
   exit 2
 fi
 
-COMPOSE="docker compose -f docker-compose.yml -f compose.telegram-host.yml"
+COMPOSE="docker compose"
 
-echo "stopping api worker backup"
+echo "stopping api worker bot backup"
 # shellcheck disable=SC2086
-$COMPOSE stop api worker backup
+$COMPOSE stop api worker bot backup
 
 echo "terminating other sessions"
 # shellcheck disable=SC2086
@@ -60,24 +60,27 @@ set -e
 # shellcheck disable=SC2086
 $COMPOSE exec -T db rm -f /tmp/rekeeper-restore.dump
 
-echo "starting api worker backup"
+echo "starting api worker bot backup"
 # shellcheck disable=SC2086
-$COMPOSE start api worker backup
+$COMPOSE start api worker bot backup
 
 if [ "$status" -ne 0 ]; then
   echo "pg_restore failed ($status)" >&2
   exit "$status"
 fi
 
+port=$(grep -E '^HTTP_PORT=' .env 2>/dev/null | tail -n 1 | cut -d= -f2- || true)
+port=${port:-8080}
+
 echo "waiting for health"
 i=0
 while [ "$i" -lt 36 ]; do
-  if curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health >/dev/null; then
+  if curl -fsS --max-time 5 "http://127.0.0.1:${port}/healthz" >/dev/null; then
     echo "restored $base"
     exit 0
   fi
   i=$((i + 1))
   sleep 5
 done
-echo "dump restored, health http://127.0.0.1:8080/api/v1/health did not answer" >&2
+echo "dump restored, health http://127.0.0.1:${port}/healthz did not answer" >&2
 exit 1

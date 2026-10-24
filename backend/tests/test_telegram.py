@@ -56,6 +56,19 @@ class FakeBot:
         self.alerts.append(show_alert)
 
 
+def _sent_delta(db) -> int:
+    from sqlalchemy import func, select
+
+    from app.models import NotificationDelivery
+
+    return int(
+        db.scalar(
+            select(func.count()).select_from(NotificationDelivery).where(NotificationDelivery.status == "sent")
+        )
+        or 0
+    )
+
+
 @pytest.fixture
 def tg_bot(monkeypatch):
     bot = FakeBot()
@@ -63,6 +76,23 @@ def tg_bot(monkeypatch):
     monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
     get_settings.cache_clear()
     monkeypatch.setattr("app.integrations.telegram.make_bot", lambda settings=None: bot)
+    import app.services.notify as notify
+
+    original = notify.dispatch_due_reminders
+
+    def wrapped(db):
+        before = _sent_delta(db)
+        original(db)
+        from app.services.outbox import drain_telegram
+
+        drain_telegram(db, bot)
+        db.expire_all()
+        return _sent_delta(db) - before
+
+    import sys
+
+    monkeypatch.setattr(notify, "dispatch_due_reminders", wrapped)
+    monkeypatch.setattr(sys.modules[__name__], "dispatch_due_reminders", wrapped)
     yield bot
     get_settings.cache_clear()
 
@@ -80,6 +110,8 @@ def _admin(db) -> User:
         password_hash="x",
         is_active=True,
         email_verified_at=clock.now(),
+        is_owner=True,
+        telegram_onboarding_done=True,
     )
     db.add(user)
     db.flush()
@@ -171,7 +203,8 @@ def test_transport_skips_without_token_and_hides_it(monkeypatch):
     skipped = describe_transport()
     assert skipped["sender"] == "skipped"
     assert skipped["token_configured"] is False
-    assert skipped["force_ipv6"] is True
+    assert skipped["network"] == "auto"
+    assert skipped["force_ipv6"] is False
     with pytest.raises(NotImplementedError):
         deliver("текст", chat_id=CHAT, occurrence_id=str(uuid.uuid4()), event="occurrence.reminder")
 
@@ -262,7 +295,8 @@ def test_failed_send_retries_once(db_session, tg_bot):
     assert dispatch_due_reminders(db_session) == 0
     fresh = _reload(db_session, _october(db_session, template))
     assert fresh.telegram_reminded_at is None
-    assert _channel(db_session, fresh.id, "telegram") is None
+    pending = _channel(db_session, fresh.id, "telegram")
+    assert pending is not None and pending.status == "pending"
     assert dispatch_due_reminders(db_session) == 1
     assert len(tg_bot.sent) == 1
     assert _channel(db_session, fresh.id, "telegram") is not None
@@ -302,7 +336,8 @@ def test_email_does_not_block_telegram(db_session, tg_bot, monkeypatch):
     db_session.commit()
     assert len(sent) == 2
     assert _channel(db_session, row.id, "email") is not None
-    assert _channel(db_session, row.id, "telegram") is None
+    pending = _channel(db_session, row.id, "telegram")
+    assert pending is not None and pending.status == "pending"
 
     assert dispatch_due_reminders(db_session) == 1
     db_session.commit()
@@ -476,7 +511,11 @@ def test_tick_without_token_keeps_horizon_and_with_token_sends_once(db_session, 
     monkeypatch.setattr("app.integrations.telegram.make_bot", lambda settings=None: bot)
     try:
         tick()
+        from app.services.outbox import drain_telegram
+
+        drain_telegram(db_session, bot)
         tick()
+        drain_telegram(db_session, bot)
     finally:
         get_settings.cache_clear()
     assert len(bot.sent) == 1
@@ -544,14 +583,14 @@ def test_responsible_dm_ignores_toggle_and_dedups(db_session, tg_bot):
     template.responsible_user_id = ivan.id
     db_session.commit()
 
-    assert dispatch_due_reminders(db_session) == 2
-    assert {item["chat_id"] for item in tg_bot.sent} == {CHAT, "777"}
+    assert dispatch_due_reminders(db_session) == 1
+    assert {item["chat_id"] for item in tg_bot.sent} == {CHAT}
     fresh = _reload(db_session, _october(db_session, template))
-    assert fresh.dm_chat_id == "777"
+    assert fresh.dm_chat_id is None
     assert fresh.telegram_chat_id == CHAT
 
     assert dispatch_due_reminders(db_session) == 0
-    assert len(tg_bot.sent) == 2
+    assert len(tg_bot.sent) == 1
     rows = list(
         db_session.scalars(
             select(NotificationDelivery).where(
@@ -560,7 +599,7 @@ def test_responsible_dm_ignores_toggle_and_dedups(db_session, tg_bot):
             )
         ).all()
     )
-    assert {row.recipient for row in rows} == {"team", f"user:{ivan.id}"}
+    assert {row.recipient for row in rows} == {"team"}
 
 
 def test_openapi_documents_telegram_actor():

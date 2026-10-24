@@ -35,19 +35,34 @@ export function OnboardingPage() {
       <div className="login-grid">
         <section className="login-copy">
           <p className="kicker">Первый вход</p>
-          <h1>{user?.full_name.split(" ")[0]}, соберите команду.</h1>
-          <p>Вы станете владельцем. Людей можно позвать ссылкой или письмом. Если вас уже пригласили — откройте ссылку из письма.</p>
+          <h1>{user?.is_owner ? "Создайте первый отдел" : "Вас ещё не добавили в отдел"}</h1>
+          <p>
+            {user?.is_owner
+              ? "Отдел создаёт владелец. Людей добавляют в разделе «Люди»."
+              : "Попросите владельца добавить вас. Самостоятельная регистрация закрыта."}
+          </p>
         </section>
-        <form className="panel login-form" onSubmit={submit}>
-          <h2>Новая команда</h2>
-          <label>
-            Название
-            <input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Студия" />
-          </label>
-          {error && <p className="error" role="alert">{error}</p>}
-          <button type="submit" className="primary" disabled={busy}>{busy ? "Создаю…" : "Создать команду"}</button>
-          <p className="caption">Приглашение придёт ссылкой. Откройте её, будучи залогиненным, или зарегистрируйтесь по ней.</p>
-        </form>
+        {user?.is_owner ? (
+          <form className="panel login-form" onSubmit={submit}>
+            <h2>Новый отдел</h2>
+            <label>
+              Название
+              <input value={name} onChange={(event) => setName(event.target.value)} required placeholder="Бухгалтерия" />
+            </label>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+            <button type="submit" className="primary" disabled={busy}>
+              {busy ? "Создаю…" : "Создать отдел"}
+            </button>
+          </form>
+        ) : (
+          <section className="panel note">
+            <p>Когда вас добавят, обновите страницу.</p>
+          </section>
+        )}
       </div>
     </div>
   );

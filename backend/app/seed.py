@@ -1,6 +1,6 @@
-"""Демо только на пустой базе. Пароль админа при рестарте больше не переписывается.
+"""Демо только если отделов ещё нет. Владелец уже создан ensure_owner.
 
-ADMIN_* — владелец «Студия Север», если SEED_DEMO и пользователей ещё нет.
+Три платежа кейса лежат в отделе «Бухгалтерия». Второй отдел пустой.
 """
 
 import logging
@@ -14,9 +14,11 @@ from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
 from app.models import PaymentOccurrence, RecurringPayment, User
 from app.services import time as clock
+from app.models import Team
 from app.services.accounts import create_verified_user
 from app.services.budgets import add_budget
 from app.services.occurrences import ensure_template
+from app.services.owner import ensure_owner
 from app.services.schedule import add_months
 from app.services.teams import add_member, create_team
 
@@ -25,20 +27,20 @@ log = logging.getLogger("invoice_keeper.seed")
 RENT_TITLE = "Аренда офиса"
 SERVER_TITLE = "Сервер"
 SUB_TITLE = "Подписка"
-STUDIO = "Студия Север"
-AEZA = "AEZA Ops"
-MARKETING = "Маркетинг"
+ACCOUNTING = "Бухгалтерия"
+INFRA = "Инфраструктура"
 
 
 def seed(demo: bool | None = None) -> None:
     settings = get_settings()
+    ensure_owner(settings)
     if demo is None:
         demo = settings.seed_demo
+    if not demo:
+        return
     db = SessionLocal()
     try:
-        if db.scalar(select(User.id).limit(1)) is not None:
-            return
-        if not demo:
+        if db.scalar(select(Team.id).limit(1)) is not None:
             return
         _demo(db, settings)
         db.commit()
@@ -50,22 +52,11 @@ def seed(demo: bool | None = None) -> None:
 
 
 def _demo(db: Session, settings: Settings) -> None:
-    if len(settings.admin_password) < 8 or len(settings.demo_user_password) < 8:
-        raise RuntimeError("Пароли демо короче 8 символов")
-    emails = {
-        settings.admin_email.lower(),
-        settings.demo_user_email.lower(),
-        settings.demo_user_two_email.lower(),
-        settings.demo_user_three_email.lower(),
-    }
-    if len(emails) < 4:
-        raise RuntimeError("Почты демо-людей должны различаться")
-    admin = create_verified_user(
-        db,
-        email=settings.admin_email,
-        full_name=settings.admin_name.strip() or "Админ",
-        password=settings.admin_password,
-    )
+    if len(settings.demo_user_password) < 8:
+        raise RuntimeError("Пароль демо короче 8 символов")
+    owner = db.scalar(select(User).where(User.is_owner.is_(True)))
+    if owner is None:
+        raise RuntimeError("Владелец не создан")
     ivan = create_verified_user(
         db, email=settings.demo_user_email, full_name=settings.demo_user_name, password=settings.demo_user_password
     )
@@ -75,23 +66,13 @@ def _demo(db: Session, settings: Settings) -> None:
         full_name=settings.demo_user_two_name,
         password=settings.demo_user_password,
     )
-    oleg = create_verified_user(
-        db,
-        email=settings.demo_user_three_email,
-        full_name=settings.demo_user_three_name,
-        password=settings.demo_user_password,
-    )
-    studio = create_team(db, admin, STUDIO)
-    add_member(db, studio, ivan, "member", actor=admin)
-    add_member(db, studio, maria, "member", actor=admin)
-    add_member(db, studio, oleg, "admin", actor=admin)
-    aeza = create_team(db, ivan, AEZA)
-    add_member(db, aeza, admin, "member", actor=ivan)
-    add_member(db, aeza, maria, "admin", actor=ivan)
-    add_member(db, aeza, oleg, "member", actor=ivan)
-    marketing = create_team(db, maria, MARKETING)
-    add_member(db, marketing, ivan, "member", actor=maria)
-    add_member(db, marketing, oleg, "admin", actor=maria)
+    studio = create_team(db, owner, ACCOUNTING)
+    infra = create_team(db, owner, INFRA)
+    add_member(db, studio, maria, "admin", actor=owner)
+    add_member(db, studio, ivan, "member", actor=owner)
+    add_member(db, infra, maria, "admin", actor=owner)
+    add_member(db, infra, ivan, "member", actor=owner)
+    owner.active_team_id = studio.id
 
     today = clock.today()
     starts_on = add_months(date(today.year, today.month, 1), -3)
@@ -99,7 +80,7 @@ def _demo(db: Session, settings: Settings) -> None:
     _story_template(
         db,
         team=studio,
-        actor=admin,
+        actor=owner,
         key="rent",
         title=RENT_TITLE,
         description="Офис. Срок — 5-е число, валюта договора рубли.",
@@ -113,7 +94,7 @@ def _demo(db: Session, settings: Settings) -> None:
     _story_template(
         db,
         team=studio,
-        actor=admin,
+        actor=owner,
         key="server",
         title=SERVER_TITLE,
         description="VPS команды. Счёт в долларах, срок — 12-е.",
@@ -127,7 +108,7 @@ def _demo(db: Session, settings: Settings) -> None:
     _story_template(
         db,
         team=studio,
-        actor=admin,
+        actor=owner,
         key="sub",
         title=SUB_TITLE,
         description="Подписка на дизайн. Списание в евро, в ближайшие дни.",
@@ -140,74 +121,20 @@ def _demo(db: Session, settings: Settings) -> None:
     )
     _plain(
         db,
-        team=aeza,
-        actor=ivan,
+        team=infra,
+        actor=owner,
         title="Домен",
-        description="Домен команды.",
+        description="Домен второго отдела.",
         amount=Decimal("990.00"),
         currency="RUB",
         day=1,
         starts_on=starts_on,
-        responsible=admin,
-        today=today,
-    )
-    _plain(
-        db,
-        team=aeza,
-        actor=ivan,
-        title="VPS",
-        description="Виртуальный сервер.",
-        amount=Decimal("25.00"),
-        currency="USD",
-        day=15,
-        starts_on=starts_on,
         responsible=maria,
-        today=today,
-    )
-    _plain(
-        db,
-        team=aeza,
-        actor=ivan,
-        title="Лицензия",
-        description="Лицензия на софт.",
-        amount=Decimal("49.00"),
-        currency="EUR",
-        day=soon_day,
-        starts_on=starts_on,
-        responsible=oleg,
-        today=today,
-    )
-    _plain(
-        db,
-        team=marketing,
-        actor=maria,
-        title="Реклама",
-        description="Кабинет рекламы.",
-        amount=Decimal("200.00"),
-        currency="EUR",
-        day=8,
-        starts_on=starts_on,
-        responsible=oleg,
-        today=today,
-    )
-    _plain(
-        db,
-        team=marketing,
-        actor=maria,
-        title="Подрядчик",
-        description="Внешний подряд.",
-        amount=Decimal("60000.00"),
-        currency="RUB",
-        day=18,
-        starts_on=starts_on,
-        responsible=ivan,
         today=today,
     )
     month_key = f"{today.year:04d}-{today.month:02d}"
     add_budget(db, studio.id, "month", month_key, "RUB", Decimal("200000.00"))
-    add_budget(db, aeza.id, "month", month_key, "USD", Decimal("80.00"))
-    add_budget(db, marketing.id, "month", month_key, "EUR", Decimal("500.00"))
-    log.info("демо: %s, %s, %s", STUDIO, AEZA, MARKETING)
+    log.info("демо: %s, %s", ACCOUNTING, INFRA)
 
 
 def _open_template(db: Session, *, team, actor: User, title, description, amount, currency, day, starts_on, responsible, today):

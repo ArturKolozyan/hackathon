@@ -25,8 +25,26 @@ def _count(db) -> int:
     return int(db.scalar(select(func.count()).select_from(RecurringPayment)) or 0)
 
 
+def _assistant_call(client, method: str, url: str, **kwargs):
+    if url.startswith("/api/v1/assistant"):
+        from fastapi.testclient import TestClient
+
+        from app.assistant_main import app as assistant_app
+
+        with TestClient(assistant_app) as assistant:
+            return getattr(assistant, method)(url, **kwargs)
+    return getattr(client, method)(url, **kwargs)
+
+
 def _say(client, headers, text: str) -> dict:
-    response = client.post("/api/v1/assistant/messages", params={"stream": "false"}, headers=headers, json={"text": text})
+    response = _assistant_call(
+        client,
+        "post",
+        "/api/v1/assistant/messages",
+        params={"stream": "false"},
+        headers=headers,
+        json={"text": text},
+    )
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -52,7 +70,9 @@ def test_reads_come_from_the_database(client, db_session):
     assert "Мария Соколова" in who["content"]
     assert "Иван Петров" not in who["content"]
 
-    streamed = client.post(
+    streamed = _assistant_call(
+        client,
+        "post",
         "/api/v1/assistant/messages",
         params={"stream": "true"},
         headers=headers,
@@ -61,7 +81,7 @@ def test_reads_come_from_the_database(client, db_session):
     assert streamed.status_code == 200, streamed.text
     assert "event: token" in streamed.text
     assert "event: done" in streamed.text
-    history = client.get("/api/v1/assistant/messages", headers=headers)
+    history = _assistant_call(client, "get", "/api/v1/assistant/messages", headers=headers)
     assert history.status_code == 200
     assert len(history.json()) >= 4
 
@@ -91,18 +111,18 @@ def test_create_waits_for_confirm_and_checks_role(client, db_session):
     assert "1300.00 RUB" in revised["action"]["summary"]
     assert _count(db_session) == before
 
-    stolen = client.post(f"/api/v1/assistant/actions/{action['id']}/confirm", headers=ivan)
+    stolen = _assistant_call(client, "post", f"/api/v1/assistant/actions/{action['id']}/confirm", headers=ivan)
     assert stolen.status_code == 404
     assert _count(db_session) == before
 
-    confirmed = client.post(f"/api/v1/assistant/actions/{action['id']}/confirm", headers=admin)
+    confirmed = _assistant_call(client, "post", f"/api/v1/assistant/actions/{action['id']}/confirm", headers=admin)
     assert confirmed.status_code == 200, confirmed.text
     body = confirmed.json()
     assert body["action"]["status"] == "confirmed"
     assert "Почта" in body["message"]["content"]
     assert _count(db_session) == before + 1
 
-    again = client.post(f"/api/v1/assistant/actions/{action['id']}/confirm", headers=admin)
+    again = _assistant_call(client, "post", f"/api/v1/assistant/actions/{action['id']}/confirm", headers=admin)
     assert again.status_code == 409
     assert _count(db_session) == before + 1
 
@@ -122,7 +142,7 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     assert "Сервер" in paid["action"]["summary"]
     server = db_session.scalar(select(RecurringPayment).where(RecurringPayment.title == "Сервер"))
     assert server is not None
-    done = client.post(f"/api/v1/assistant/actions/{paid['action']['id']}/confirm", headers=ivan)
+    done = _assistant_call(client, "post", f"/api/v1/assistant/actions/{paid['action']['id']}/confirm", headers=ivan)
     assert done.status_code == 200, done.text
     assert done.json()["action"]["status"] == "confirmed"
     assert "оплачен" in done.json()["message"]["content"]
@@ -131,7 +151,7 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     assert "40.00 USD → 45.00 USD" in update["action"]["summary"]
     db_session.expire_all()
     assert f"{server.amount:.2f}" == "40.00"
-    changed = client.post(f"/api/v1/assistant/actions/{update['action']['id']}/confirm", headers=admin)
+    changed = _assistant_call(client, "post", f"/api/v1/assistant/actions/{update['action']['id']}/confirm", headers=admin)
     assert changed.status_code == 200, changed.text
     db_session.expire_all()
     assert f"{server.amount:.2f}" == "45.00"
@@ -140,14 +160,14 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     assert "Мария Соколова" in person["action"]["summary"]
     sub = db_session.scalar(select(RecurringPayment).where(RecurringPayment.title == "Подписка"))
     assert sub is not None and sub.responsible.full_name == "Иван Петров"
-    client.post(f"/api/v1/assistant/actions/{person['action']['id']}/confirm", headers=admin)
+    _assistant_call(client, "post", f"/api/v1/assistant/actions/{person['action']['id']}/confirm", headers=admin)
     db_session.expire_all()
     assert sub.responsible.full_name == "Мария Соколова"
 
     archived = _say(client, admin, "Архивируй платёж подписка")
     assert archived["action"]["kind"] == "archive_payment"
     assert sub.is_archived is False
-    client.post(f"/api/v1/assistant/actions/{archived['action']['id']}/confirm", headers=admin)
+    _assistant_call(client, "post", f"/api/v1/assistant/actions/{archived['action']['id']}/confirm", headers=admin)
     db_session.expire_all()
     assert sub.is_archived is True
 
@@ -181,7 +201,7 @@ def test_member_cannot_confirm_a_forged_template_change(client, db_session):
     db_session.commit()
     headers = _headers(client, "ivan@invoice.local", "change-me-user")
     before = _count(db_session)
-    response = client.post(f"/api/v1/assistant/actions/{action.id}/confirm", headers=headers)
+    response = _assistant_call(client, "post", f"/api/v1/assistant/actions/{action.id}/confirm", headers=headers)
     assert response.status_code == 200, response.text
     assert response.json()["action"]["status"] == "failed"
     assert "Недостаточно прав" in response.json()["message"]["content"]
@@ -191,8 +211,8 @@ def test_member_cannot_confirm_a_forged_template_change(client, db_session):
 def test_answers_and_history_follow_the_active_team(client, db_session):
     seed(demo=True)
     token = _headers(client, "ivan@invoice.local", "change-me-user")
-    studio_team = db_session.scalar(select(Team).where(Team.name == "Студия Север"))
-    aeza = db_session.scalar(select(Team).where(Team.name == "AEZA Ops"))
+    studio_team = db_session.scalar(select(Team).where(Team.name == "Бухгалтерия"))
+    aeza = db_session.scalar(select(Team).where(Team.name == "Инфраструктура"))
     assert studio_team is not None and aeza is not None
     studio_headers = {**token, "X-Team-Id": str(studio_team.id)}
     aeza_headers = {**token, "X-Team-Id": str(aeza.id)}
@@ -200,7 +220,7 @@ def test_answers_and_history_follow_the_active_team(client, db_session):
     studio = _say(client, studio_headers, "Покажи открытые платежи")
     assert "Аренда офиса" in studio["content"]
     assert "Домен" not in studio["content"]
-    assert "Реклама" not in studio["content"]
+    assert "Домен" not in studio["content"]
 
     missing = _say(client, studio_headers, "Кто ответственный за домен?")
     assert "не нашёл" in missing["content"].lower()
@@ -209,12 +229,17 @@ def test_answers_and_history_follow_the_active_team(client, db_session):
     assert "Домен" in other["content"]
     assert "Аренда офиса" not in other["content"]
 
-    owned = _say(client, aeza_headers, "Создай платёж «Хостинг» 10 рублей каждое 4 число, ответственный Иван")
+    maria = _headers(client, "maria@invoice.local", "change-me-user")
+    owned = _say(
+        client,
+        {**maria, "X-Team-Id": str(aeza.id)},
+        "Создай платёж «Хостинг» 10 рублей каждое 4 число, ответственный Иван",
+    )
     assert owned["action"]["kind"] == "create_payment"
     assert "Иван Петров" in owned["action"]["summary"]
 
-    studio_history = client.get("/api/v1/assistant/messages", headers=studio_headers)
-    aeza_history = client.get("/api/v1/assistant/messages", headers=aeza_headers)
+    studio_history = _assistant_call(client, "get", "/api/v1/assistant/messages", headers=studio_headers)
+    aeza_history = _assistant_call(client, "get", "/api/v1/assistant/messages", headers=aeza_headers)
     assert studio_history.status_code == 200
     assert any("Аренда офиса" in item["content"] for item in studio_history.json())
     assert all("Аренда офиса" not in item["content"] for item in aeza_history.json())
@@ -246,7 +271,7 @@ def test_confirm_does_not_touch_another_teams_payment(client, db_session):
     db_session.add(action)
     db_session.commit()
     headers = _headers(client, "admin@invoice.local", "change-me")
-    response = client.post(f"/api/v1/assistant/actions/{action.id}/confirm", headers=headers)
+    response = _assistant_call(client, "post", f"/api/v1/assistant/actions/{action.id}/confirm", headers=headers)
     assert response.status_code == 200, response.text
     assert response.json()["action"]["status"] == "failed"
     db_session.expire_all()

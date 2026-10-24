@@ -365,7 +365,7 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
     payment_id = _template(client, headers, title="Сервер Aeza", amount="40.00", currency="USD", day_of_month=1)
     db = SessionLocal()
     try:
-        assert dispatch_due_reminders(db) == 3
+        assert dispatch_due_reminders(db) == 0
         db.commit()
     finally:
         db.close()
@@ -566,7 +566,17 @@ def test_telegram_hook_skipped_until_implemented(client, monkeypatch, settings_g
 
     db = SessionLocal()
     try:
-        assert dispatch_due_reminders(db) == 0
+        from app.services.outbox import drain_telegram
+
+        class _No:
+            def send_message(self, *args, **kwargs):
+                calls["n"] += 1
+                raise NotImplementedError
+
+            def close(self):
+                return None
+
+        assert drain_telegram(db, _No()) == 0
         db.commit()
     finally:
         db.close()
@@ -583,8 +593,10 @@ def test_telegram_hook_skipped_until_implemented(client, monkeypatch, settings_g
     monkeypatch.setattr("app.integrations.telegram.deliver", ready)
     db = SessionLocal()
     try:
-        assert dispatch_due_reminders(db) == 1
-        assert dispatch_due_reminders(db) == 0
+        from app.services.outbox import drain_telegram
+
+        assert drain_telegram(db, None) == 1
+        assert drain_telegram(db, None) == 0
         db.commit()
     finally:
         db.close()

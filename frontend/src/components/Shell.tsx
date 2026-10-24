@@ -2,10 +2,20 @@ import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { canManage, roleLabel, roleOf, useAuth } from "../auth";
+import { FeaturesProvider, useFeatures } from "../features";
 import { TeamMark, ThemeToggle, Wordmark } from "./Brand";
 
 export function Shell() {
+  return (
+    <FeaturesProvider>
+      <ShellView />
+    </FeaturesProvider>
+  );
+}
+
+function ShellView() {
   const { user, setUser, switchTeam } = useAuth();
+  const features = useFeatures();
   const navigate = useNavigate();
   const location = useLocation();
   const manage = canManage(user);
@@ -41,7 +51,7 @@ export function Shell() {
           {user && user.memberships.length > 0 && (
             <select
               className="team-switch"
-              aria-label="Команда"
+              aria-label="Отдел"
               value={user.active_team_id ?? ""}
               onChange={(event) => void onTeam(event.target.value)}
             >
@@ -65,7 +75,7 @@ export function Shell() {
           <NavLink to="/" end>
             Инбокс
           </NavLink>
-          <NavLink to="/assistant">Ассистент</NavLink>
+          {features.assistant && <NavLink to="/assistant">Ассистент</NavLink>}
           <NavLink to="/calendar">Календарь</NavLink>
           <NavLink to="/history">История</NavLink>
           <NavLink to="/budget">Бюджет</NavLink>
@@ -76,7 +86,7 @@ export function Shell() {
             <>
               <span className="nav-label">Админ</span>
               <NavLink to="/templates">Шаблоны</NavLink>
-              <NavLink to="/team">Команда</NavLink>
+              <NavLink to="/people">Люди</NavLink>
               <NavLink to="/audit">Журнал</NavLink>
             </>
           )}

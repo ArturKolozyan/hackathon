@@ -85,13 +85,20 @@ def test_user_cannot_admin_but_can_close_period(client):
     user_headers = _auth(ivan["access_token"])
     admin_headers = _auth(admin["access_token"])
     team_id = ivan["user"]["active_team_id"]
-    assert client.get("/api/v1/users", headers=user_headers).status_code == 200
+    assert client.get("/api/v1/users", headers=user_headers).status_code == 403
     denied = client.post(
-        f"/api/v1/teams/{team_id}/invites",
+        "/api/v1/users",
         headers=user_headers,
-        json={"email": "blocked@invoice.local", "role": "member"},
+        json={
+            "email": "blocked@invoice.local",
+            "full_name": "Чужой",
+            "password": "change-me-user",
+            "role": "user",
+            "department_id": team_id,
+        },
     )
     assert denied.status_code == 403
+    assert client.post("/api/v1/teams", headers=user_headers, json={"name": "Свой"}).status_code == 403
     blocked_template = {
         "title": "Чужой",
         "amount": "10.00",
@@ -260,14 +267,18 @@ def test_owner_leaves_only_after_transfer(client, db_session):
     admin = _login(client, "admin@invoice.local", "change-me")
     headers = _auth(admin["access_token"])
     team_id = admin["user"]["active_team_id"]
-    assert client.post(f"/api/v1/teams/{team_id}/leave", headers=headers).status_code == 409
-    moved = client.post(
+    locked = client.patch(
+        f"/api/v1/users/{admin['user']['id']}",
+        headers=headers,
+        json={"full_name": "Другой"},
+    )
+    assert locked.status_code == 403
+    assert "нельзя" in locked.json()["detail"]
+    assert client.delete(f"/api/v1/users/{admin['user']['id']}", headers=headers).status_code == 403
+    assert client.post(
         f"/api/v1/teams/{team_id}/transfer",
         headers=headers,
         json={"user_id": str(temp.id)},
-    )
-    assert moved.status_code == 204, moved.text
-    assert client.post(f"/api/v1/teams/{team_id}/leave", headers=headers).status_code == 204
-    again = _login(client, "admin@invoice.local", "change-me")
-    inbox = client.get("/api/v1/payment-occurrences/inbox", headers=_auth(again["access_token"]))
-    assert inbox.status_code == 409
+    ).status_code == 404
+    inbox = client.get("/api/v1/payment-occurrences/inbox", headers=headers)
+    assert inbox.status_code == 200

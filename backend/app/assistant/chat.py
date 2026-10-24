@@ -223,7 +223,7 @@ def _from_model(
         return exc.detail, None
     except Exception:
         log.exception("assistant model crashed")
-        return "Ассистент сейчас недоступен. Повтори фразу короче.", None
+        return "Ассистент временно недоступен", None
     return "Не собрал ответ. Сформулируй короче.", None
 
 

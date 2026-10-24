@@ -20,11 +20,30 @@ from tests.test_telegram_link import _message
 
 @pytest.fixture
 def tg_bot(monkeypatch):
+    from tests.test_telegram import _sent_delta
+
     bot = FakeBot()
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "12345:TESTTOKEN")
     monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
     get_settings.cache_clear()
     monkeypatch.setattr("app.integrations.telegram.make_bot", lambda settings=None: bot)
+    import app.services.notify as notify
+
+    original = notify.dispatch_due_reminders
+
+    def wrapped(db):
+        before = _sent_delta(db)
+        original(db)
+        from app.services.outbox import drain_telegram
+
+        drain_telegram(db, bot)
+        db.expire_all()
+        return _sent_delta(db) - before
+
+    import sys
+
+    monkeypatch.setattr(notify, "dispatch_due_reminders", wrapped)
+    monkeypatch.setattr(sys.modules[__name__], "dispatch_due_reminders", wrapped)
     yield bot
     get_settings.cache_clear()
 
@@ -77,7 +96,7 @@ def test_dispatch_dedups_t3_and_overdue(db_session, tg_bot):
     assert counted == 2
 
 
-def test_scope_limits_mail_and_responsible_dm_is_mandatory(db_session, tg_bot, monkeypatch):
+def test_personal_scope_follows_responsibility_and_telegram_toggle(db_session, tg_bot, monkeypatch):
     sent: list = []
 
     class FakeSMTP:
@@ -120,6 +139,7 @@ def test_scope_limits_mail_and_responsible_dm_is_mandatory(db_session, tg_bot, m
         telegram_scope_set=True,
         email_reminders=True,
         email_scope_set=True,
+        notify_scope="mine",
     )
     db_session.add(ivan)
     db_session.flush()
@@ -142,17 +162,25 @@ def test_scope_limits_mail_and_responsible_dm_is_mandatory(db_session, tg_bot, m
     db_session.commit()
 
     try:
-        assert dispatch_due_reminders(db_session) == 2
+        # mine + Telegram выключен: письмо только за свой платёж, лички нет.
+        # Подписки на отделы больше не расширяют скоуп.
+        assert dispatch_due_reminders(db_session) == 1
+        assert len(sent) == 1
+        assert sent[0]["To"] == "ivan@invoice.local"
+        assert "Чужая" in sent[0].get_content()
+        assert "Своя" not in sent[0].get_content()
+        assert tg_bot.sent == []
+
+        ivan.notify_scope = "department"
+        ivan.telegram_reminders = True
+        db_session.commit()
+        assert dispatch_due_reminders(db_session) == 3
+        assert any("Своя" in item.get_content() for item in sent)
+        assert {item["text"].splitlines()[0] for item in tg_bot.sent} == {"Своя", "Чужая"}
+        assert {item["chat_id"] for item in tg_bot.sent} == {"777"}
     finally:
         get_settings.cache_clear()
 
-    assert len(sent) == 1
-    assert sent[0]["To"] == "ivan@invoice.local"
-    assert "Своя" in sent[0].get_content()
-    assert "Чужая" not in sent[0].get_content()
-    assert [item["chat_id"] for item in tg_bot.sent] == ["777"]
-    assert "Чужая" in tg_bot.sent[0]["text"]
-    assert dispatch_due_reminders(db_session) == 0
     here_mail = db_session.scalar(
         select(NotificationDelivery).where(
             NotificationDelivery.occurrence_id == _october(db_session, here).id,
@@ -168,7 +196,7 @@ def test_scope_limits_mail_and_responsible_dm_is_mandatory(db_session, tg_bot, m
         )
     )
     assert here_mail is not None
-    assert there_mail is None
+    assert there_mail is not None
 
 
 def test_connect_sends_summary_not_cards(db_session, tg_bot, monkeypatch):

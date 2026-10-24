@@ -1,13 +1,14 @@
-"""Клиент Bot API. Только worker.
+"""Клиент Bot API. Только контейнер bot.
 
-На VPS в Москве IPv4 до api.telegram.org висит до таймаута, IPv6 отвечает.
-TELEGRAM_FORCE_IPV6 сажает сокет на ``::``: попытка IPv4 отваливается на bind,
-а не на connect. Клиент не читает HTTP_PROXY — прокси снова увёл бы на IPv4.
+Сеть: TELEGRAM_NETWORK=auto|ipv4|ipv6. auto пробует IPv6, затем IPv4.
+TELEGRAM_FORCE_IPV6=true — устаревший алиас ipv6, если сеть не задана.
+TELEGRAM_PROXY — явный прокси. HTTP_PROXY из окружения не читаем.
 """
 
 from __future__ import annotations
 
 import logging
+import socket
 import uuid
 from typing import Any
 
@@ -31,17 +32,58 @@ class TelegramError(Exception):
         super().__init__(f"{method}: {description}")
 
 
+_cached_family: str | None = None
+
+
+def resolve_local_address(network: str) -> str | None:
+    """Адрес bind. None — система выбирает сама. Сбой пробы не роняет процесс."""
+    if network == "ipv6":
+        return "::"
+    if network == "ipv4":
+        return "0.0.0.0"
+    global _cached_family
+    if _cached_family == "ipv6":
+        return "::"
+    if _cached_family == "ipv4":
+        return "0.0.0.0"
+    if _cached_family == "none":
+        return None
+    for family, local, af in (("ipv6", "::", socket.AF_INET6), ("ipv4", "0.0.0.0", socket.AF_INET)):
+        sock = None
+        try:
+            infos = socket.getaddrinfo(API_HOST, 443, af, socket.SOCK_STREAM)
+            if not infos:
+                continue
+            sock = socket.socket(af, socket.SOCK_STREAM)
+            sock.settimeout(2.0)
+            if family == "ipv6":
+                sock.bind(("::", 0))
+            sock.connect(infos[0][4])
+        except OSError:
+            continue
+        finally:
+            if sock is not None:
+                sock.close()
+        _cached_family = family
+        return local
+    _cached_family = "none"
+    return None
+
+
 def describe_transport() -> dict[str, object]:
     settings = get_settings()
     token = settings.telegram_bot_token.strip()
     chat = settings.telegram_chat_id.strip()
+    network = settings.resolved_telegram_network
     return {
         "sender": "long_poll" if token else "skipped",
         "host": API_HOST,
-        "force_ipv6": settings.telegram_force_ipv6,
+        "network": network,
+        "force_ipv6": network == "ipv6",
+        "proxy": bool(settings.telegram_proxy.strip()),
         "token_configured": bool(token),
         "chat_configured": bool(chat),
-        "vps_note": "Moscow VPS: IPv4 to api.telegram.org times out; use IPv6",
+        "vps_note": "Aeza RU: set TELEGRAM_NETWORK=ipv6 and ENABLE_IPV6=true",
     }
 
 
@@ -50,7 +92,11 @@ def make_bot(settings: Settings | None = None) -> TelegramClient | None:
     token = current.telegram_bot_token.strip()
     if not token:
         return None
-    return TelegramClient(token, force_ipv6=current.telegram_force_ipv6)
+    return TelegramClient(
+        token,
+        network=current.resolved_telegram_network,
+        proxy=current.telegram_proxy.strip() or None,
+    )
 
 
 def _net_reason(exc: BaseException) -> str:
@@ -69,24 +115,58 @@ def _net_reason(exc: BaseException) -> str:
 class TelegramClient:
     """Long polling и send/edit. Токен в лог и в repr не попадает."""
 
-    def __init__(self, token: str, force_ipv6: bool) -> None:
+    def __init__(
+        self,
+        token: str,
+        force_ipv6: bool = False,
+        *,
+        network: str | None = None,
+        proxy: str | None = None,
+    ) -> None:
         # Повторно: uvicorn dictConfig не трогает уже выставленный уровень,
         # но клиент мог появиться раньше configure_logging.
         quiet_http_loggers()
         install_redaction()
         self._token = token.strip()
-        self.force_ipv6 = force_ipv6
-        local_address = "::" if force_ipv6 else None
-        transport = httpx.HTTPTransport(local_address=local_address, retries=0, trust_env=False)
-        self._http = httpx.Client(transport=transport, trust_env=False)
+        self.proxy = proxy or None
+        if network is None:
+            self.network = "ipv6" if force_ipv6 else "default"
+            self.force_ipv6 = force_ipv6
+            self._local: str | None = "::" if force_ipv6 else None
+            self._resolved = True
+        else:
+            self.network = network
+            self.force_ipv6 = network == "ipv6"
+            self._local = None if network == "auto" else resolve_local_address(network)
+            self._resolved = network != "auto"
+            if network == "ipv6":
+                self._local = "::"
+        self._http = self._open()
+
+    def _open(self) -> httpx.Client:
+        transport = httpx.HTTPTransport(local_address=self._local, retries=0, trust_env=False)
+        kwargs: dict[str, Any] = {"transport": transport, "trust_env": False}
+        if self.proxy:
+            kwargs["proxy"] = self.proxy
+        return httpx.Client(**kwargs)
+
+    def _ensure_network(self) -> None:
+        if self._resolved:
+            return
+        self._local = resolve_local_address("auto")
+        self.force_ipv6 = self._local == "::"
+        self._resolved = True
+        self._http.close()
+        self._http = self._open()
 
     def __repr__(self) -> str:
-        return f"TelegramClient(force_ipv6={self.force_ipv6})"
+        return f"TelegramClient(network={self.network})"
 
     def close(self) -> None:
         self._http.close()
 
     def _call(self, method: str, payload: dict[str, Any], *, read_timeout: float) -> Any:
+        self._ensure_network()
         url = f"https://{API_HOST}/bot{self._token}/{method}"
         timeout = httpx.Timeout(connect=10.0, read=read_timeout, write=10.0, pool=10.0)
         try:
@@ -152,6 +232,7 @@ class TelegramClient:
 
     def download_voice(self, file_id: str) -> bytes:
         """Файл голосового. URL с токеном в лог не пишем."""
+        self._ensure_network()
         result = self._call("getFile", {"file_id": file_id}, read_timeout=20)
         path = result.get("file_path") if isinstance(result, dict) else None
         if not isinstance(path, str) or not path or path.startswith("/") or ".." in path:

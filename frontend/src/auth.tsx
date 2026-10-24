@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Navigate, Outlet } from "react-router-dom";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { api, setStoredTeamId, type Me, type TeamRole } from "./api";
 import { LoadingBlock } from "./components/ui";
 
@@ -24,8 +24,8 @@ export function roleOf(user: Me | null): TeamRole | null {
 
 export function roleLabel(role: TeamRole | null): string {
   if (role === "owner") return "владелец";
-  if (role === "admin") return "админ";
-  return "участник";
+  if (role === "admin") return "админ отдела";
+  return "пользователь";
 }
 
 export function canManage(user: Me | null): boolean {
@@ -74,6 +74,7 @@ export function useAuth(): AuthState {
 
 export function RequireAuth() {
   const { user, ready } = useAuth();
+  const location = useLocation();
   if (!ready) {
     return (
       <div className="boot">
@@ -82,6 +83,17 @@ export function RequireAuth() {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
+  if (user.must_change_password && location.pathname !== "/first-password") {
+    return <Navigate to="/first-password" replace />;
+  }
+  if (
+    !user.must_change_password &&
+    !user.telegram_onboarding_done &&
+    !user.telegram_linked &&
+    location.pathname !== "/link-telegram"
+  ) {
+    return <Navigate to="/link-telegram" replace />;
+  }
   return <Outlet />;
 }
 
@@ -96,8 +108,8 @@ export function ManageOnly() {
   if (!canManage(user)) {
     return (
       <section className="panel note">
-        <h1>Только для админа команды</h1>
-        <p>Шаблоны, состав и журнал — у владельца и админа. Очередь, календарь, бюджет и статистика видны всем.</p>
+        <h1>Только для владельца или админа отдела</h1>
+        <p>Платежи, люди и журнал — у владельца и админа отдела. Очередь, календарь, бюджет и статистика видны всем в отделе.</p>
       </section>
     );
   }

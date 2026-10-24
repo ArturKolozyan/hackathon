@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
+import { useFeatures } from "../features";
 import {
   ApiError,
   api,
@@ -55,6 +56,7 @@ function clock(total: number): string {
 }
 
 export function AssistantPage() {
+  const features = useFeatures();
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -78,11 +80,16 @@ export function AssistantPage() {
   const tickRef = useRef<number | null>(null);
 
   useEffect(() => {
+    if (!features.loaded) return;
+    if (!features.assistant || !features.assistant_available) {
+      setReady(true);
+      return;
+    }
     api<AssistantMessage[]>("/api/v1/assistant/messages")
       .then(setMessages)
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"))
+      .catch(() => setError("Ассистент временно недоступен"))
       .finally(() => setReady(true));
-  }, []);
+  }, [features.loaded, features.assistant, features.assistant_available]);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
@@ -124,7 +131,7 @@ export function AssistantPage() {
     } catch (err: unknown) {
       setMessages((current) => current.filter((item) => item.id !== optimistic.id));
       setDraft(cleaned);
-      setError(err instanceof ApiError ? err.message : "Сеть не ответила. Напишите текстом.");
+      setError(err instanceof ApiError && err.status < 500 ? err.message : "Ассистент временно недоступен");
       setLive("");
     } finally {
       setPending(false);
@@ -288,7 +295,22 @@ export function AssistantPage() {
     }
   }
 
-  if (!ready) return <LoadingBlock label="Загрузка ассистента" />;
+  if (!features.loaded || !ready) return <LoadingBlock label="Загрузка ассистента" />;
+  if (!features.assistant) {
+    return (
+      <section className="panel note">
+        <h1>Ассистент на этом сервере не включён</h1>
+      </section>
+    );
+  }
+  if (!features.assistant_available) {
+    return (
+      <section className="panel note">
+        <h1>Ассистент временно недоступен</h1>
+        <p>Платежи, люди и остальные разделы работают.</p>
+      </section>
+    );
+  }
   if (error && messages.length === 0 && !draft) {
     return <ErrorState message={error} onRetry={() => window.location.reload()} />;
   }
@@ -362,18 +384,20 @@ export function AssistantPage() {
             }
           }}
         />
-        <button
-          type="button"
-          className={recording ? "primary mic" : "ghost mic"}
-          aria-pressed={recording}
-          aria-label="Голосовой ввод, до 25 секунд"
-          disabled={transcribing || pending}
-          onPointerDown={onPointerDown}
-          onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-        >
-          {transcribing ? "…" : recording ? clock(seconds) : "Микрофон"}
-        </button>
+        {features.voice && (
+          <button
+            type="button"
+            className={recording ? "primary mic" : "ghost mic"}
+            aria-pressed={recording}
+            aria-label="Голосовой ввод, до 25 секунд"
+            disabled={transcribing || pending}
+            onPointerDown={onPointerDown}
+            onPointerUp={onPointerUp}
+            onPointerCancel={onPointerUp}
+          >
+            {transcribing ? "…" : recording ? clock(seconds) : "Микрофон"}
+          </button>
+        )}
         <button type="submit" className="primary" disabled={pending || !draft.trim()}>
           Отправить
         </button>

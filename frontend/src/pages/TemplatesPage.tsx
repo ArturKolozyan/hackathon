@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ApiError, api, type Member, type Template } from "../api";
+import { ApiError, api, type DirectoryUser, type Template } from "../api";
 import { EmptyState, ErrorState, InlineConfirm, LoadingBlock } from "../components/ui";
 import { formatMoney } from "../format";
 
@@ -8,8 +8,7 @@ type Draft = {
   description: string;
   amount: string;
   currency: string;
-  day_of_month: string;
-  starts_on: string;
+  next_payment_date: string;
   responsible_user_id: string;
 };
 
@@ -18,14 +17,13 @@ const emptyDraft: Draft = {
   description: "",
   amount: "",
   currency: "RUB",
-  day_of_month: "5",
-  starts_on: "",
+  next_payment_date: "",
   responsible_user_id: "",
 };
 
 export function TemplatesPage() {
   const [items, setItems] = useState<Template[]>([]);
-  const [people, setPeople] = useState<Member[]>([]);
+  const [people, setPeople] = useState<DirectoryUser[]>([]);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editing, setEditing] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -37,7 +35,7 @@ export function TemplatesPage() {
   const load = useCallback(async () => {
     const [templates, users] = await Promise.all([
       api<Template[]>(`/api/v1/recurring-payments?include_archived=${showArchived ? "true" : "false"}`),
-      api<Member[]>("/api/v1/users"),
+      api<DirectoryUser[]>("/api/v1/users"),
     ]);
     setItems(templates);
     setPeople(users.filter((person) => person.is_active));
@@ -62,8 +60,8 @@ export function TemplatesPage() {
       description: draft.description.trim() || null,
       amount: draft.amount.replace(",", "."),
       currency: draft.currency,
-      day_of_month: Number(draft.day_of_month),
-      starts_on: draft.starts_on,
+      next_payment_date: draft.next_payment_date,
+      periodicity: "monthly",
       responsible_user_id: draft.responsible_user_id || null,
     };
     try {
@@ -129,19 +127,17 @@ export function TemplatesPage() {
           </select>
         </label>
         <label>
-          День месяца
+          Дата ближайшей оплаты
           <input
-            type="number"
-            min={1}
-            max={31}
-            value={draft.day_of_month}
-            onChange={(event) => update("day_of_month", event.target.value)}
+            type="date"
+            value={draft.next_payment_date}
+            onChange={(event) => update("next_payment_date", event.target.value)}
             required
           />
         </label>
         <label>
-          С какого дня учитывать
-          <input type="date" value={draft.starts_on} onChange={(event) => update("starts_on", event.target.value)} required />
+          Периодичность
+          <input value="Ежемесячно" readOnly />
         </label>
         <label className="span-2">
           Ответственный
@@ -195,7 +191,8 @@ export function TemplatesPage() {
                 <strong className="money">{formatMoney(item.amount, item.currency)}</strong>
               </div>
               <p className="phrase">
-                <span>{item.day_of_month}-е число</span>
+                <span>{item.next_payment_date ? `ближайшая ${item.next_payment_date}` : `${item.day_of_month}-е число`}</span>
+                <span>ежемесячно</span>
                 <span>{item.responsible?.full_name ?? "без ответственного"}</span>
                 <span>
                   {item.open_count} открыто · {item.paid_count} закрыто
@@ -233,8 +230,7 @@ export function TemplatesPage() {
                         description: item.description ?? "",
                         amount: item.amount,
                         currency: item.currency,
-                        day_of_month: String(item.day_of_month),
-                        starts_on: item.starts_on,
+                        next_payment_date: item.next_payment_date ?? item.starts_on,
                         responsible_user_id: item.responsible?.id ?? "",
                       });
                     }}

@@ -74,11 +74,13 @@ def _team_out(db: Session, team_id) -> TeamTelegram:
 
 
 def _require_bot(db: Session) -> str:
+    if not get_settings().telegram_bot_token.strip():
+        raise HTTPException(status_code=503, detail="Telegram не настроен")
     username = bot_username(db)
-    if not get_settings().telegram_bot_token.strip() or not username:
+    if not username:
         raise HTTPException(
             status_code=503,
-            detail="Бот ещё не на связи. Проверьте TELEGRAM_BOT_TOKEN и что worker запущен.",
+            detail="Бот ещё не представился. Подождите, пока контейнер bot вызовет getMe, или задайте TELEGRAM_BOT_USERNAME.",
         )
     return username
 
@@ -122,6 +124,15 @@ def my_link(user: User = Depends(get_current_user), db: Session = Depends(get_db
     username = _require_bot(db)
     token = issue_token(db, purpose="user", user=user)
     return TelegramLinkOut(url=deep_link(username, token.token, group=False), expires_at=token.expires_at)
+
+
+@router.post("/me/telegram/skip", response_model=TelegramSelf, summary="Пропустить привязку Telegram")
+def my_skip(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramSelf:
+    user.telegram_onboarding_done = True
+    user.updated_at = clock.now()
+    db.commit()
+    db.refresh(user)
+    return _self_out(db, user)
 
 
 @router.delete("/me/telegram", response_model=TelegramSelf, summary="Отвязать Telegram")

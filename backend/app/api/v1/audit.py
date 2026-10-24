@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
@@ -12,6 +12,8 @@ router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
 
 def _team_filter(db: Session, ctx: TeamContext):
+    if ctx.user.is_owner:
+        return true()
     member_ids = list(db.scalars(select(Membership.user_id).where(Membership.team_id == ctx.team.id)).all())
     emails = []
     if member_ids:

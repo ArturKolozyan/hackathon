@@ -218,10 +218,12 @@ def _apply_callback(db: Session, bot: BotSender, callback: dict[str, Any]) -> tu
     sender = callback.get("from") if isinstance(callback.get("from"), dict) else {}
     payer = _linked_sender(db, sender)
     if payer is None:
+        _dm_hint(bot, sender)
         return UNLINKED_ALERT, True
     from app.services.teams import membership
 
-    if membership(db, row.team_id, payer.id) is None:
+    if not payer.is_owner and membership(db, row.team_id, payer.id) is None:
+        _dm_hint(bot, sender, "Нет доступа к этому отделу. Попросите владельца добавить вас.")
         return "Нет доступа к этой команде", True
 
     if row.paid_at is None:
@@ -235,6 +237,19 @@ def _apply_callback(db: Session, bot: BotSender, callback: dict[str, Any]) -> tu
         return toast, alert
     _edit_known(db, bot, row, clicked_chat=str(chat_id), clicked_message=int(message_id), private=private)
     return toast, alert
+
+
+def _dm_hint(bot: BotSender, sender: dict[str, Any], text: str | None = None) -> None:
+    from app.services.telegram_links import UNLINKED_ALERT
+    try:
+        tg_id = int(sender.get("id"))
+    except (TypeError, ValueError):
+        return
+    hint = text or UNLINKED_ALERT
+    try:
+        bot.send_message(str(tg_id), hint, {"inline_keyboard": []})
+    except Exception:
+        return
 
 
 def _linked_sender(db: Session, sender: dict[str, Any]) -> User | None:

@@ -6,9 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# ffmpeg — webm с микрофона в ogg opus для SpeechKit. Голосовые Telegram уже ogg.
+# ffmpeg только в образе assistant: webm с микрофона конвертирует он.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tzdata ffmpeg \
+    && apt-get install -y --no-install-recommends tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

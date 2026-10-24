@@ -25,68 +25,74 @@ def _code(caplog, email: str, purpose: str = "register") -> str:
     return found
 
 
-def test_register_confirm_and_block_until_then(client, caplog):
-    caplog.set_level(logging.WARNING, logger="invoice_keeper.mail")
+def test_register_is_closed(client):
     payload = {"email": "new@invoice.local", "full_name": "Новый", "password": "change-me-user"}
-    created = client.post("/api/v1/auth/register", json=payload)
-    assert created.status_code == 201, created.text
-    assert created.json()["delivery"] == "log"
-    blocked = client.post("/api/v1/auth/login", json={"email": payload["email"], "password": payload["password"]})
-    assert blocked.status_code == 403
-    confirmed = client.post(
-        "/api/v1/auth/register/confirm",
-        json={"email": payload["email"], "code": _code(caplog, payload["email"])},
-    )
-    assert confirmed.status_code == 200, confirmed.text
-    assert confirmed.json()["user"]["email_verified"] is True
-    assert client.get("/api/v1/auth/me", headers=_auth(confirmed.json()["access_token"])).status_code == 200
+    assert client.post("/api/v1/auth/register", json=payload).status_code == 404
+    assert client.post("/api/v1/auth/register/confirm", json={"email": payload["email"], "code": "000000"}).status_code == 404
+    assert client.post("/api/v1/join/nope").status_code == 404
 
 
-def test_resend_waits_and_codes_burn(client, caplog, monkeypatch):
+def _person(db, email: str, password: str = "change-me-user") -> None:
+    from app.services.accounts import create_verified_user
+
+    create_verified_user(db, email=email, full_name="Человек", password=password)
+    db.commit()
+
+
+def test_resend_waits_and_codes_burn(client, db_session, caplog, monkeypatch):
     caplog.set_level(logging.WARNING, logger="invoice_keeper.mail")
     email = "wait@invoice.local"
-    assert client.post(
-        "/api/v1/auth/register",
-        json={"email": email, "full_name": "Жду", "password": "change-me-user"},
-    ).status_code == 201
-    assert client.post("/api/v1/auth/register/resend", json={"email": email}).status_code == 429
+    _person(db_session, email)
+    assert client.post("/api/v1/auth/password/forgot", json={"email": email}).status_code == 204
+    assert client.post("/api/v1/auth/password/forgot", json={"email": email}).status_code == 429
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     later = datetime(2026, 10, 23, 12, 2, tzinfo=ZoneInfo("Europe/Moscow"))
     monkeypatch.setattr("app.services.time.now", lambda: later)
-    resent = client.post("/api/v1/auth/register/resend", json={"email": email})
-    assert resent.status_code == 200, resent.text
-    fresh = _code(caplog, email)
+    assert client.post("/api/v1/auth/password/forgot", json={"email": email}).status_code == 204
+    fresh = _code(caplog, email, "reset_password")
     for _ in range(4):
-        bad = client.post("/api/v1/auth/register/confirm", json={"email": email, "code": "000000"})
+        bad = client.post(
+            "/api/v1/auth/password/reset",
+            json={"email": email, "code": "000000", "password": "fresh-pass-1"},
+        )
         assert bad.status_code == 400
-    burned = client.post("/api/v1/auth/register/confirm", json={"email": email, "code": "000000"})
+    burned = client.post(
+        "/api/v1/auth/password/reset",
+        json={"email": email, "code": "000000", "password": "fresh-pass-1"},
+    )
     assert burned.status_code == 400
     assert "много" in burned.json()["detail"]
-    missed = client.post("/api/v1/auth/register/confirm", json={"email": email, "code": fresh})
+    missed = client.post(
+        "/api/v1/auth/password/reset",
+        json={"email": email, "code": fresh, "password": "fresh-pass-1"},
+    )
     assert missed.status_code == 400
 
 
-def test_code_expires(client, caplog, monkeypatch):
+def test_code_expires(client, db_session, caplog, monkeypatch):
     caplog.set_level(logging.WARNING, logger="invoice_keeper.mail")
     email = "old@invoice.local"
-    client.post("/api/v1/auth/register", json={"email": email, "full_name": "Старый", "password": "change-me-user"})
-    code = _code(caplog, email)
+    _person(db_session, email)
+    client.post("/api/v1/auth/password/forgot", json={"email": email})
+    code = _code(caplog, email, "reset_password")
     from datetime import datetime
     from zoneinfo import ZoneInfo
 
     monkeypatch.setattr("app.services.time.now", lambda: datetime(2026, 10, 23, 12, 20, tzinfo=ZoneInfo("Europe/Moscow")))
-    expired = client.post("/api/v1/auth/register/confirm", json={"email": email, "code": code})
+    expired = client.post(
+        "/api/v1/auth/password/reset",
+        json={"email": email, "code": code, "password": "fresh-pass-1"},
+    )
     assert expired.status_code == 400
 
 
-def test_reset_clears_lock(client, caplog, monkeypatch):
+def test_reset_clears_lock(client, db_session, caplog, monkeypatch):
     caplog.set_level(logging.WARNING, logger="invoice_keeper.mail")
     email = "reset@invoice.local"
     password = "change-me-user"
-    client.post("/api/v1/auth/register", json={"email": email, "full_name": "Сброс", "password": password})
-    client.post("/api/v1/auth/register/confirm", json={"email": email, "code": _code(caplog, email)})
+    _person(db_session, email, password)
     for _ in range(5):
         assert client.post("/api/v1/auth/login", json={"email": email, "password": "wrong-pass"}).status_code == 401
     locked = client.post("/api/v1/auth/login", json={"email": email, "password": password})
@@ -111,14 +117,11 @@ def test_reset_clears_lock(client, caplog, monkeypatch):
     assert client.post("/api/v1/auth/login", json={"email": email, "password": "fresh-pass-1"}).status_code == 200
 
 
-def test_profile_name_password_email(client, caplog):
+def test_profile_name_password_email(client, db_session, caplog):
     caplog.set_level(logging.WARNING, logger="invoice_keeper.mail")
     email = "profile@invoice.local"
-    client.post("/api/v1/auth/register", json={"email": email, "full_name": "Профиль", "password": "change-me-user"})
-    token = client.post(
-        "/api/v1/auth/register/confirm",
-        json={"email": email, "code": _code(caplog, email)},
-    ).json()["access_token"]
+    _person(db_session, email)
+    token = client.post("/api/v1/auth/login", json={"email": email, "password": "change-me-user"}).json()["access_token"]
     headers = _auth(token)
     renamed = client.patch("/api/v1/me", headers=headers, json={"full_name": "Другое имя"})
     assert renamed.status_code == 200
@@ -151,7 +154,7 @@ def test_profile_name_password_email(client, caplog):
     assert client.post("/api/v1/auth/login", json={"email": "next@invoice.local", "password": "another-pass"}).status_code == 200
 
 
-def test_register_does_not_wait_on_smtp(client, monkeypatch):
+def test_register_does_not_wait_on_smtp(client, db_session, monkeypatch):
     monkeypatch.setenv("SMTP_HOST", "smtp.beget.com")
     monkeypatch.setenv("SMTP_PORT", "2525")
     monkeypatch.setenv("SMTP_TLS", "true")
@@ -185,14 +188,11 @@ def test_register_does_not_wait_on_smtp(client, monkeypatch):
         raise AssertionError("порт 465 не используется")
 
     monkeypatch.setattr("app.integrations.email.smtplib.SMTP_SSL", refuse_ssl)
+    _person(db_session, "bg@invoice.local")
     started = time.perf_counter()
-    created = client.post(
-        "/api/v1/auth/register",
-        json={"email": "bg@invoice.local", "full_name": "Фон", "password": "change-me-user"},
-    )
+    created = client.post("/api/v1/auth/password/forgot", json={"email": "bg@invoice.local"})
     elapsed = time.perf_counter() - started
-    assert created.status_code == 201, created.text
-    assert created.json()["delivery"] == "smtp"
+    assert created.status_code == 204, created.text
     assert elapsed < 1
     flush_auth_mail(3)
     assert seen["port"] == 2525
