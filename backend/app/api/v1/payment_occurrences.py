@@ -74,13 +74,13 @@ def list_occurrences(
     return OccurrenceList(timezone=settings.timezone, today=today, soon_days=settings.soon_days, items=items)
 
 
-@router.get("/{occurrence_id}", response_model=OccurrenceOut, summary="Карточка периода")
+@router.get("/{id}", response_model=OccurrenceOut, summary="Карточка периода")
 def get_occurrence(
-    occurrence_id: UUID,
+    id: UUID,
     ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> OccurrenceOut:
-    return view_one(db, occurrence_id, ctx.team.id)
+    return view_one(db, id, ctx.team.id)
 
 
 def _apply_paid_at(raw: str | None) -> datetime:
@@ -202,14 +202,14 @@ def revoke(
     return view_one(db, occurrence_id, ctx.team.id)
 
 
-@router.patch("/{occurrence_id}", response_model=OccurrenceOut, summary="Дата, заметка или чек периода")
+@router.patch("/{id}", response_model=OccurrenceOut, summary="Дата, заметка или чек периода")
 def patch_occurrence(
-    occurrence_id: UUID,
+    id: UUID,
     payload: OccurrencePatch,
     ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> OccurrenceOut:
-    occurrence = require_occurrence(db, occurrence_id, ctx.team.id)
+    occurrence = require_occurrence(db, id, ctx.team.id)
     data = payload.model_dump(exclude_unset=True)
     previous = occurrence.paid_at
     if "paid_at" in data:
@@ -239,4 +239,4 @@ def patch_occurrence(
             team_id=occurrence.team_id,
         )
     db.commit()
-    return view_one(db, occurrence_id, ctx.team.id)
+    return view_one(db, id, ctx.team.id)

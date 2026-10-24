@@ -15,6 +15,7 @@ class RecurringPayment(Base):
         CheckConstraint("currency in ('RUB', 'USD', 'EUR')", name="ck_recurring_payments_currency"),
         CheckConstraint("day_of_month between 1 and 31", name="ck_recurring_payments_day"),
         CheckConstraint("amount > 0", name="ck_recurring_payments_amount"),
+        CheckConstraint("periodicity = 'monthly'", name="ck_recurring_payments_periodicity"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -25,6 +26,7 @@ class RecurringPayment(Base):
     currency: Mapped[str] = mapped_column(String(3))
     day_of_month: Mapped[int] = mapped_column(Integer)
     starts_on: Mapped[date] = mapped_column(Date)
+    periodicity: Mapped[str] = mapped_column(String(16), default="monthly", server_default="monthly")
     responsible_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

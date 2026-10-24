@@ -18,6 +18,9 @@ def serve() -> None:
 
     wait_for_db()
     migrate()
+    from app.services.owner import ensure_owner
+
+    ensure_owner()
     from app.integrations.email import smtp_host_configured
 
     # fileConfig в alembic выключает логгеры, созданные до миграции, в том числе httpx.
@@ -33,26 +36,58 @@ def serve() -> None:
     uvicorn.run("app.main:app", host="0.0.0.0", port=8000, proxy_headers=True, forwarded_allow_ips="*")
 
 
-def worker() -> None:
+def _wait_and(run) -> None:
     from app.core.logging import configure_logging
 
     configure_logging()
     from app.core.database import wait_for_db, wait_for_schema
-    from app.worker import run
 
     wait_for_db()
     wait_for_schema()
     run()
 
 
+def worker() -> None:
+    from app.worker import run
+
+    _wait_and(run)
+
+
+def bot() -> None:
+    from app.bot_runner import run
+
+    _wait_and(run)
+
+
+def assistant() -> None:
+    from app.core.logging import configure_logging
+
+    configure_logging()
+    from app.core.database import wait_for_db, wait_for_schema
+
+    wait_for_db()
+    wait_for_schema()
+    import uvicorn
+
+    from app.core.config import get_settings
+
+    port = get_settings().assistant_port
+    uvicorn.run(
+        "app.assistant_main:app",
+        host="0.0.0.0",
+        port=port,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+    )
+
+
 def main() -> None:
     command_name = sys.argv[1] if len(sys.argv) > 1 else "serve"
-    if command_name == "serve":
-        serve()
-    elif command_name == "worker":
-        worker()
-    else:
+    commands = {"serve": serve, "worker": worker, "bot": bot, "assistant": assistant}
+    fn = commands.get(command_name)
+    if fn is None:
         raise SystemExit(f"unknown command: {command_name}")
+    fn()
 
 
 if __name__ == "__main__":

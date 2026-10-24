@@ -2,7 +2,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.schemas.common import Money, UserBrief
 
@@ -23,9 +23,25 @@ class RecurringCreate(BaseModel):
     description: str | None = None
     amount: Decimal
     currency: str
-    day_of_month: int = Field(ge=1, le=31)
-    starts_on: date
+    day_of_month: int | None = Field(default=None, ge=1, le=31)
+    starts_on: date | None = None
+    next_payment_date: date | None = None
+    periodicity: str = "monthly"
     responsible_user_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def fill_schedule(self) -> "RecurringCreate":
+        label = (self.periodicity or "").strip().lower()
+        if label in {"ежемесячно", "monthly"}:
+            self.periodicity = "monthly"
+        else:
+            raise ValueError("Периодичность: ежемесячно")
+        if self.next_payment_date is not None:
+            self.day_of_month = self.next_payment_date.day
+            self.starts_on = self.next_payment_date
+        if self.day_of_month is None or self.starts_on is None:
+            raise ValueError("Укажите дату ближайшей оплаты")
+        return self
 
     @field_validator("title")
     @classmethod
@@ -64,6 +80,8 @@ class RecurringUpdate(BaseModel):
     currency: str | None = None
     day_of_month: int | None = Field(default=None, ge=1, le=31)
     starts_on: date | None = None
+    next_payment_date: date | None = None
+    periodicity: str | None = None
     responsible_user_id: UUID | None = None
     is_archived: bool | None = None
 
@@ -102,6 +120,16 @@ class RecurringUpdate(BaseModel):
             raise ValueError("Валюта: RUB, USD или EUR")
         return normalized
 
+    @field_validator("periodicity")
+    @classmethod
+    def check_periodicity(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        label = value.strip().lower()
+        if label in {"ежемесячно", "monthly"}:
+            return "monthly"
+        raise ValueError("Периодичность: ежемесячно")
+
 
 class RecurringOut(BaseModel):
     id: UUID
@@ -111,6 +139,8 @@ class RecurringOut(BaseModel):
     currency: str
     day_of_month: int
     starts_on: date
+    next_payment_date: date | None = None
+    periodicity: str = "monthly"
     is_archived: bool
     responsible: UserBrief | None = None
     open_count: int

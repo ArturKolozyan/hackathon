@@ -15,6 +15,9 @@ def bootstrap_owner(
     db = SessionLocal()
     try:
         user = create_verified_user(db, email=email, full_name=name, password=password)
+        user.is_owner = True
+        user.telegram_onboarding_done = True
+        db.flush()
         create_team(db, user, team)
         db.commit()
         db.refresh(user)
@@ -34,10 +37,13 @@ def add_person(
 ) -> User:
     from app.models import Membership
 
+    from sqlalchemy import select
+
     user = create_verified_user(db, email=email, full_name=name, password=password)
     home = team or db.query(Team).one()
-    owner = db.query(Membership).filter(Membership.team_id == home.id, Membership.role == "owner").one()
-    actor = db.get(User, owner.user_id)
+    actor = db.scalar(select(User).where(User.is_owner.is_(True)))
+    if actor is None:
+        raise RuntimeError("нет владельца")
     add_member(db, home, user, role, actor=actor)
     db.flush()
     return user

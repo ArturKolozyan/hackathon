@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, UniqueConstraint, Uuid, func, text
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint, Uuid, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -23,18 +23,12 @@ class Team(Base):
 
 
 class Membership(Base):
-    """Роль живёт на членстве, не на пользователе. Владелец в команде ровно один."""
+    """Роль в отделе: admin или member. Владелец организации — users.is_owner, не здесь."""
 
     __tablename__ = "memberships"
     __table_args__ = (
         UniqueConstraint("team_id", "user_id", name="uq_memberships_team_user"),
-        CheckConstraint("role in ('owner', 'admin', 'member')", name="ck_memberships_role"),
-        Index(
-            "uq_memberships_one_owner",
-            "team_id",
-            unique=True,
-            postgresql_where=text("role = 'owner'"),
-        ),
+        CheckConstraint("role in ('admin', 'member')", name="ck_memberships_role"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)

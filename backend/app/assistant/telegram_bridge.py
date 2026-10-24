@@ -14,8 +14,11 @@ from fastapi import HTTPException
 from app.assistant.actions import load_for_user, perform
 from app.assistant.chat import remember_telegram, run_turn
 from app.assistant.speech import SpeechError, recognize
+from app.core.config import get_settings
+from app.core.security import issue_session
 from app.integrations.telegram import TelegramError
 from app.models import User
+from app.schemas.assistant import MessageOut
 from app.services.access import resolve_team
 from app.services.telegram_links import UNLINKED_ALERT
 
@@ -28,6 +31,8 @@ VOICE_BIG = "Голосовое больше 1 МБ. Скажи короче и�
 EDIT_HINT = "Напиши, что поменять: сумму, день, название или ответственного. Карточка ждёт подтверждения."
 COMMAND_HINT = "Напиши обычной фразой. Например: что горит на этой неделе?"
 NO_TEAM = "Сначала создайте или вступите в команду в rekeeper."
+UNAVAILABLE = "Ассистент временно недоступен"
+OFF = "Это бот напоминаний. Ассистент на этом сервере не включён."
 
 
 def assistant_keyboard(action_id: uuid.UUID) -> dict[str, Any]:
@@ -92,7 +97,7 @@ def handle_private_message(db: Session, bot: Any, message: dict[str, Any]) -> No
     voice = message.get("voice") if isinstance(message.get("voice"), dict) else None
     text = message.get("text") if isinstance(message.get("text"), str) else ""
     if voice is not None:
-        heard, error = _transcribe(bot, voice)
+        heard, error = _transcribe(db, user, bot, voice)
         if error:
             _send(bot, str(chat_id), error, EMPTY)
             return
@@ -103,12 +108,22 @@ def handle_private_message(db: Session, bot: Any, message: dict[str, Any]) -> No
     if stripped.startswith("/"):
         _send(bot, str(chat_id), COMMAND_HINT, EMPTY)
         return
-    try:
-        reply = run_turn(db, ctx, stripped)
-    except Exception:
-        log.exception("assistant turn failed")
-        _send(bot, str(chat_id), "Ассистент сейчас недоступен. Повтори фразу.", EMPTY)
+    settings = get_settings()
+    if not settings.assistant_configured:
+        _send(bot, str(chat_id), OFF, EMPTY)
         return
+    if settings.assistant_url.strip():
+        reply = _remote_turn(db, user, stripped, settings.assistant_url.strip())
+        if reply is None:
+            _send(bot, str(chat_id), UNAVAILABLE, EMPTY)
+            return
+    else:
+        try:
+            reply = run_turn(db, ctx, stripped)
+        except Exception:
+            log.exception("assistant turn failed")
+            _send(bot, str(chat_id), UNAVAILABLE, EMPTY)
+            return
     markup = EMPTY
     if reply.action is not None and reply.action.status == "pending":
         markup = assistant_keyboard(reply.action.id)
@@ -117,7 +132,27 @@ def handle_private_message(db: Session, bot: Any, message: dict[str, Any]) -> No
         remember_telegram(db, reply.action.id, str(chat_id), message_id)
 
 
-def _transcribe(bot: Any, voice: dict[str, Any]) -> tuple[str, str | None]:
+def _remote_turn(db: Session, user: User, text: str, url: str) -> MessageOut | None:
+    import httpx
+
+    token = issue_session(db, user)
+    db.commit()
+    try:
+        response = httpx.post(
+            f"{url.rstrip('/')}/api/v1/assistant/messages",
+            params={"stream": "false"},
+            json={"text": text},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        return MessageOut.model_validate(response.json())
+    except Exception:
+        log.warning("assistant http failed")
+        return None
+
+
+def _transcribe(db: Session, user: User, bot: Any, voice: dict[str, Any]) -> tuple[str, str | None]:
     duration = voice.get("duration")
     if isinstance(duration, int) and duration > 30:
         return "", VOICE_LONG
@@ -129,14 +164,47 @@ def _transcribe(bot: Any, voice: dict[str, Any]) -> tuple[str, str | None]:
         return "", "Не получилось скачать голосовое. Напиши текстом."
     try:
         audio = bot.download_voice(file_id)
+    except TelegramError:
+        return "", "Не получилось скачать голосовое. Напиши текстом."
+    settings = get_settings()
+    url = settings.assistant_url.strip()
+    if url:
+        heard = _remote_speech(db, user, audio, url)
+        if heard is None:
+            return "", UNAVAILABLE
+        return heard, None
+    try:
         return recognize(audio, "audio/ogg"), None
     except SpeechError as exc:
         return "", exc.detail
-    except TelegramError:
-        return "", "Не получилось скачать голосовое. Напиши текстом."
     except Exception:
         log.exception("telegram voice failed")
         return "", "Не получилось распознать голосовое. Напиши текстом."
+
+
+def _remote_speech(db: Session, user: User, audio: bytes, url: str) -> str | None:
+    """ffmpeg живёт в контейнере assistant. Бот только отдаёт уже ogg и сессию пользователя."""
+    import httpx
+
+    token = issue_session(db, user)
+    db.commit()
+    try:
+        response = httpx.post(
+            f"{url.rstrip('/')}/api/v1/assistant/speech",
+            files={"file": ("voice.ogg", audio, "audio/ogg")},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15.0,
+        )
+        if response.status_code >= 400:
+            log.warning("assistant speech http %s", response.status_code)
+            return None
+        text = response.json().get("text")
+        if not isinstance(text, str) or not text.strip():
+            return None
+        return text.strip()
+    except Exception:
+        log.warning("assistant speech unreachable")
+        return None
 
 
 def handle_assistant_callback(db: Session, bot: Any, callback: dict[str, Any]) -> None:

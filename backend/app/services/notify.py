@@ -1,8 +1,7 @@
 """Один пайплайн событий периода для email, webhook и Telegram.
 
-Telegram подключается через app.integrations.telegram.deliver.
-NotImplementedError — транспорта нет: канал пропускается и не помечается,
-следующий тик попробует снова. Другая ошибка — сбой сети, тоже без пометки.
+Telegram worker не вызывает: строка notification_deliveries со статусом pending.
+Контейнер bot забирает очередь. Письмо и webhook уходят отсюда и помечаются sent.
 """
 
 import logging
@@ -79,20 +78,17 @@ def _mark(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recip
         return
 
 
-def _telegram(text: str, occurrence: PaymentOccurrence, event: str, *, chat_id: str, slot: str) -> str:
-    token = get_settings().telegram_bot_token.strip()
-    if not token or not chat_id:
-        return "skipped"
-    try:
-        from app.integrations import telegram
+def _telegram(
+    db: Session,
+    occurrence: PaymentOccurrence,
+    event: str,
+    *,
+    chat_id: str,
+    recipient: str,
+) -> str:
+    from app.services.outbox import enqueue_telegram
 
-        telegram.deliver(text, chat_id=chat_id, occurrence_id=str(occurrence.id), event=event, slot=slot)
-    except NotImplementedError:
-        return "skipped"
-    except Exception:
-        log.exception("telegram channel failed")
-        return "failed"
-    return "sent"
+    return enqueue_telegram(db, occurrence, event, recipient=recipient, chat_id=chat_id)
 
 
 def _team_webhook(db: Session, team_id: uuid.UUID) -> str:
@@ -111,7 +107,7 @@ def _user_by_recipient(db: Session, recipient: str) -> User | None:
     return db.get(User, user_id)
 
 
-def _personal_plan(db: Session, occurrence: PaymentOccurrence) -> list[tuple[str, str]]:
+def _personal_plan(db: Session, occurrence: PaymentOccurrence, event: str) -> list[tuple[str, str]]:
     template = occurrence.template
     responsible_id = template.responsible_user_id if template is not None else None
     seats = db.scalars(
@@ -125,19 +121,25 @@ def _personal_plan(db: Session, occurrence: PaymentOccurrence) -> list[tuple[str
         user = seat.user
         if user is None:
             continue
-        if wants_email(db, user, occurrence.team_id):
+        responsible = user.id == responsible_id
+        if wants_email(db, user, occurrence.team_id, responsible=responsible, event=event):
             item = ("email", f"user:{user.id}")
             if item not in seen:
                 seen.add(item)
                 plan.append(item)
-        if wants_telegram(db, user, occurrence.team_id, responsible=user.id == responsible_id):
+        if wants_telegram(db, user, occurrence.team_id, responsible=responsible, event=event):
             item = ("telegram", f"user:{user.id}")
             if item not in seen:
                 seen.add(item)
                 plan.append(item)
     responsible = template.responsible if template is not None else None
     if responsible is not None and responsible.id == responsible_id and responsible.id not in {seat.user_id for seat in seats}:
-        if wants_telegram(db, responsible, occurrence.team_id, responsible=True):
+        if wants_email(db, responsible, occurrence.team_id, responsible=True, event=event):
+            item = ("email", f"user:{responsible.id}")
+            if item not in seen:
+                seen.add(item)
+                plan.append(item)
+        if wants_telegram(db, responsible, occurrence.team_id, responsible=True, event=event):
             item = ("telegram", f"user:{responsible.id}")
             if item not in seen:
                 plan.append(item)
@@ -154,7 +156,7 @@ def _plan(db: Session, occurrence: PaymentOccurrence, event: str) -> list[tuple[
     if event not in _LIVE:
         return plan
     plan.append(("telegram", TEAM_RECIPIENT))
-    plan.extend(_personal_plan(db, occurrence))
+    plan.extend(_personal_plan(db, occurrence, event))
     return plan
 
 
@@ -179,16 +181,13 @@ def _send(
         return send_team_webhook(_team_webhook(db, occurrence.team_id), payload)
     if channel != "telegram":
         return "skipped"
-    from app.services.telegram_cards import telegram_text
-
-    text = telegram_text(occurrence)
     if recipient == TEAM_RECIPIENT:
         chat_id, _source = resolve_team_chat_id(db, occurrence.team_id)
-        return _telegram(text, occurrence, event, chat_id=chat_id or "", slot="team")
+        return _telegram(db, occurrence, event, chat_id=chat_id or "", recipient=recipient)
     user = _user_by_recipient(db, recipient)
     if user is None or user.telegram_user_id is None:
         return "skipped"
-    return _telegram(text, occurrence, event, chat_id=str(user.telegram_user_id), slot="dm")
+    return _telegram(db, occurrence, event, chat_id=str(user.telegram_user_id), recipient=recipient)
 
 
 def fanout(db: Session, occurrence: PaymentOccurrence, event: str) -> int:
@@ -202,6 +201,9 @@ def fanout(db: Session, occurrence: PaymentOccurrence, event: str) -> int:
         except Exception:
             log.exception("channel %s failed", channel)
             result = "failed"
+        if result == "queued":
+            sent += 1
+            continue
         if result == "sent":
             _mark(db, occurrence.id, event, channel, recipient)
             sent += 1

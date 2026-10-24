@@ -39,9 +39,13 @@ def get_team_context(
     db: Session = Depends(get_db),
     x_team_id: Annotated[UUID | None, Header(alias="X-Team-Id")] = None,
 ) -> TeamContext:
+    if user.must_change_password:
+        raise HTTPException(status_code=403, detail="Сначала смените пароль")
     ctx = resolve_team(db, user, x_team_id)
     if ctx is None:
-        raise HTTPException(status_code=409, detail="Сначала создайте или вступите в команду")
+        if user.is_owner:
+            raise HTTPException(status_code=409, detail="Сначала создайте отдел")
+        raise HTTPException(status_code=409, detail="Вас ещё не добавили в отдел")
     return ctx
 
 

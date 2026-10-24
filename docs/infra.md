@@ -25,7 +25,7 @@
 | Домен | `rekeeper.ru` (Beget). Канонический адрес — https://rekeeper.ru |
 | Путь | `/opt/invoice-keeper` |
 | Публичные порты | **80** и **443** (Caddy). `443/udp` — HTTP/3 |
-| Авария | nginx только на `127.0.0.1:8080`. В интернет 8080 не открыт |
+| Авария | Caddy на `HTTP_PORT` (прод: 80). Панель снаружи — https://rekeeper.ru |
 
 ## Домен и HTTPS
 
@@ -54,41 +54,41 @@ Caddy сжимает ответ (`gzip` и `zstd`). Nginx свой gzip не в�
 |--|--|
 | Сайт | https://rekeeper.ru |
 | www | 301 на https://rekeeper.ru |
-| На самом VPS | http://127.0.0.1:8080 — только loopback |
+| На самом VPS | http://127.0.0.1/healthz при `HTTP_PORT=80` |
 | PTR | не URL |
 
 Аварийный вход, если Caddy или сертификат лежат:
 
 ```bash
-ssh -L 8080:127.0.0.1:8080 root@217.144.184.232
+ssh -L 8080:127.0.0.1:80 root@217.144.184.232
 ```
 
 Дальше в браузере http://127.0.0.1:8080. При `COOKIE_SECURE=true` браузер по этому HTTP сессию не сохранит: туннель годится, чтобы увидеть health и страницу входа. Логин в браузере — через https://rekeeper.ru. Если https мёртв и зайти надо именно так: на сервере временно `COOKIE_SECURE=false`, пересоздать `api`, зайти, вернуть `true` и снова пересоздать `api`.
 
-Локально панель: http://localhost:8080, без Caddy. Команда в [README](../README.md). Полный `docker compose up` на ноутбуке полезет в Let's Encrypt за `rekeeper.ru` и может на час забить лимит неудачных попыток (5 на имя в час) перед первым выпуском на VPS.
+Локально панель: http://localhost:8080. `DOMAIN` пустой — Caddy отдаёт HTTP и в Let's Encrypt не ходит. Команда одна: `docker compose up --build -d`, см. [README](../README.md). На ноутбуке не задавайте `DOMAIN=rekeeper.ru`: выпуск сертификата с чужой машины бьёт лимит Let's Encrypt.
 
 ## Порты
 
 | Куда | Кто |
 |------|-----|
-| 80, 443/tcp, 443/udp | Caddy → `web:80` |
-| 127.0.0.1:8080 | nginx. Авария и health деплоя |
-| 127.0.0.1:8000 | API мимо nginx |
-| 127.0.0.1:5432 | Postgres. Worker в сети хоста подключается сюда |
+| 80, 443/tcp, 443/udp | Caddy. На проде `HTTP_PORT=80`, `HTTPS_PORT=443`. Локально по умолчанию 8080 и 8443 |
+| `HTTP_PORT` на хосте | единственный вход в панель. `web` наружу не публикуется |
+| 127.0.0.1:8000 | API мимо Caddy (`API_PORT`) |
+| 127.0.0.1:5432 | Postgres |
 
-Раньше 5432, 8000 и 8080 слушали `0.0.0.0` и `[::]`. Снаружи это лишнее: Postgres и API были доступны из интернета. Проверки внутри контейнеров ходят сами в себя (`pg_isready`, API на `127.0.0.1:8000`) и от bind хоста не зависят.
+`web` больше не слушает 8080 сам. Аварийный туннель на проде: `ssh -L 8080:127.0.0.1:80`, затем http://127.0.0.1:8080. Health Caddy — `http://127.0.0.1/healthz` при `HTTP_PORT=80`.
 
-На VPS не задавать `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT`. Иначе ACME стучится на 80, а Caddy слушает другой порт. Не задавать `COMPOSE_FILE`: деплой и так передаёт оба файла флагами `-f`. Если переменная всё же стоит, ручной `docker compose up` без флагов возьмёт её вместо обычного набора и может поднять стек без Caddy или без worker.
+Не задавать `COMPOSE_FILE`. Раньше он подключал `compose.telegram-host.yml`; файла больше нет, забытая строка ломает `docker compose up`. Не задавать старые `CADDY_HTTP_PORT` / `CADDY_HTTPS_PORT` / `WEB_PORT`: порты теперь `HTTP_PORT` и `HTTPS_PORT`.
 
 ## Telegram с этого VPS
 
 - IPv4 → `api.telegram.org` — таймаут. С хоста это проверено.
-- IPv6 → API отвечает (`curl -6` на `https://api.telegram.org` даёт ответ). Клиент в worker сажает сокет на `::`, когда `TELEGRAM_FORCE_IPV6=true`.
-- Транспорт — long polling, не webhook. Токен и chat id только в `.env` на сервере.
-- Чат команды и личный Telegram привязываются из веба. `TELEGRAM_CHAT_ID` — только запасной.
-- У bridge Docker на этом хосте нет маршрута IPv6 в интернет (`docker info` без IPv6). Worker поэтому в `network_mode: host` ([compose.telegram-host.yml](../compose.telegram-host.yml)): у него тот же IPv6, что у VPS (`2a14:a084:12e3::2`).
-- `api`, `web` и `caddy` остаются в bridge. Caddy резолвит имя `web`. Им IPv6 не нужен.
-- Postgres для worker — `127.0.0.1:5432`, не имя `db` (в сети хоста его нет). На VPS включён docker-proxy, и worker уже так ходит. Публикация порта только на `127.0.0.1` этот путь не меняет: proxy слушает loopback, контейнер в host network — тот же loopback. В URL именно `127.0.0.1`, не `localhost`: `localhost` может уехать на `::1`, а порт на `[::1]` не публикуется.
+- IPv6 → API отвечает (`curl -6` на `https://api.telegram.org`).
+- Транспорт — long polling в контейнере `bot`, не webhook и не сеть хоста. `api` и `worker` в Telegram не ходят: worker кладёт карточки в outbox, бот забирает.
+- Чат отдела и личный Telegram привязываются из панели. `TELEGRAM_CHAT_ID` — запасной, только если отдел один.
+- Сеть compose по умолчанию без IPv6 (`ENABLE_IPV6=false`), чтобы машины без IPv6 поднимались. На этом VPS в `.env`: `ENABLE_IPV6=true` и `TELEGRAM_NETWORK=ipv6`. `TELEGRAM_FORCE_IPV6=true` остаётся устаревшим алиасом, если сеть не задана.
+- Отдельного `compose.telegram-host.yml` нет. Если bridge IPv6 не выходит в интернет, запасной путь — `TELEGRAM_PROXY`, не `network_mode: host`.
+- Бот ходит в Postgres по имени `db`, как остальные сервисы. `depends_on` на бота и ассистента нет.
 
 ## Деплой
 
@@ -101,30 +101,23 @@ Push в `main`, pull request и ручной `workflow_dispatch` → [`.github/w
 | `backend` | Python 3.12, `pytest` в `backend/`. Postgres 16 — service GitHub Actions, `127.0.0.1:5432`, пользователь `invoice` / `change-me`. Тесты сами создают базу `invoice_keeper_test` |
 | `web` | Node 22, `npm ci` и `npm run build` (`tsc --noEmit` и vite) в `frontend/` |
 | `backup-script` | `sh ops/backup/selftest.sh`: полночь МСК и ротация 7 файлов, без живой базы |
+| `smoke` | `sh ops/smoke.sh`: чистый `.env.example`, `docker compose up --build -d`, вход владельца, эндпоинты кейса, рестарт, остановленный `bot`, ассистент выключен без ключей и недоступен после `stop assistant` |
 
-Деплой по-прежнему выкладывает `origin/main`, не SHA workflow: на сервере `git reset --hard origin/main`.
+Деплой на сервере делает ровно то, что README: `git pull --ff-only origin main` и `docker compose up --build -d`. Отдельных `-f` нет.
 
 SSH:
 
 ```bash
 cd /opt/invoice-keeper
-git fetch origin main
-git reset --hard origin/main
-docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
-curl -fsS http://127.0.0.1:8080/api/v1/health
-curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: rekeeper.ru' http://127.0.0.1/
+git pull --ff-only origin main
+docker compose up --build -d
+curl -fsS http://127.0.0.1/healthz
+curl -fsS https://rekeeper.ru/api/v1/health
 ```
 
-Оба `-f` прописаны в workflow. `COMPOSE_FILE` в серверном `.env` для этого не используется: файл деплой не меняет, забытая строка оставила бы worker в bridge, health по HTTP остался бы зелёным, Telegram — нет.
+`COMPOSE_FILE` в серверном `.env` надо удалить. Иначе compose подхватит исчезнувший override.
 
-Workflow около трёх минут ждёт четыре условия:
-
-1. `http://127.0.0.1:8080/api/v1/health` — тело непустое (nginx и API).
-2. Caddy на `:80` с `Host: rekeeper.ru` — код 200, 301, 302, 307 или 308. До сертификата это обычно **308** на https.
-3. Контейнер `worker` в статусе `running` и `NetworkMode=host`.
-4. Контейнер `backup` в статусе `running` и в `backups/` есть хотя бы один `invoice-keeper-*.dump`. При старте контейнер сам догоняет дамп за сегодня, если файла ещё нет.
-
-`https://rekeeper.ru` и `curl -k` в эту петлю не входят. Пока сертификат не выпущен, такой curl роняет выкладку, хотя приложение живо. `-k` принимает любой сертификат и не доказывает Let's Encrypt.
+Health-wait читает `HTTP_PORT` из серверного `.env` (на проде 80). Ждёт `http://127.0.0.1:${HTTP_PORT}/healthz`. Если `DOMAIN` пустой — ещё и `/api/v1/health`. Если домен задан, https проверяется, но первый выпуск сертификата эту проверку не роняет. Контейнер `backup` по-прежнему поднимается вместе со стеком.
 
 Когда A смотрит на VPS и выпуск прошёл:
 
@@ -135,7 +128,7 @@ curl -sI https://www.rekeeper.ru/api/v1/health
 
 Второй ответ — `301` и `Location: https://rekeeper.ru/api/v1/health`.
 
-`.env` в git нет: `reset --hard` его не трогает, `git clean` деплой не делает. Репозиторий публичный — для `git fetch` хватает `origin` = `https://github.com/ArturKolozyan/hackathon.git`.
+`.env` в git нет: `git pull --ff-only` его не трогает, `git clean` деплой не делает. Репозиторий публичный — для `git fetch` хватает `origin` = `https://github.com/ArturKolozyan/hackathon.git`.
 
 Actions ходит **ключом**, не паролем из таблицы SSH.
 
@@ -162,12 +155,22 @@ CORS_ORIGINS=https://rekeeper.ru
 APP_PUBLIC_URL=https://rekeeper.ru
 ```
 
-Остальное не трогать ради этого куска: `WEB_PORT=8080`, `TELEGRAM_FORCE_IPV6=true`, токен бота как был. `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT`, `COMPOSE_FILE` не задавать.
+К этим строкам один раз добавить переход на общий compose. Удалить `COMPOSE_FILE`, `WEB_PORT`, `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT`. Выставить:
+
+```
+DOMAIN=rekeeper.ru
+HTTP_PORT=80
+HTTPS_PORT=443
+ENABLE_IPV6=true
+TELEGRAM_NETWORK=ipv6
+```
+
+Токен бота оставить. Если ключ GigaChat уже есть — `COMPOSE_PROFILES=assistant`, иначе профиль пустой. `SEED_DEMO=false`, пока в базе есть отделы. Том `caddy_data` не удалять.
 
 `COOKIE_SECURE=true` API читает при старте. Если поправить `.env` после того, как workflow уже пересоздал контейнеры, нужен ещё один прогон:
 
 ```bash
-docker compose -f docker-compose.yml -f compose.telegram-host.yml up -d api worker
+docker compose up -d api worker bot
 ```
 
 Порядок без второго захода: сначала эти три строки, потом мерж.
@@ -185,21 +188,21 @@ git clone https://github.com/ArturKolozyan/hackathon.git /opt/invoice-keeper
 cd /opt/invoice-keeper
 cp .env.example .env
 # затем три строки прода из раздела выше
-docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
-curl -fsS http://127.0.0.1:8080/api/v1/health
+docker compose up --build -d
+curl -fsS http://127.0.0.1/healthz
 ```
 
 ### Ручной деплой
 
 ```bash
 ssh root@217.144.184.232
-cd /opt/invoice-keeper && git fetch origin main && git reset --hard origin/main && docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d
-curl -fsS http://127.0.0.1:8080/api/v1/health
-curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: rekeeper.ru' http://127.0.0.1/
-docker inspect -f '{{.HostConfig.NetworkMode}}' "$(docker compose -f docker-compose.yml -f compose.telegram-host.yml ps -q worker)"
+cd /opt/invoice-keeper && git pull --ff-only origin main && docker compose up --build -d
+curl -fsS http://127.0.0.1/healthz
+curl -fsS https://rekeeper.ru/api/v1/health
+docker compose ps
 ```
 
-Последняя строка должна напечатать `host`. Рядом `docker compose ... ps backup` — `running`, и в `backups/` лежит дамп.
+`bot` в bridge, не в `host`. `backup` — `running`, в `backups/` лежит дамп. Если 80/443 уже держит сервис `caddy` этого compose, его не останавливать. Чужой процесс на этих портах — остановить до `up`.
 
 ### Что хрупко у Caddy на этом VPS
 
@@ -211,7 +214,7 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' "$(docker compose -f docker-comp
 - Откат на коммит без Caddy: тот же `up` с `--remove-orphans`, иначе старый контейнер `caddy` продолжит держать 80/443. Том `caddy_data` при откате не удалять.
 
 ```bash
-docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d --remove-orphans
+docker compose up --build -d --remove-orphans
 ```
 
 ## Бэкапы Postgres
@@ -224,9 +227,9 @@ docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d 
 
 Расписание: каждый день в 00:00 по Москве, хранятся **7 последних файлов**, не «7 календарных дней, если за день их несколько». Старые удаляются только после успешного нового дампа. Неудачный `pg_dump` оставляет предыдущие файлы и повторяется через минуту. Если контейнер проспал полночь, при старте снимает один дамп за текущие сутки, когда файла за эту дату ещё нет. Имя: `invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump`, время в имени — московское.
 
-`backup` остаётся в bridge и ходит в `db:5432`. Файл [compose.telegram-host.yml](../compose.telegram-host.yml) его в сеть хоста не переводит: там нет имени `db`. `docker compose down` останавливает и бэкап. Пока стек поднят, цикл жив (`restart: unless-stopped`).
+`backup` в bridge и ходит в `db:5432`. `docker compose down` останавливает и бэкап. Пока стек поднят, цикл жив (`restart: unless-stopped`). В список контейнеров кейса он не входит: это служебный дамп рядом с продуктом.
 
-`loop.sh` читается при старте процесса. Деплой после `up` пересоздаёт только `backup` (`--force-recreate --no-deps`), чтобы правка скрипта без изменения compose не осталась в старом процессе. `backup.sh` и так запускается заново на каждый дамп.
+`loop.sh` читается при старте процесса. `docker compose up` пересоздаёт `backup`, если изменился compose. Правка только скрипта подхватывается после `docker compose up -d --force-recreate --no-deps backup`. `backup.sh` запускается заново на каждый дамп.
 
 Дампы лежат на том же диске, что Postgres. Это защита от плохого деплоя и случайного затирания данных, не от смерти диска.
 
@@ -234,8 +237,8 @@ docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d 
 
 ```bash
 cd /opt/invoice-keeper
-docker compose -f docker-compose.yml -f compose.telegram-host.yml ps backup
-docker compose -f docker-compose.yml -f compose.telegram-host.yml logs --tail=20 backup
+docker compose ps backup
+docker compose logs --tail=20 backup
 ls -l backups
 ```
 
@@ -243,7 +246,7 @@ ls -l backups
 
 ### Восстановление
 
-Скрипт [ops/backup/restore.sh](../ops/backup/restore.sh) останавливает `api`, `worker` и `backup` (чтобы не писали в ту же базу), сессии к базе обрывает, `pg_restore --clean --if-exists` прогоняет внутри контейнера `db`, затем снова запускает эти три сервиса и ждёт health на `127.0.0.1:8080`. Postgres не останавливается. Без `--yes` скрипт ничего не делает.
+Скрипт [ops/backup/restore.sh](../ops/backup/restore.sh) останавливает `api`, `worker`, `bot` и `backup` (чтобы не писали в ту же базу), сессии к базе обрывает, `pg_restore --clean --if-exists` прогоняет внутри контейнера `db`, затем снова запускает эти сервисы и ждёт `/healthz` на `HTTP_PORT` из `.env`. Postgres не останавливается. Без `--yes` скрипт ничего не делает.
 
 ```bash
 cd /opt/invoice-keeper
@@ -253,7 +256,7 @@ ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
 Сегодняшний файл после восстановления не перезаписывается до следующей полуночи. Нужен новый снимок сразу — удалить `backups/invoice-keeper-<сегодня>T*.dump` и перезапустить `backup`:
 
 ```bash
-docker compose -f docker-compose.yml -f compose.telegram-host.yml restart backup
+docker compose restart backup
 ```
 
 Сколько файлов держать — `BACKUP_KEEP` в `.env` (по умолчанию 7). Остальной `.env` ради бэкапа не трогать.
@@ -261,17 +264,16 @@ docker compose -f docker-compose.yml -f compose.telegram-host.yml restart backup
 ## Чеклист
 
 - [x] SSH ок
-- [x] Страна / TG: Москва; IPv4 до Telegram таймаут, IPv6 отвечает; worker уже в сети host
+- [x] Страна / TG: Москва; IPv4 до Telegram таймаут, IPv6 отвечает. Бот в bridge, на этом VPS `ENABLE_IPV6=true` и `TELEGRAM_NETWORK=ipv6`
 - [x] Docker + Compose; ufw выключен; 80/443 на хосте свободны (снимок 2026-10-23)
 - [x] DNS: A `@` и `www` → `217.144.184.232`, AAAA пустой
 - [ ] Публичный ключ в `authorized_keys` и GitHub Secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, опционально `DEPLOY_PORT`
 - [ ] В серверном `.env` до мержа: `COOKIE_SECURE=true`, `CORS_ORIGINS=https://rekeeper.ru`, `APP_PUBLIC_URL=https://rekeeper.ru`
-- [ ] Деплой: health `http://127.0.0.1:8080/api/v1/health`, Caddy на `:80` с `Host: rekeeper.ru`, worker `NetworkMode=host`, backup running и файл в `backups/`
+- [ ] Деплой: `http://127.0.0.1/healthz` и `https://rekeeper.ru/api/v1/health`, бот не в host network, backup running и файл в `backups/`
 - [ ] `curl -fsS https://rekeeper.ru/api/v1/health` и 301 с `https://www.rekeeper.ru` на apex
 - [ ] Снаружи 5432 и 8000 больше не открываются
-- [ ] В логе worker нет таймаута IPv4 до `api.telegram.org`
-- [ ] В логе worker нет пути `api.telegram.org/bot<токен>/` (httpx на WARNING, токен вырезается и из остальных строк)
+- [ ] В логе `bot` нет таймаута IPv4 до `api.telegram.org` и нет пути `api.telegram.org/bot<токен>/`
 - [ ] `backup` running, в `/opt/invoice-keeper/backups` есть `invoice-keeper-*.dump`
 - [ ] BotFather → токен + chat_id, если ещё не стоят в `.env`
 
-Следующий шаг: три строки в `/opt/invoice-keeper/.env`, ещё раз `ss` на 80/443, мерж. После зелёного Actions — `curl` на https, лог worker без `bot<токен>`, файл в `backups/`.
+Следующий шаг: в `/opt/invoice-keeper/.env` домен, порты 80/443, IPv6 и удаление `COMPOSE_FILE`; `ss` на 80/443 и остановить только чужой процесс, если порт занят не нашим `caddy`; мерж. После зелёного Actions — `curl` на https, лог `bot` без токена, файл в `backups/`.

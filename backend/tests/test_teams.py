@@ -26,7 +26,10 @@ def test_roles_and_isolation(client, db_session):
     owner = bootstrap_owner(email="owner@invoice.local", password="change-me-user", name="Владелец", team="Альфа")
     member = add_person(db_session, email="member@invoice.local", password="change-me-user", name="Участник")
     stranger = create_verified_user(db_session, email="beta@invoice.local", full_name="Бета", password="change-me-user")
-    beta_team = create_team(db_session, stranger, "Бета")
+    beta_team = create_team(db_session, owner, "Бета")
+    from app.services.teams import add_member
+
+    add_member(db_session, beta_team, stranger, "member", actor=owner)
     db_session.commit()
     owner_headers = _headers(client, "owner@invoice.local", "change-me-user")
     member_headers = _headers(client, "member@invoice.local", "change-me-user")
@@ -80,49 +83,26 @@ def test_roles_and_isolation(client, db_session):
 
 
 def test_invites_rotate_and_register(client, db_session, caplog):
-    import logging
-
-    caplog.set_level(logging.WARNING, logger="invoice_keeper.mail")
     bootstrap_owner(email="owner@invoice.local", password="change-me-user", name="Владелец", team="Альфа")
     headers = _headers(client, "owner@invoice.local", "change-me-user")
     team_id = headers["X-Team-Id"]
-    link = client.get(f"/api/v1/teams/{team_id}/invite-link", headers=headers)
-    assert link.status_code == 200, link.text
-    old = link.json()["token"]
-    rotated = client.post(f"/api/v1/teams/{team_id}/invite-link/rotate", headers=headers)
-    assert rotated.status_code == 200
-    assert client.get(f"/api/v1/join/{old}").status_code == 404
-    assert client.get(f"/api/v1/join/{rotated.json()['token']}").json()["valid"] is True
-    guest = _login_fresh(client, caplog)
-    joined = client.post(f"/api/v1/join/{rotated.json()['token']}", headers=_auth(guest))
-    assert joined.status_code == 200, joined.text
-    assert any(row["team_id"] == team_id and row["role"] == "member" for row in joined.json()["memberships"])
-    invited = client.post(
-        f"/api/v1/teams/{team_id}/invites",
+    assert client.get(f"/api/v1/teams/{team_id}/invite-link", headers=headers).status_code == 404
+    assert client.post("/api/v1/auth/register", json={"email": "a@b.c", "full_name": "А", "password": "change-me-user"}).status_code == 404
+    assert client.get("/api/v1/join/nope").status_code == 404
+    created = client.post(
+        "/api/v1/users",
         headers=headers,
-        json={"email": "admin-guest@invoice.local", "role": "admin"},
-    )
-    assert invited.status_code == 201, invited.text
-    assert invited.json()["delivery"] == "log"
-    url = invited.json()["url"]
-    token = url.rstrip("/").split("/")[-1]
-    reg = client.post(
-        "/api/v1/auth/register",
         json={
-            "email": "admin-guest@invoice.local",
+            "email": "guest@invoice.local",
             "full_name": "Гость",
             "password": "change-me-user",
-            "invite_token": token,
+            "role": "user",
+            "department_id": team_id,
         },
     )
-    assert reg.status_code == 201, reg.text
-    code = _mail_code(caplog, "admin-guest@invoice.local")
-    confirmed = client.post(
-        "/api/v1/auth/register/confirm",
-        json={"email": "admin-guest@invoice.local", "code": code},
-    )
-    assert confirmed.status_code == 200, confirmed.text
-    assert any(row["role"] == "admin" and row["team_id"] == team_id for row in confirmed.json()["user"]["memberships"])
+    assert created.status_code == 201, created.text
+    assert created.json()["role"] == "user"
+    assert client.post("/api/v1/auth/login", json={"email": "guest@invoice.local", "password": "change-me-user"}).status_code == 200
 
 
 def _mail_code(caplog, email: str) -> str:
@@ -205,9 +185,9 @@ def test_stats_and_demo_isolation(client):
     assert stats.status_code == 200, stats.text
     body = stats.json()
     names = {row["team_name"] for row in body["by_team"]}
-    assert names == {"AEZA Ops", "Маркетинг", "Студия Север"}
+    assert names == {"Бухгалтерия", "Инфраструктура"}
     assert any(row["currency"] == "RUB" and row["count"] > 0 for row in body["to_pay"])
-    studio = next(row["team_id"] for row in body["by_team"] if row["team_name"] == "Студия Север")
+    studio = next(row["team_id"] for row in body["by_team"] if row["team_name"] == "Бухгалтерия")
     switched = client.post("/api/v1/me/active-team", headers=headers, json={"team_id": studio})
     assert switched.status_code == 200
     assert switched.json()["active_team_id"] == studio

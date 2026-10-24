@@ -13,7 +13,7 @@ from app.core.security import hash_password, hash_token, revoke_user_sessions, v
 from app.models import EmailCode, User
 from app.schemas.me import MeOut, MembershipBrief
 from app.services import time as clock
-from app.services.access import memberships_of
+from app.services.access import department_access, memberships_of
 from app.services.lockout import clear_failure, ensure_unlocked, register_failure
 from app.services.mail import send_code
 
@@ -28,25 +28,38 @@ TOO_SOON = "Повторная отправка возможна через ми
 
 
 def to_me(db: Session, user: User) -> MeOut:
-    rows = memberships_of(db, user)
-    if user.active_team_id is not None and all(row.team_id != user.active_team_id for row in rows):
-        user.active_team_id = rows[0].team_id if rows else None
+    access = department_access(db, user)
+    if user.active_team_id is not None and all(row.team_id != user.active_team_id for row in access):
+        user.active_team_id = access[0].team_id if access else None
+    if not user.is_owner and user.active_team_id is None and access:
+        user.active_team_id = access[0].team_id
     return MeOut(
         id=user.id,
         email=user.email,
         full_name=user.full_name,
         is_active=user.is_active,
+        is_owner=user.is_owner,
         email_verified=user.email_verified_at is not None,
         created_at=user.created_at,
         active_team_id=user.active_team_id,
         memberships=[
-            MembershipBrief(team_id=row.team_id, team_name=row.team.name, role=row.role) for row in rows
+            MembershipBrief(team_id=row.team_id, team_name=row.team.name, role=row.role) for row in access
         ],
         telegram_chat_id=user.telegram_chat_id,
+        telegram_linked=user.telegram_user_id is not None,
+        must_change_password=user.must_change_password,
+        telegram_onboarding_done=user.telegram_onboarding_done,
     )
 
 
-def create_verified_user(db: Session, *, email: str, full_name: str, password: str) -> User:
+def create_verified_user(
+    db: Session,
+    *,
+    email: str,
+    full_name: str,
+    password: str,
+    must_change_password: bool = False,
+) -> User:
     if len(password) < 8:
         raise ValueError("Пароль короче 8 символов")
     user = User(
@@ -55,6 +68,8 @@ def create_verified_user(db: Session, *, email: str, full_name: str, password: s
         password_hash=hash_password(password),
         is_active=True,
         email_verified_at=clock.now(),
+        must_change_password=must_change_password,
+        telegram_onboarding_done=not must_change_password,
     )
     db.add(user)
     db.flush()
@@ -258,8 +273,11 @@ def change_password(db: Session, user: User, current: str, new_password: str) ->
         register_failure(db, user.email)
         raise HTTPException(status_code=401, detail="Неверный текущий пароль")
     user.password_hash = hash_password(new_password)
+    forced = user.must_change_password
+    user.must_change_password = False
     user.updated_at = clock.now()
-    revoke_user_sessions(db, user.id)
+    if not forced:
+        revoke_user_sessions(db, user.id)
     clear_failure(db, user.email)
     db.flush()
 

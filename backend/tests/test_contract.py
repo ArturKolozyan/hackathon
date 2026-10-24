@@ -5,21 +5,40 @@ import pytest
 from app.export_openapi import canonical
 from app.main import app
 
+# Таблица PDF: метод + путь, параметр ровно {id}.
+CASE_ROUTES = [
+    ("post", "/api/v1/auth/login"),
+    ("get", "/api/v1/auth/me"),
+    ("post", "/api/v1/auth/logout"),
+    ("get", "/api/v1/recurring-payments"),
+    ("post", "/api/v1/recurring-payments"),
+    ("delete", "/api/v1/recurring-payments/{id}"),
+    ("get", "/api/v1/payment-occurrences"),
+    ("get", "/api/v1/payment-occurrences/{id}"),
+    ("patch", "/api/v1/payment-occurrences/{id}"),
+    ("get", "/api/v1/payments/summary"),
+    ("get", "/api/v1/users"),
+    ("post", "/api/v1/users"),
+    ("patch", "/api/v1/users/{id}"),
+    ("delete", "/api/v1/users/{id}"),
+]
+
 MUST_PATHS = [
     "/api/v1/auth/login",
     "/api/v1/auth/logout",
     "/api/v1/auth/me",
     "/api/v1/users",
-    "/api/v1/users/{user_id}",
+    "/api/v1/users/{id}",
     "/api/v1/recurring-payments",
-    "/api/v1/recurring-payments/{payment_id}",
+    "/api/v1/recurring-payments/{id}",
     "/api/v1/payment-occurrences",
     "/api/v1/payment-occurrences/inbox",
-    "/api/v1/payment-occurrences/{occurrence_id}",
+    "/api/v1/payment-occurrences/{id}",
     "/api/v1/payment-occurrences/{occurrence_id}/confirm",
     "/api/v1/payment-occurrences/{occurrence_id}/revoke",
     "/api/v1/payments/summary",
     "/api/v1/health",
+    "/api/v1/features",
 ]
 
 STAR_PATHS = [
@@ -49,11 +68,19 @@ def test_openapi_contains_must_paths():
     paths = schema["paths"]
     missing = [path for path in MUST_PATHS if path not in paths]
     assert missing == []
+    missing_methods = [
+        f"{method.upper()} {path}"
+        for method, path in CASE_ROUTES
+        if method not in paths.get(path, {})
+    ]
+    assert missing_methods == []
+    assert app.docs_url == "/api/v1/docs"
+    assert any(getattr(route, "path", None) == "/api/v1/docs" for route in app.routes)
     missing_stars = [path for path in STAR_PATHS if path not in paths]
     assert missing_stars == []
     summary = paths["/api/v1/payments/summary"]["get"]
     assert any(param.get("name") == "as_of" for param in summary.get("parameters", []))
-    patch = paths["/api/v1/payment-occurrences/{occurrence_id}"]["patch"]
+    patch = paths["/api/v1/payment-occurrences/{id}"]["patch"]
     ref = patch["requestBody"]["content"]["application/json"]["schema"]["$ref"]
     name = ref.rsplit("/", 1)[-1]
     assert "receipt_url" in schema["components"]["schemas"][name]["properties"]

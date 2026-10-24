@@ -487,10 +487,23 @@ a.primary, a.outline, a.ghost {
   border-top: 1px solid var(--border);
 }
 
-.demo div { display: flex; justify-content: space-between; gap: 12px; font-size: 0.88rem; }
-.demo dt { color: var(--muted); }
-.demo dd { margin: 0; text-align: right; font-weight: 600; }
-.demo span { display: block; font-weight: 500; color: var(--muted); }
+.demo button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.88rem;
+  text-align: right;
+  cursor: pointer;
+}
+.demo-label { color: var(--muted); }
+.demo button > span:last-child { font-weight: 600; }
+.demo span span { display: block; font-weight: 500; color: var(--muted); }
 
 .login-foot {
   display: flex;
@@ -772,7 +785,7 @@ html { scrollbar-color: var(--border) var(--bg); }
 }
 
 .card-top .money, .budget-fact strong { flex-shrink: 0; }
-.phrase, .meta, .demo dd, .who-name { overflow-wrap: anywhere; }
+.phrase, .meta, .demo button, .who-name { overflow-wrap: anywhere; }
 .who-name { max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .skeleton-stack { display: grid; gap: 10px; }

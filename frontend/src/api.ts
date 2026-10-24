@@ -11,11 +11,47 @@ export type Me = {
   email: string;
   full_name: string;
   is_active: boolean;
+  is_owner: boolean;
   email_verified: boolean;
   created_at: string;
   active_team_id: string | null;
   memberships: Membership[];
   telegram_chat_id: string | null;
+  telegram_linked: boolean;
+  must_change_password: boolean;
+  telegram_onboarding_done: boolean;
+};
+
+export type DemoAccount = {
+  label: string;
+  email: string;
+  password: string;
+};
+
+export type PublicConfig = {
+  show_demo_credentials: boolean;
+  accounts: DemoAccount[];
+};
+
+export type Features = {
+  assistant: boolean;
+  assistant_available: boolean;
+  voice: boolean;
+  email: boolean;
+  telegram: boolean;
+  bot_alive: boolean;
+};
+
+export type DirectoryUser = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: "owner" | "admin" | "user";
+  is_active: boolean;
+  is_owner: boolean;
+  telegram_linked: boolean;
+  must_change_password: boolean;
+  departments: { id: string; name: string; role: string }[];
 };
 
 export type Member = {
@@ -176,6 +212,9 @@ export type NotifyTeam = {
 export type PersonalChannel = {
   enabled: boolean;
   team_ids: string[];
+  notify_scope: "mine" | "department";
+  notify_overdue: boolean;
+  bot_alive: boolean;
   address: string | null;
   linked: boolean;
   username: string | null;
@@ -216,6 +255,8 @@ export type Template = {
   currency: string;
   day_of_month: number;
   starts_on: string;
+  next_payment_date: string | null;
+  periodicity: string;
   is_archived: boolean;
   responsible: { id: string; full_name: string; email: string } | null;
   open_count: number;

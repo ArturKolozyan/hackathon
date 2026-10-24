@@ -19,15 +19,27 @@ INVITE_TTL = timedelta(days=7)
 
 
 def create_team(db: Session, owner: User, name: str) -> Team:
-    team = Team(name=name.strip(), invite_token=secrets.token_urlsafe(24))
+    if not owner.is_owner:
+        raise HTTPException(status_code=403, detail="Отдел создаёт владелец")
+    cleaned = name.strip()
+    if not cleaned:
+        raise HTTPException(status_code=422, detail="Укажите название отдела")
+    team = Team(name=cleaned)
     db.add(team)
     db.flush()
-    db.add(Membership(team_id=team.id, user_id=owner.id, role="owner"))
     if owner.active_team_id is None:
         owner.active_team_id = team.id
     owner.updated_at = clock.now()
     db.flush()
-    record(db, action="team.create", actor=owner, entity_type="team", entity_id=team.id, meta={"name": team.name}, team_id=team.id)
+    record(
+        db,
+        action="team.create",
+        actor=owner,
+        entity_type="team",
+        entity_id=team.id,
+        meta={"name": team.name},
+        team_id=team.id,
+    )
     return team
 
 
@@ -87,7 +99,8 @@ def assert_manager(row: Membership) -> None:
 
 
 def rename_team(db: Session, team: Team, actor: User, name: str) -> Team:
-    assert_owner(require_membership(db, team, actor))
+    if not actor.is_owner:
+        raise HTTPException(status_code=403, detail="Отдел переименовывает владелец")
     team.name = name
     team.updated_at = clock.now()
     record(db, action="team.rename", actor=actor, entity_type="team", entity_id=team.id, meta={"name": name}, team_id=team.id)
@@ -96,7 +109,8 @@ def rename_team(db: Session, team: Team, actor: User, name: str) -> Team:
 
 
 def delete_team(db: Session, team: Team, actor: User, confirm_name: str) -> None:
-    assert_owner(require_membership(db, team, actor))
+    if not actor.is_owner:
+        raise HTTPException(status_code=403, detail="Отдел удаляет владелец")
     if confirm_name != team.name:
         raise HTTPException(status_code=409, detail="Введите название команды без изменений")
     member_ids = list(db.scalars(select(Membership.user_id).where(Membership.team_id == team.id)).all())
@@ -134,40 +148,40 @@ def transfer(db: Session, team: Team, actor: User, new_owner_id: UUID) -> None:
 
 
 def leave(db: Session, team: Team, user: User) -> None:
-    row = require_membership(db, team, user)
-    if row.role == "owner":
-        raise HTTPException(status_code=409, detail="Передайте владение, чтобы выйти")
+    require_membership(db, team, user)
     _drop_member(db, team, user, actor=user)
 
 
 def remove_member(db: Session, team: Team, actor: User, user_id: UUID) -> None:
-    actor_row = require_membership(db, team, actor)
-    assert_manager(actor_row)
     if user_id == actor.id:
         raise HTTPException(status_code=409, detail="Себя удаляют кнопкой «Выйти»")
     target = membership(db, team.id, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Участник не найден")
-    if target.role == "owner":
-        raise HTTPException(status_code=403, detail="Владельца нельзя удалить")
-    if target.role == "admin" and actor_row.role != "owner":
-        raise HTTPException(status_code=403, detail="Админа снимает только владелец")
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="Участник не найден")
+    if user.is_owner:
+        raise HTTPException(status_code=403, detail="Учётку владельца нельзя изменить")
+    if not actor.is_owner:
+        actor_row = require_membership(db, team, actor)
+        assert_manager(actor_row)
+        if target.role == "admin":
+            raise HTTPException(status_code=403, detail="Админа снимает только владелец")
     _drop_member(db, team, user, actor=actor)
 
 
 def set_role(db: Session, team: Team, actor: User, user_id: UUID, role: str) -> Membership:
-    actor_row = require_membership(db, team, actor)
-    assert_owner(actor_row)
+    if not actor.is_owner:
+        raise HTTPException(status_code=403, detail="Роли назначает владелец")
     if role not in {"admin", "member"}:
         raise HTTPException(status_code=422, detail="Роль: admin или member")
     target = membership(db, team.id, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Участник не найден")
-    if target.role == "owner":
-        raise HTTPException(status_code=409, detail="Владение передают отдельно")
+    person = db.get(User, user_id)
+    if person is not None and person.is_owner:
+        raise HTTPException(status_code=403, detail="Учётку владельца нельзя изменить")
     target.role = role
     record(
         db,
@@ -335,6 +349,6 @@ def accept_token(db: Session, user: User, raw: str) -> Membership:
 def require_participant(db: Session, team_id: UUID, user_id: UUID) -> User:
     user = db.get(User, user_id)
     row = membership(db, team_id, user_id)
-    if user is None or not user.is_active or row is None:
-        raise HTTPException(status_code=400, detail="Ответственный не в этой команде")
+    if user is None or not user.is_active or (row is None and not user.is_owner):
+        raise HTTPException(status_code=400, detail="Ответственный не в этом отделе")
     return user

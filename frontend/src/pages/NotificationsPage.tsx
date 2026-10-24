@@ -26,6 +26,8 @@ export function NotificationsPage() {
   const [emailTeams, setEmailTeams] = useState<string[]>([]);
   const [tgOn, setTgOn] = useState(true);
   const [tgTeams, setTgTeams] = useState<string[]>([]);
+  const [scope, setScope] = useState<"mine" | "department">("mine");
+  const [overdueOn, setOverdueOn] = useState(true);
   const [webhookUrl, setWebhookUrl] = useState("");
   const [personalLink, setPersonalLink] = useState<TelegramLink | null>(null);
   const [teamLink, setTeamLink] = useState<TelegramLink | null>(null);
@@ -41,6 +43,8 @@ export function NotificationsPage() {
     setEmailTeams(next.email.team_ids);
     setTgOn(next.telegram.enabled);
     setTgTeams(next.telegram.team_ids);
+    setScope(next.telegram.notify_scope || "mine");
+    setOverdueOn(next.telegram.notify_overdue);
     setWebhookUrl(next.team.webhook_url ?? "");
     if (next.telegram.linked) setPersonalLink(null);
     if (next.team.telegram.status === "connected" && next.team.telegram.source === "database") setTeamLink(null);
@@ -97,6 +101,8 @@ export function NotificationsPage() {
             email_team_ids: emailTeams,
             telegram_enabled: tgOn,
             telegram_team_ids: tgTeams,
+            notify_scope: scope,
+            notify_overdue: overdueOn,
           }),
         }),
       );
@@ -209,7 +215,12 @@ export function NotificationsPage() {
               </button>
             </div>
           )}
-          {!data.telegram.bot_ready && <p className="desc">Бот ещё не на связи. Нужен TELEGRAM_BOT_TOKEN и запущенный worker.</p>}
+          {!data.telegram.bot_ready && (
+            <p className="desc">Telegram не настроен или бот не запущен. Остальные каналы и панель работают.</p>
+          )}
+          {data.telegram.bot_ready && (
+            <p className="desc">{data.telegram.bot_alive ? "Бот на связи." : "Бот не отвечает. Напоминания в Telegram копятся и уйдут, когда он поднимется."}</p>
+          )}
           {data.telegram.test_error && (
             <p className="error" role="alert">
               {data.telegram.test_error}
@@ -229,7 +240,20 @@ export function NotificationsPage() {
           <div className="check-row">
             <label>
               <input type="checkbox" checked={tgOn} onChange={(event) => setTgOn(event.target.checked)} />
-              Получать по выбранным командам
+              Личные сообщения в Telegram
+            </label>
+          </div>
+          <label>
+            Какие платежи
+            <select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "department")}>
+              <option value="mine">Только мои</option>
+              <option value="department">Все платежи отдела</option>
+            </select>
+          </label>
+          <div className="check-row">
+            <label>
+              <input type="checkbox" checked={overdueOn} onChange={(event) => setOverdueOn(event.target.checked)} />
+              Писать о просрочке
             </label>
           </div>
           <TeamChecks teams={data.teams} selected={tgTeams} onToggle={(id) => setTgTeams(toggleId(tgTeams, id))} />
