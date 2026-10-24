@@ -2952,6 +2952,84 @@
             }
           },
           {
+            "description": "С этой даты включительно (часовой пояс организации)",
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "С этой даты включительно (часовой пояс организации)",
+              "title": "Date From"
+            }
+          },
+          {
+            "description": "По эту дату включительно",
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "По эту дату включительно",
+              "title": "Date To"
+            }
+          },
+          {
+            "description": "Кто сделал",
+            "in": "query",
+            "name": "actor_user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Кто сделал",
+              "title": "Actor User Id"
+            }
+          },
+          {
+            "description": "Коды действий, например occurrence.paid",
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Коды действий, например occurrence.paid",
+              "title": "Action"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Team-Id",
             "required": false,

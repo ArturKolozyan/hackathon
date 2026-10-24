@@ -19,7 +19,9 @@ from typing import Any
 # BotFather: числовой id, двоеточие, длинный секрет. Короче 20 символов
 # секрет из env всё равно вырезается отдельно.
 _BOT_TOKEN = re.compile(r"\d{6,}:[A-Za-z0-9_-]{20,}")
-_FORMAT = "%(levelname)s %(name)s %(message)s"
+# Одна строка на запись: время, уровень, логгер, текст. Traceback — следующими строками.
+_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
+_DATEFMT = "%Y-%m-%dT%H:%M:%S%z"
 
 
 def _redact_value(value: object) -> object:
@@ -96,7 +98,14 @@ def uninstall_redaction() -> None:
         logging.Logger.handle = original
 
 
-def configure_logging() -> None:
-    logging.basicConfig(level=logging.INFO, format=_FORMAT)
+def _level() -> int:
+    name = os.environ.get("LOG_LEVEL", "INFO").strip().upper()
+    level = logging.getLevelName(name)
+    return level if isinstance(level, int) else logging.INFO
+
+
+def configure_logging(force: bool = False) -> None:
+    """LOG_LEVEL из env, по умолчанию INFO. force — после alembic fileConfig, он ставит root WARN."""
+    logging.basicConfig(level=_level(), format=_FORMAT, datefmt=_DATEFMT, force=force)
     quiet_http_loggers()
     install_redaction()

@@ -1,3 +1,4 @@
+import difflib
 from pathlib import Path
 
 import pytest
@@ -99,4 +100,14 @@ def test_committed_openapi_matches_app():
     path = _artifact()
     if path is None:
         pytest.skip("openapi/openapi.json нет в этом окружении")
-    assert path.read_text(encoding="utf-8") == canonical(app.openapi())
+    committed = path.read_text(encoding="utf-8")
+    current = canonical(app.openapi())
+    if committed != current:
+        diff = difflib.unified_diff(
+            committed.splitlines(), current.splitlines(), "openapi.json", "app", n=1, lineterm=""
+        )
+        pytest.fail(
+            "openapi/openapi.json устарел. Перегенерировать на Python 3.12 с версиями из requirements.txt: "
+            "cd backend && python -m app.export_openapi\n" + "\n".join(list(diff)[:40]),
+            pytrace=False,
+        )

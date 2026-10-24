@@ -101,11 +101,15 @@ Push в `main`, pull request и ручной `workflow_dispatch` → [`.github/w
 | Шаг | Что |
 |-----|-----|
 | backup selftest | `sh ops/backup/selftest.sh`: полночь МСК и ротация 7 файлов, без живой базы |
-| pytest | Python 3.12, `pytest -x` в `backend/`. Postgres 16 — service GitHub Actions, `127.0.0.1:5433` (5432 занимает compose в smoke), пользователь `invoice` / `change-me`. Тесты сами создают базу `invoice_keeper_test` |
-| web build | Node 22, `npm ci` и `npm run build` (`tsc --noEmit` и vite) в `frontend/` |
-| smoke | `sh ops/smoke.sh`: чистый `.env.example`, `docker compose up --build -d`, вход владельца, эндпоинты кейса, рестарт, остановленный `bot`, ассистент выключен без ключей и недоступен после `stop assistant` |
+| pytest | Python 3.12, `pytest -x -ra --tb=short` в `backend/`. Postgres 16 — service GitHub Actions, `127.0.0.1:5433` (5432 занимает compose в smoke), пользователь `invoice` / `change-me`. Тесты сами создают базу `invoice_keeper_test` |
+| web | Node 22, `npm ci`, `tsc --noEmit`, `vite build` в `frontend/` — три отдельных шага |
+| smoke | `bash ops/smoke.sh`: чистый `.env.example`, `docker compose up --build -d`, вход владельца, эндпоинты кейса, рестарт, остановленный `bot`, ассистент выключен без ключей и недоступен после `stop assistant` |
 
-`healthcheck` после деплоя ждёт ответа `https://rekeeper.ru/api/v1/health` до двух минут.
+`deploy` — `ssh` с проверкой отпечатка хоста, на сервере выполняется [`ops/deploy-remote.sh`](../ops/deploy-remote.sh). `healthcheck` после деплоя ждёт ответа `https://rekeeper.ru/api/v1/health` до двух минут.
+
+Упал шаг — в Summary запуска один блок от [`ops/ci/report.sh`](../ops/ci/report.sh): какой шаг, ключевые строки его лога (для pytest — секция FAILURES и итог), для smoke и deploy — `docker compose ps` и по 100 строк логов каждого сервиса, для healthcheck — последний HTTP-код и тело. Его и копировать. Полные логи шагов — артефакт `verify-logs` / `deploy-logs`.
+
+Логи контейнеров: одна строка на запись `время уровень логгер текст`, traceback ниже. Уровень — `LOG_LEVEL` в `.env`, по умолчанию `INFO`. Необработанная ошибка запроса пишется uvicorn с traceback.
 
 Деплой на сервере делает ровно то, что README: `git pull --ff-only origin main` и `docker compose up --build -d`. Отдельных `-f` нет.
 
@@ -147,7 +151,7 @@ Actions ходит **ключом**, не паролем из таблицы SSH
 | `DEPLOY_SSH_KEY` | приватный ключ целиком (PEM, с `BEGIN`/`END`), без passphrase. Публичная часть — в `/root/.ssh/authorized_keys` |
 | `DEPLOY_PORT` | необязательно. Пусто = 22 |
 
-Отпечаток для деплоя — **ECDSA** `SHA256:E+eFNJNFwH/+68XXrzlY+Gtpfs/5eRKrwHFmTWL+s3c`. Он зашит в workflow. `appleboy/ssh-action` v1.2.5 не задаёт `HostKeyAlgorithms`: drone-ssh 1.8.2 (`golang.org/x/crypto` v0.45.0) предлагает `ecdsa-sha2-nistp256` раньше `ssh-ed25519`, и сервер отдаёт ECDSA. ED25519 `SHA256:LpmjSctDQ1eIK1qjX8VOZKRIpLpVs6k1bh6BXzPBAfg` подходит обычному OpenSSH, в этом Action он не совпадёт. RSA `SHA256:liIVVkDgQWnXMutSjzvkJLfc2YL77kdOVtkF0pe6cqY`. Переустановка VPS — снять отпечатки заново, иначе деплой отвергнет хост.
+Отпечаток для деплоя — **ECDSA** `SHA256:E+eFNJNFwH/+68XXrzlY+Gtpfs/5eRKrwHFmTWL+s3c`. Он зашит в workflow. Workflow берёт ключ хоста через `ssh-keyscan -t ecdsa` и до подключения сверяет его отпечаток с этим. ED25519 `SHA256:LpmjSctDQ1eIK1qjX8VOZKRIpLpVs6k1bh6BXzPBAfg`. RSA `SHA256:liIVVkDgQWnXMutSjzvkJLfc2YL77kdOVtkF0pe6cqY`. Переустановка VPS — снять отпечатки заново, иначе деплой отвергнет хост.
 
 ### Серверный `.env`
 

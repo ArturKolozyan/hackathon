@@ -2,6 +2,11 @@
 # Смоук жюри на чистой машине: без ключей ассистента, затем с остановленным assistant.
 # Запуск из корня репозитория. Требует Docker.
 set -eu
+# В CI запускается через bash: упавшая команда и строка сразу видны в логе.
+if [ -n "${BASH_VERSION:-}" ]; then
+  set -E
+  trap 'echo "smoke упал: строка $LINENO: $BASH_COMMAND" >&2' ERR
+fi
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
 cd "$root"

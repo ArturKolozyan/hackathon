@@ -2,7 +2,8 @@
 
 :root {
   color-scheme: dark;
-  --font-sans: Inter, system-ui, sans-serif;
+  --font-sans: "Inter", system-ui, sans-serif;
+  --font-display: "Exo 2", "Inter", system-ui, sans-serif;
   --fs-label: 0.75rem;
   --fs-sm: 0.875rem;
   --fs-body: 1rem;
@@ -2051,4 +2052,10 @@ main > .page:not(.page-cal) {
 }
 @media (hover: none) {
   .hint-tip { display: none; }
+}
+
+/* AEZA brandbook: Exo 2 for headings and money, Inter for text and UI */
+h1, h2, .money, .login-copy h1 {
+  font-family: var(--font-display);
+  letter-spacing: 0;
 }

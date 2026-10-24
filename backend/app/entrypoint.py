@@ -18,6 +18,7 @@ def serve() -> None:
 
     wait_for_db()
     migrate()
+    configure_logging(force=True)
     from app.services.org_settings import ensure_organization
     from app.services.owner import ensure_owner
 
@@ -35,7 +36,14 @@ def serve() -> None:
     seed()
     import uvicorn
 
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, proxy_headers=True, forwarded_allow_ips="*")
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=8000,
+        proxy_headers=True,
+        forwarded_allow_ips="*",
+        log_level=logging.getLevelName(logging.getLogger().level).lower(),
+    )
 
 
 def _wait_and(run) -> None:
