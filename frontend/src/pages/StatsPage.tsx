@@ -64,16 +64,6 @@ export function StatsPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Статистика</p>
-          <h1>Все ваши команды</h1>
-        </div>
-      </div>
-      <p className="caption">
-        К оплате и просрочка — открытые периоды. Оплачено — по дате оплаты
-        {period === "open" ? " за текущий месяц" : " в выбранном окне"}. Суммы по валютам, без курса.
-      </p>
       <div className="panel filters">
         <div className="check-row">
           {(user?.memberships ?? []).map((row) => (

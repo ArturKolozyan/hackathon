@@ -434,6 +434,10 @@ export async function streamAssistant(text: string, onToken: (chunk: string) => 
   return doneMessage;
 }
 
+export async function clearAssistant(): Promise<void> {
+  await api<void>("/api/v1/assistant/messages", { method: "DELETE" });
+}
+
 export async function transcribe(blob: Blob): Promise<string> {
   const form = new FormData();
   const name = blob.type.includes("ogg") ? "speech.ogg" : "speech.webm";

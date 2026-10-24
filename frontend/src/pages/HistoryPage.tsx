@@ -22,13 +22,6 @@ export function HistoryPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">История</p>
-          <h1>Закрытые периоды</h1>
-        </div>
-      </div>
-      <p className="caption">Правка фактической даты заново считает, вовремя закрыли или с опозданием. Сумма оплаченного периода не меняется вместе с шаблоном.</p>
       {error && <ErrorState message={error} onRetry={() => void load()} />}
       {!data && !error && <LoadingBlock label="Загружаем историю…" />}
       {data && data.items.length === 0 && (

@@ -52,13 +52,6 @@ export function AuditPage() {
 
   return (
     <div className="page page-wide">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Логи</p>
-          <h1>Кто что сделал</h1>
-        </div>
-      </div>
-      <p className="caption">Вход, шаблоны, люди, оплаты и бюджет. Пароли и токены сюда не пишутся. Время — Москва.</p>
       {error && <ErrorState message={error} onRetry={() => void load()} />}
       {!data && !error && <LoadingBlock label="Загружаем журнал…" />}
       {data && data.items.length === 0 && <EmptyState title="Пока пусто">Входы, шаблоны, люди, оплаты и бюджет появятся здесь.</EmptyState>}

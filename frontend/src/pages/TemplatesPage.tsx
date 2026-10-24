@@ -95,11 +95,7 @@ export function TemplatesPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Шаблоны</p>
-          <h1>Что платим регулярно</h1>
-        </div>
+      <div className="page-toolbar">
         <button type="button" className="ghost" onClick={() => setShowArchived((value) => !value)}>
           {showArchived ? "Скрыть архив" : "Показать архив"}
         </button>

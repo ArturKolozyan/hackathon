@@ -287,6 +287,7 @@ class _Scripted:
 
     def complete(self, messages, functions=None):
         self.calls += 1
+        self.messages = messages
         assert functions
         assert any(item["role"] == "system" for item in messages)
         return self.completion
@@ -309,4 +310,11 @@ def test_model_cannot_invent_numbers_and_tools_use_the_database(client, db_sessi
     assert "999" not in listed["content"]
     assert "Просрочено" in listed["content"]
     assert "Аренда офиса" in listed["content"]
+    system = next(item["content"] for item in invented.messages if item["role"] == "system")
+    assert "markdown" in system.lower()
+    wiped = _assistant_call(client, "delete", "/api/v1/assistant/messages", headers=headers)
+    assert wiped.status_code == 204, wiped.text
+    history = _assistant_call(client, "get", "/api/v1/assistant/messages", headers=headers)
+    assert history.status_code == 200
+    assert history.json() == []
     get_settings.cache_clear()

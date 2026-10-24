@@ -69,11 +69,7 @@ export function BudgetPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Бюджет</p>
-          <h1>План и факт</h1>
-        </div>
+      <div className="page-toolbar">
         <Segmented
           label="Масштаб плана"
           value={kind}
@@ -84,9 +80,6 @@ export function BudgetPage() {
           onChange={setKind}
         />
       </div>
-      <p className="caption">
-        Факт — закрытые периоды этого {kind === "month" ? "месяца" : "года"}. Ожидается — ещё открытые. Валюты не смешиваем.
-      </p>
       <div className="head-actions period-pick">
         {kind === "month" ? (
           <label>

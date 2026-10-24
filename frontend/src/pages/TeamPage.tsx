@@ -88,12 +88,6 @@ export function TeamPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Команда</p>
-          <h1>{teamName || "Состав"}</h1>
-        </div>
-      </div>
       {error && <p className="error" role="alert">{error}</p>}
       {notice && <p className="caption">{notice}</p>}
 

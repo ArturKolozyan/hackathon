@@ -52,11 +52,7 @@ export function InboxPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Инбокс</p>
-          <h1>Что сделать сейчас</h1>
-        </div>
+      <div className="page-toolbar">
         <Segmented
           label="Чья очередь"
           value={mine ? "mine" : "all"}
@@ -105,20 +101,6 @@ export function InboxPage() {
               );
             })}
           </div>
-          <p className="caption">
-            Суммы по валютам, без пересчёта
-            {mine ? ", по всей команде" : ""}. Скоро — в пределах {summary.soon_days} дней, включая день срока.
-            {summary.as_of
-              ? ` Итоги на конец ${summary.as_of}: оплата позже этой даты ещё не засчитана. Очередь ниже — на сегодня.`
-              : ""}
-            {!mine && (
-              <>
-                {" "}
-                {summary.counts.overdue} просрочено · {summary.counts.due_soon} скоро · {summary.counts.upcoming} ещё не скоро ·{" "}
-                {summary.counts.paid} в истории
-              </>
-            )}
-          </p>
         </>
       )}
       {manage && teamTg && teamTg.status !== "connected" && (

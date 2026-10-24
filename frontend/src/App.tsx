@@ -1,7 +1,6 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { ManageOnly, RequireAuth, RequireTeam } from "./auth";
 import { Shell } from "./components/Shell";
-import { AssistantPage } from "./pages/AssistantPage";
 import { AuditPage } from "./pages/AuditPage";
 import { BudgetPage } from "./pages/BudgetPage";
 import { CalendarPage } from "./pages/CalendarPage";
@@ -32,7 +31,7 @@ export function App() {
         <Route element={<RequireTeam />}>
           <Route element={<Shell />}>
             <Route path="/" element={<InboxPage />} />
-            <Route path="/assistant" element={<AssistantPage />} />
+            <Route path="/assistant" element={<Navigate to="/?chat=1" replace />} />
             <Route path="/calendar" element={<CalendarPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/budget" element={<BudgetPage />} />

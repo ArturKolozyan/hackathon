@@ -9,12 +9,6 @@ export function SettingsPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Настройки</p>
-          <h1>Профиль</h1>
-        </div>
-      </div>
       <div className="stack">
         <ProfileCard
           onPasswordChanged={() => {

@@ -6,7 +6,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.assistant.actions import apply_patch, load_own, perform
-from app.assistant.chat import chunk_text, list_messages, run_turn
+from app.assistant.chat import chunk_text, clear_messages, list_messages, run_turn
 from app.assistant.speech import SpeechError, recognize
 from app.core.database import get_db
 from app.core.deps import get_team_context
@@ -35,6 +35,14 @@ def history(
 ) -> list[MessageOut]:
     bounded = min(max(limit, 1), 200)
     return [_message_out(row) for row in list_messages(db, ctx, bounded)]
+
+
+@router.delete("/messages", status_code=204, summary="Очистить чат отдела")
+def clear_history(
+    ctx: TeamContext = Depends(get_team_context),
+    db: Session = Depends(get_db),
+) -> None:
+    clear_messages(db, ctx)
 
 
 @router.post("/messages", summary="Сообщение ассистенту")

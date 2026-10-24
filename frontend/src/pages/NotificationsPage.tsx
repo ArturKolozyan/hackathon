@@ -136,12 +136,6 @@ export function NotificationsPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Уведомления</p>
-          <h1>Каналы</h1>
-        </div>
-      </div>
       {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
       <div className="stack">
         <section className="panel settings-card">

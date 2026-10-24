@@ -77,12 +77,6 @@ export function PeoplePage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Люди</p>
-          <h1>Кто в организации</h1>
-        </div>
-      </div>
       {error && <ErrorState message={error} />}
       {notice && <p className="caption">{notice}</p>}
       <form className="panel form-grid" onSubmit={submit}>
