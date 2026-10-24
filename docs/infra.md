@@ -92,7 +92,19 @@ ssh -L 8080:127.0.0.1:8080 root@217.144.184.232
 
 ## Деплой
 
-Push в `main` и ручной `workflow_dispatch` → [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) → SSH:
+Push в `main`, pull request и ручной `workflow_dispatch` → [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
+
+Сначала три проверки, параллельно. SSH на VPS начинается только если все зелёные, и только для push в `main` или ручного запуска с `main`. Pull request на сервер не ходит.
+
+| Job | Что |
+|-----|-----|
+| `backend` | Python 3.12, `pytest` в `backend/`. Postgres 16 — service GitHub Actions, `127.0.0.1:5432`, пользователь `invoice` / `change-me`. Тесты сами создают базу `invoice_keeper_test` |
+| `web` | Node 22, `npm ci` и `npm run build` (`tsc --noEmit` и vite) в `frontend/` |
+| `backup-script` | `sh ops/backup/selftest.sh`: полночь МСК и ротация 7 файлов, без живой базы |
+
+Деплой по-прежнему выкладывает `origin/main`, не SHA workflow: на сервере `git reset --hard origin/main`.
+
+SSH:
 
 ```bash
 cd /opt/invoice-keeper
@@ -105,11 +117,12 @@ curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: rekeeper.ru' http://127.0.0.
 
 Оба `-f` прописаны в workflow. `COMPOSE_FILE` в серверном `.env` для этого не используется: файл деплой не меняет, забытая строка оставила бы worker в bridge, health по HTTP остался бы зелёным, Telegram — нет.
 
-Workflow около трёх минут ждёт три условия:
+Workflow около трёх минут ждёт четыре условия:
 
 1. `http://127.0.0.1:8080/api/v1/health` — тело непустое (nginx и API).
 2. Caddy на `:80` с `Host: rekeeper.ru` — код 200, 301, 302, 307 или 308. До сертификата это обычно **308** на https.
 3. Контейнер `worker` в статусе `running` и `NetworkMode=host`.
+4. Контейнер `backup` в статусе `running` и в `backups/` есть хотя бы один `invoice-keeper-*.dump`. При старте контейнер сам догоняет дамп за сегодня, если файла ещё нет.
 
 `https://rekeeper.ru` и `curl -k` в эту петлю не входят. Пока сертификат не выпущен, такой curl роняет выкладку, хотя приложение живо. `-k` принимает любой сертификат и не доказывает Let's Encrypt.
 
@@ -186,7 +199,7 @@ curl -sS -o /dev/null -w '%{http_code}\n' -H 'Host: rekeeper.ru' http://127.0.0.
 docker inspect -f '{{.HostConfig.NetworkMode}}' "$(docker compose -f docker-compose.yml -f compose.telegram-host.yml ps -q worker)"
 ```
 
-Последняя строка должна напечатать `host`.
+Последняя строка должна напечатать `host`. Рядом `docker compose ... ps backup` — `running`, и в `backups/` лежит дамп.
 
 ### Что хрупко у Caddy на этом VPS
 
@@ -201,6 +214,50 @@ docker inspect -f '{{.HostConfig.NetworkMode}}' "$(docker compose -f docker-comp
 docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d --remove-orphans
 ```
 
+## Бэкапы Postgres
+
+Отдельный сервис `backup` в [docker-compose.yml](../docker-compose.yml), не systemd-таймер на хосте.
+
+Деплой и так делает `docker compose up`. Сервис поднимается и откатывается вместе с репозиторием. Unit на хосте пришлось бы ещё копировать и `enable` в том же SSH, и при откате коммита таймер остался бы старым. `pg_dump` берётся из того же образа `postgres:16-alpine`, что и сервер: клиент на хост ставить не нужно, версии не разъедутся. В `postgres:16-alpine` нет cron и tzdata, пакеты при старте не ставим (зеркала с Москвы лишняя точка отказа). Цикл в `ops/backup/loop.sh` спит до полуночи. Москва — UTC+3 круглый год, без летнего времени, поэтому полночь считается от `date -u`, а не от часового пояса контейнера.
+
+Дамп — custom-формат (`pg_dump -Fc`, сжатие 6). Это не `.sql.gz`: gzip его не открывает, восстановление — `pg_restore`. Пароль только в `PGPASSWORD` внутри контейнера, в командную строку не попадает. Каталог на хосте — `./backups` от корня репозитория. На VPS это `/opt/invoice-keeper/backups`. `git reset --hard` его не трогает, `git clean` деплой не делает. Права каталога `700`. Контейнер идёт от root: у образа Postgres пользователь `postgres`, ему хостовый каталог не записать. Сервер базы этот контейнер не запускает. В git дампы не коммитить.
+
+Расписание: каждый день в 00:00 по Москве, хранятся **7 последних файлов**, не «7 календарных дней, если за день их несколько». Старые удаляются только после успешного нового дампа. Неудачный `pg_dump` оставляет предыдущие файлы и повторяется через минуту. Если контейнер проспал полночь, при старте снимает один дамп за текущие сутки, когда файла за эту дату ещё нет. Имя: `invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump`, время в имени — московское.
+
+`backup` остаётся в bridge и ходит в `db:5432`. Файл [compose.telegram-host.yml](../compose.telegram-host.yml) его в сеть хоста не переводит: там нет имени `db`. `docker compose down` останавливает и бэкап. Пока стек поднят, цикл жив (`restart: unless-stopped`).
+
+`loop.sh` читается при старте процесса. Деплой после `up` пересоздаёт только `backup` (`--force-recreate --no-deps`), чтобы правка скрипта без изменения compose не осталась в старом процессе. `backup.sh` и так запускается заново на каждый дамп.
+
+Дампы лежат на том же диске, что Postgres. Это защита от плохого деплоя и случайного затирания данных, не от смерти диска.
+
+Проверка после деплоя:
+
+```bash
+cd /opt/invoice-keeper
+docker compose -f docker-compose.yml -f compose.telegram-host.yml ps backup
+docker compose -f docker-compose.yml -f compose.telegram-host.yml logs --tail=20 backup
+ls -l backups
+```
+
+В логе есть `backup wrote` (первый запуск за сутки) или `next backup at 00:00 Europe/Moscow`. Файл в `backups/` непустой.
+
+### Восстановление
+
+Скрипт [ops/backup/restore.sh](../ops/backup/restore.sh) останавливает `api`, `worker` и `backup` (чтобы не писали в ту же базу), сессии к базе обрывает, `pg_restore --clean --if-exists` прогоняет внутри контейнера `db`, затем снова запускает эти три сервиса и ждёт health на `127.0.0.1:8080`. Postgres не останавливается. Без `--yes` скрипт ничего не делает.
+
+```bash
+cd /opt/invoice-keeper
+ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
+```
+
+Сегодняшний файл после восстановления не перезаписывается до следующей полуночи. Нужен новый снимок сразу — удалить `backups/invoice-keeper-<сегодня>T*.dump` и перезапустить `backup`:
+
+```bash
+docker compose -f docker-compose.yml -f compose.telegram-host.yml restart backup
+```
+
+Сколько файлов держать — `BACKUP_KEEP` в `.env` (по умолчанию 7). Остальной `.env` ради бэкапа не трогать.
+
 ## Чеклист
 
 - [x] SSH ок
@@ -209,10 +266,12 @@ docker compose -f docker-compose.yml -f compose.telegram-host.yml up --build -d 
 - [x] DNS: A `@` и `www` → `217.144.184.232`, AAAA пустой
 - [ ] Публичный ключ в `authorized_keys` и GitHub Secrets: `DEPLOY_HOST`, `DEPLOY_USER`, `DEPLOY_SSH_KEY`, опционально `DEPLOY_PORT`
 - [ ] В серверном `.env` до мержа: `COOKIE_SECURE=true`, `CORS_ORIGINS=https://rekeeper.ru`, `APP_PUBLIC_URL=https://rekeeper.ru`
-- [ ] Деплой: health `http://127.0.0.1:8080/api/v1/health`, Caddy на `:80` с `Host: rekeeper.ru`, worker `NetworkMode=host`
+- [ ] Деплой: health `http://127.0.0.1:8080/api/v1/health`, Caddy на `:80` с `Host: rekeeper.ru`, worker `NetworkMode=host`, backup running и файл в `backups/`
 - [ ] `curl -fsS https://rekeeper.ru/api/v1/health` и 301 с `https://www.rekeeper.ru` на apex
 - [ ] Снаружи 5432 и 8000 больше не открываются
 - [ ] В логе worker нет таймаута IPv4 до `api.telegram.org`
+- [ ] В логе worker нет пути `api.telegram.org/bot<токен>/` (httpx на WARNING, токен вырезается и из остальных строк)
+- [ ] `backup` running, в `/opt/invoice-keeper/backups` есть `invoice-keeper-*.dump`
 - [ ] BotFather → токен + chat_id, если ещё не стоят в `.env`
 
-Следующий шаг: три строки в `/opt/invoice-keeper/.env`, ещё раз `ss` на 80/443, мерж. После зелёного Actions — `curl` на https и заголовки.
+Следующий шаг: три строки в `/opt/invoice-keeper/.env`, ещё раз `ss` на 80/443, мерж. После зелёного Actions — `curl` на https, лог worker без `bot<токен>`, файл в `backups/`.

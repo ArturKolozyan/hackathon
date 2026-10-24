@@ -11,6 +11,7 @@ dist/
 *.log
 .coverage
 htmlcov/
+/backups/
 
 # impeccable-ignore-start
 # Ephemeral output, runtime state, and per-dev overrides.
