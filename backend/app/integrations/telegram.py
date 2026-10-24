@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy import update
 
 from app.core.config import Settings, get_settings
+from app.core.logging import install_redaction, quiet_http_loggers
 
 log = logging.getLogger("invoice_keeper.telegram")
 
@@ -69,11 +70,18 @@ class TelegramClient:
     """Long polling и send/edit. Токен в лог и в repr не попадает."""
 
     def __init__(self, token: str, force_ipv6: bool) -> None:
+        # Повторно: uvicorn dictConfig не трогает уже выставленный уровень,
+        # но клиент мог появиться раньше configure_logging.
+        quiet_http_loggers()
+        install_redaction()
         self._token = token.strip()
         self.force_ipv6 = force_ipv6
         local_address = "::" if force_ipv6 else None
         transport = httpx.HTTPTransport(local_address=local_address, retries=0, trust_env=False)
         self._http = httpx.Client(transport=transport, trust_env=False)
+
+    def __repr__(self) -> str:
+        return f"TelegramClient(force_ipv6={self.force_ipv6})"
 
     def close(self) -> None:
         self._http.close()

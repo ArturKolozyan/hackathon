@@ -1,4 +1,3 @@
-import logging
 import sys
 
 from alembic import command
@@ -10,12 +9,17 @@ def migrate() -> None:
 
 
 def serve() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    from app.core.logging import configure_logging, install_redaction, quiet_http_loggers
+
+    configure_logging()
     from app.core.database import wait_for_db
     from app.seed import seed
 
     wait_for_db()
     migrate()
+    # fileConfig в alembic выключает логгеры, созданные до миграции, в том числе httpx.
+    quiet_http_loggers()
+    install_redaction()
     seed()
     import uvicorn
 
@@ -23,7 +27,9 @@ def serve() -> None:
 
 
 def worker() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s %(message)s")
+    from app.core.logging import configure_logging
+
+    configure_logging()
     from app.core.database import wait_for_db, wait_for_schema
     from app.worker import run
 

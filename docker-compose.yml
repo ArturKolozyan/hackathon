@@ -2,6 +2,7 @@
 # worker — горизонт, dispatch_due_reminders (почта, webhook, Telegram deliver) и long polling.
 # На VPS Aeza bridge часто без IPv6: деплой добавляет compose.telegram-host.yml.
 # Снаружи сайт отдаёт caddy (80/443). 5432, 8000 и 8080 опубликованы только на 127.0.0.1.
+# backup — pg_dump той же 16-й версии в ./backups (на VPS это /opt/invoice-keeper/backups).
 
 name: invoice-keeper
 
@@ -25,6 +26,38 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+    restart: unless-stopped
+
+  # Тот же мажор, что у db: pg_dump 16 и сервер 16. Отдельный образ не собираем.
+  # entrypoint образа — инициализация Postgres; его заменяем, иначе поднимется второй сервер.
+  # command затирает CMD ["postgres"], чтобы он не приехал аргументом в loop.sh.
+  # Сеть bridge: имя db резолвится. В host (compose.telegram-host.yml) backup не переводим.
+  # .env целиком не подключаем: туда попал бы токен бота. Пароль только для pg_dump.
+  backup:
+    image: postgres:16-alpine
+    # Образ сам переключает USER на postgres. Дамп пишем на хост в ./backups
+    # и ставим каталогу 700, поэтому здесь root. Сервер БД этот контейнер не запускает.
+    user: "0:0"
+    entrypoint: ["/bin/sh", "/opt/backup/loop.sh"]
+    command: ["run"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      TZ: ${TIMEZONE:-Europe/Moscow}
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+      BACKUP_DIR: /backups
+    volumes:
+      - ./ops/backup:/opt/backup:ro
+      - ./backups:/backups
+    depends_on:
+      db:
+        condition: service_healthy
     restart: unless-stopped
 
   api:

@@ -11,3 +11,4 @@ dist/
 *.log
 .coverage
 htmlcov/
+/backups/
