@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, type Occurrence } from "../api";
 import { formatMoney, shortDue, statusPill } from "../format";
+import { DateField } from "./fields";
 import { InlineConfirm, useToast } from "./ui";
 
 type Props = {
@@ -119,7 +120,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
           >
             <label>
               Фактическая дата
-              <input type="date" max={today} value={paidOn} onChange={(event) => setPaidOn(event.target.value)} required />
+              <DateField required max={today} value={paidOn} onChange={setPaidOn} />
             </label>
             {mode === "inbox" && (
               <>

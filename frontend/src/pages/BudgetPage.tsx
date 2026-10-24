@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type BudgetLine, type BudgetReport } from "../api";
 import { canManage, useAuth } from "../auth";
+import { DateField } from "../components/fields";
 import { ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { formatMoney } from "../format";
 
@@ -84,7 +85,7 @@ export function BudgetPage() {
         {kind === "month" ? (
           <label>
             Месяц
-            <input type="month" value={monthKey} onChange={(event) => setMonthKey(event.target.value)} />
+            <DateField mode="month" value={monthKey} onChange={setMonthKey} />
           </label>
         ) : (
           <label>

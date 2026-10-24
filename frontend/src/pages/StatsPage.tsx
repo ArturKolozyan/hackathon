@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, type Stats } from "../api";
 import { useAuth } from "../auth";
+import { DateField, SelectField } from "../components/fields";
 import { formatMoney, shortDue } from "../format";
 
 type Period = "open" | "month" | "range";
@@ -79,57 +80,66 @@ export function StatsPage() {
         </div>
         <label>
           Статус
-          <select value={status} onChange={(event) => setStatus(event.target.value)}>
-            <option value="">Все</option>
-            <option value="overdue">Просрочено</option>
-            <option value="due_soon">Скоро</option>
-            <option value="upcoming">Впереди</option>
-            <option value="paid">Оплачено</option>
-          </select>
+          <SelectField
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: "", label: "Все" },
+              { value: "overdue", label: "Просрочено" },
+              { value: "due_soon", label: "Скоро" },
+              { value: "upcoming", label: "Впереди" },
+              { value: "paid", label: "Оплачено" },
+            ]}
+          />
         </label>
         <label>
           Валюта
-          <select value={currency} onChange={(event) => setCurrency(event.target.value)}>
-            <option value="">Все</option>
-            <option value="RUB">RUB</option>
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-          </select>
+          <SelectField
+            value={currency}
+            onChange={setCurrency}
+            options={[
+              { value: "", label: "Все" },
+              { value: "RUB", label: "RUB" },
+              { value: "USD", label: "USD" },
+              { value: "EUR", label: "EUR" },
+            ]}
+          />
         </label>
         <label>
           Ответственный
-          <select value={responsible} onChange={(event) => setResponsible(event.target.value)}>
-            <option value="">Все</option>
-            {people.map((person) => (
-              <option key={person.id} value={person.id}>
-                {person.full_name}
-              </option>
-            ))}
-          </select>
+          <SelectField
+            value={responsible}
+            onChange={setResponsible}
+            options={[{ value: "", label: "Все" }, ...people.map((person) => ({ value: person.id, label: person.full_name }))]}
+          />
         </label>
         <label>
           Период
-          <select value={period} onChange={(event) => setPeriod(event.target.value as Period)}>
-            <option value="open">Открытые</option>
-            <option value="month">Месяц</option>
-            <option value="range">Диапазон</option>
-          </select>
+          <SelectField
+            value={period}
+            onChange={(value) => setPeriod(value as Period)}
+            options={[
+              { value: "open", label: "Открытые" },
+              { value: "month", label: "Месяц" },
+              { value: "range", label: "Диапазон" },
+            ]}
+          />
         </label>
         {period === "month" && (
           <label>
             Месяц
-            <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+            <DateField mode="month" value={month} onChange={setMonth} />
           </label>
         )}
         {period === "range" && (
           <>
             <label>
               С
-              <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+              <DateField value={dateFrom} onChange={setDateFrom} />
             </label>
             <label>
               По
-              <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+              <DateField value={dateTo} onChange={setDateTo} />
             </label>
           </>
         )}

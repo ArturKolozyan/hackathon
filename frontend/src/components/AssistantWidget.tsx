@@ -12,6 +12,7 @@ import {
   type AssistantConfirm,
   type AssistantMessage,
 } from "../api";
+import { DateField, SelectField } from "./fields";
 import { MarkdownMessage } from "./MarkdownMessage";
 
 const MAX_SECONDS = 25;
@@ -731,13 +732,11 @@ function EditForm({
     return (
       <label>
         Период
-        <select value={form.occurrenceId} onChange={(event) => onForm({ ...form, occurrenceId: event.target.value })}>
-          {options.map((item) => (
-            <option key={item.occurrence_id} value={item.occurrence_id}>
-              {item.period_label}
-            </option>
-          ))}
-        </select>
+        <SelectField
+          value={form.occurrenceId}
+          onChange={(occurrenceId) => onForm({ ...form, occurrenceId })}
+          options={options.map((item) => ({ value: item.occurrence_id, label: item.period_label }))}
+        />
       </label>
     );
   }
@@ -753,11 +752,15 @@ function EditForm({
       </label>
       <label>
         Валюта
-        <select value={form.currency} onChange={(event) => onForm({ ...form, currency: event.target.value })}>
-          <option value="RUB">RUB</option>
-          <option value="USD">USD</option>
-          <option value="EUR">EUR</option>
-        </select>
+        <SelectField
+          value={form.currency}
+          onChange={(currency) => onForm({ ...form, currency })}
+          options={[
+            { value: "RUB", label: "RUB" },
+            { value: "USD", label: "USD" },
+            { value: "EUR", label: "EUR" },
+          ]}
+        />
       </label>
       <label>
         День месяца
@@ -766,19 +769,17 @@ function EditForm({
       {action.kind === "create_payment" && (
         <label>
           С
-          <input type="date" value={form.startsOn} onChange={(event) => onForm({ ...form, startsOn: event.target.value })} />
+          <DateField value={form.startsOn} onChange={(startsOn) => onForm({ ...form, startsOn })} />
         </label>
       )}
       {people.length > 0 && (
         <label>
           Ответственный
-          <select value={form.responsibleId} onChange={(event) => onForm({ ...form, responsibleId: event.target.value })}>
-            {people.map((person) => (
-              <option key={person.id} value={person.id}>
-                {person.full_name}
-              </option>
-            ))}
-          </select>
+          <SelectField
+            value={form.responsibleId}
+            onChange={(responsibleId) => onForm({ ...form, responsibleId })}
+            options={people.map((person) => ({ value: person.id, label: person.full_name }))}
+          />
         </label>
       )}
     </div>

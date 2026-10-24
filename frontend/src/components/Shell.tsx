@@ -22,6 +22,7 @@ import { FeaturesProvider, useFeatures } from "../features";
 import { useMediaQuery } from "../useMediaQuery";
 import { AssistantWidget } from "./AssistantWidget";
 import { TeamMark, ThemeToggle, Wordmark } from "./Brand";
+import { SelectField } from "./fields";
 
 type Item = { to: string; label: string; icon: LucideIcon; end?: boolean };
 
@@ -129,18 +130,14 @@ function ShellView() {
         </div>
         <div className="who">
           {user && user.memberships.length > 0 && (
-            <select
+            <SelectField
               className="team-switch"
-              aria-label="Отдел"
+              ariaLabel="Отдел"
+              align="end"
               value={user.active_team_id ?? ""}
-              onChange={(event) => void onTeam(event.target.value)}
-            >
-              {user.memberships.map((row) => (
-                <option key={row.team_id} value={row.team_id}>
-                  {row.team_name}
-                </option>
-              ))}
-            </select>
+              onChange={(teamId) => void onTeam(teamId)}
+              options={user.memberships.map((row) => ({ value: row.team_id, label: row.team_name }))}
+            />
           )}
           <span className="who-name">{user?.full_name}</span>
           <span className="role">{roleLabel(role)}</span>

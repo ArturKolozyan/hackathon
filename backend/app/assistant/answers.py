@@ -12,25 +12,50 @@ from app.assistant.dates import week_bounds
 from app.services.occurrences import list_views
 from app.services.schedule import period_label
 
-STATUS_RU = {
+STATUS_WORD = {
     "overdue": "просрочено",
     "due_soon": "скоро",
     "upcoming": "впереди",
     "paid": "оплачено",
 }
+GROUP_RU = {
+    "overdue": "Просрочено",
+    "due_soon": "Скоро",
+    "upcoming": "Впереди",
+    "paid": "Оплачено",
+}
+GROUP_ORDER = ("overdue", "due_soon", "upcoming", "paid")
 
 
 def _money(amount) -> str:
     return f"{Decimal(amount):.2f}"
 
 
-def _line(item) -> str:
+def _item_md(item) -> str:
     due = item.due_date.strftime("%d.%m.%Y")
-    return (
-        f"{item.title} · {item.period_label} · {_money(item.amount)} {item.currency} · "
-        f"до {due} · {STATUS_RU.get(item.status, item.status)} · "
-        f"{item.responsible.full_name if item.responsible is not None else 'не назначен'}"
-    )
+    who = item.responsible.full_name if item.responsible is not None else "не назначен"
+    title = str(item.title).replace("*", "").replace("\n", " ").strip()
+    status = STATUS_WORD.get(item.status, item.status)
+    return f"**{title}** — {_money(item.amount)} {item.currency}\nдо {due} · {status} · {who}"
+
+
+def _grouped(items) -> str:
+    buckets: dict[str, list] = {key: [] for key in GROUP_ORDER}
+    extra: list = []
+    for item in items:
+        if item.status in buckets:
+            buckets[item.status].append(item)
+        else:
+            extra.append(item)
+    groups: list[tuple[str, list]] = [(GROUP_RU[key], buckets[key]) for key in GROUP_ORDER if buckets[key]]
+    if extra:
+        groups.append(("Прочее", extra))
+    show_heads = len(items) > 1
+    blocks: list[str] = []
+    for label, rows in groups:
+        body = "\n\n".join(_item_md(row) for row in rows)
+        blocks.append(f"{label}\n\n{body}" if show_heads else body)
+    return "\n\n".join(blocks)
 
 
 def _totals(items) -> list[str]:
@@ -57,18 +82,17 @@ def week_text(db: Session, team_id: uuid.UUID) -> str:
     ]
     if not burning:
         return f"На этой неделе ничего не горит: просрочек нет, до {end.strftime('%d.%m.%Y')} сроков нет."
-    lines = [f"Горит на этой неделе (до {end.strftime('%d.%m.%Y')}):"]
-    lines.extend(_line(item) for item in burning)
-    return "\n".join(lines)
+    return f"Горит на этой неделе, до {end.strftime('%d.%m.%Y')}.\n\n" + _grouped(burning)
 
 
 def overdue_text(db: Session, team_id: uuid.UUID) -> str:
     _today, items = list_views(db, view="inbox", team_id=team_id, status="overdue")
     if not items:
         return "Просроченных платежей нет."
-    lines = ["Просрочено:"]
-    lines.extend(_line(item) for item in items)
-    return "\n".join(lines)
+    body = _grouped(items)
+    if body.startswith("Просрочено"):
+        return body
+    return "Просрочено\n\n" + body
 
 
 def spending_text(db: Session, team_id: uuid.UUID, year: int, month: int) -> str:
@@ -87,7 +111,7 @@ def spending_text(db: Session, team_id: uuid.UUID, year: int, month: int) -> str
         lines.append("Оплат пока нет.")
     if open_items:
         lines.append("Ещё не оплачено: " + ", ".join(_totals(open_items)) + ".")
-        lines.extend(_line(item) for item in open_items)
+        return "\n".join(lines) + "\n\n" + _grouped(open_items)
     return "\n".join(lines)
 
 
@@ -98,21 +122,17 @@ def paid_month_text(db: Session, team_id: uuid.UUID, year: int, month: int) -> s
     title = period_label(year, month)
     if not chosen:
         return f"За {title} оплаченных периодов нет."
-    lines = [f"Оплачено за {title}: " + ", ".join(_totals(chosen)) + "."]
-    lines.extend(_line(item) for item in chosen)
-    return "\n".join(lines)
+    head = f"Оплачено за {title}: " + ", ".join(_totals(chosen)) + "."
+    return head + "\n\n" + _grouped(chosen)
 
 
 def open_text(db: Session, team_id: uuid.UUID) -> str:
     _today, items = list_views(db, view="inbox", team_id=team_id)
     if not items:
         return "Инбокс пуст: открытых платежей нет."
-    lines = ["Открытые платежи: " + ", ".join(_totals(items)) + "."]
     shown = items[:12]
-    lines.extend(_line(item) for item in shown)
-    if len(items) > len(shown):
-        lines.append(f"И ещё {len(items) - len(shown)}.")
-    return "\n".join(lines)
+    tail = f"\n\nИ ещё {len(items) - len(shown)}." if len(items) > len(shown) else ""
+    return "Открытые платежи: " + ", ".join(_totals(items)) + ".\n\n" + _grouped(shown) + tail
 
 
 def responsible_text(db: Session, team_id: uuid.UUID, query: str) -> str:
@@ -141,9 +161,7 @@ def person_text(db: Session, team_id: uuid.UUID, name: str) -> str:
     _today, items = list_views(db, view="inbox", team_id=team_id, responsible_id=person.id)
     if not items:
         return f"У {person.full_name} нет открытых платежей."
-    lines = [f"Открыто у {person.full_name}:"]
-    lines.extend(_line(item) for item in items[:12])
-    return "\n".join(lines)
+    return f"Открыто у {person.full_name}:\n\n" + _grouped(items[:12])
 
 
 def answer_read(db: Session, team_id: uuid.UUID, kind: str, slots: dict) -> str:

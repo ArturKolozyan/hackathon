@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, api, type Inbox, type Occurrence, type Summary, type TeamTelegram, type TelegramSelf } from "../api";
 import { canManage, useAuth } from "../auth";
+import { DateField } from "../components/fields";
 import { OccurrenceCard } from "../components/OccurrenceCard";
 import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { chipTone, formatMoney } from "../format";
@@ -68,7 +69,7 @@ export function InboxPage() {
           <div className="head-actions totals-tools">
             <label className="as-of">
               Итоги на дату
-              <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} />
+              <DateField value={asOf} onChange={setAsOf} />
             </label>
             {asOf && (
               <button type="button" className="ghost" onClick={() => setAsOf("")}>

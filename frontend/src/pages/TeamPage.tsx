@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, type Member } from "../api";
 import { roleLabel, roleOf, useAuth } from "../auth";
+import { SelectField } from "../components/fields";
 
 type Invite = {
   id: string;
@@ -150,10 +151,14 @@ export function TeamPage() {
         </label>
         <label>
           Роль
-          <select value={inviteRole} onChange={(event) => setInviteRole(event.target.value as "admin" | "member")}>
-            <option value="member">Участник</option>
-            {owner && <option value="admin">Админ</option>}
-          </select>
+          <SelectField
+            value={inviteRole}
+            onChange={(role) => setInviteRole(role as "admin" | "member")}
+            options={[
+              { value: "member", label: "Участник" },
+              ...(owner ? [{ value: "admin", label: "Админ" }] : []),
+            ]}
+          />
         </label>
         <div className="row-actions span-2">
           <button type="submit" className="primary" disabled={busy}>Отправить</button>
@@ -310,16 +315,17 @@ export function TeamPage() {
           <h2>Передать владение</h2>
           <label className="span-2">
             Новый владелец
-            <select value={transferId} onChange={(event) => setTransferId(event.target.value)} required>
-              <option value="">Выберите</option>
-              {members
-                .filter((person) => person.id !== user?.id && person.is_active)
-                .map((person) => (
-                  <option key={person.id} value={person.id}>
-                    {person.full_name}
-                  </option>
-                ))}
-            </select>
+            <SelectField
+              required
+              value={transferId}
+              onChange={setTransferId}
+              options={[
+                { value: "", label: "Выберите" },
+                ...members
+                  .filter((person) => person.id !== user?.id && person.is_active)
+                  .map((person) => ({ value: person.id, label: person.full_name })),
+              ]}
+            />
           </label>
           <div className="row-actions span-2">
             <button type="submit" className="ghost" disabled={busy || !transferId}>Передать</button>
