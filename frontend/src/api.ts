@@ -205,6 +205,42 @@ function messageFrom(data: unknown, status: number): string {
   return `Ошибка ${status}`;
 }
 
+export type AssistantPerson = { id: string; full_name: string };
+
+export type AssistantAlternative = {
+  occurrence_id: string;
+  period_label: string;
+  due_date: string;
+  status: string;
+};
+
+export type AssistantAction = {
+  id: string;
+  kind: "create_payment" | "update_payment" | "archive_payment" | "mark_paid";
+  status: "pending" | "running" | "confirmed" | "cancelled" | "failed";
+  summary: string;
+  payload: {
+    fields?: Record<string, unknown>;
+    people?: AssistantPerson[];
+    alternatives?: AssistantAlternative[];
+    editable?: boolean;
+  };
+  result_text: string | null;
+};
+
+export type AssistantConfirm = {
+  message: AssistantMessage;
+  action: AssistantAction;
+};
+
+export type AssistantMessage = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+  action: AssistantAction | null;
+};
+
 export type Stats = {
   timezone: string;
   today: string;
@@ -257,4 +293,84 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   if (!response.ok) throw new ApiError(response.status, messageFrom(data, response.status));
   return data as T;
+}
+
+function parseSseBlock(block: string): { event: string; data: unknown } | null {
+  let event = "message";
+  const dataLines: string[] = [];
+  for (const line of block.split("\n")) {
+    if (line.startsWith("event:")) event = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  return { event, data: JSON.parse(dataLines.join("\n")) };
+}
+
+function withTeam(init: HeadersInit): Headers {
+  const headers = new Headers(init);
+  const team = storedTeamId();
+  if (team) headers.set("X-Team-Id", team);
+  return headers;
+}
+
+export async function streamAssistant(text: string, onToken: (chunk: string) => void): Promise<AssistantMessage> {
+  const response = await fetch("/api/v1/assistant/messages?stream=true", {
+    method: "POST",
+    credentials: "include",
+    headers: withTeam({ "Content-Type": "application/json", Accept: "text/event-stream" }),
+    body: JSON.stringify({ text }),
+  });
+  if (!response.ok || !response.body) {
+    const raw = await response.text();
+    let data: unknown = null;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      data = null;
+    }
+    throw new ApiError(response.status, messageFrom(data, response.status));
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let doneMessage: AssistantMessage | null = null;
+  while (true) {
+    const step = await reader.read();
+    if (step.done) break;
+    buffer += decoder.decode(step.value, { stream: true });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() ?? "";
+    for (const block of blocks) {
+      const parsed = parseSseBlock(block);
+      if (!parsed || !parsed.data || typeof parsed.data !== "object") continue;
+      const payload = parsed.data as { text?: string; detail?: string; message?: AssistantMessage };
+      if (parsed.event === "token" && payload.text) onToken(payload.text);
+      if (parsed.event === "error") throw new ApiError(503, payload.detail || "Ассистент не ответил");
+      if (parsed.event === "done" && payload.message) doneMessage = payload.message;
+    }
+  }
+  if (!doneMessage) throw new ApiError(503, "Ассистент не ответил. Повтори фразу.");
+  return doneMessage;
+}
+
+export async function transcribe(blob: Blob): Promise<string> {
+  const form = new FormData();
+  const name = blob.type.includes("ogg") ? "speech.ogg" : "speech.webm";
+  form.append("file", blob, name);
+  const response = await fetch("/api/v1/assistant/speech", {
+    method: "POST",
+    body: form,
+    credentials: "include",
+    headers: withTeam({}),
+  });
+  const raw = await response.text();
+  let data: unknown = null;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = null;
+  }
+  if (!response.ok) throw new ApiError(response.status, messageFrom(data, response.status));
+  const text = data && typeof data === "object" && "text" in data ? (data as { text: unknown }).text : "";
+  return typeof text === "string" ? text : "";
 }

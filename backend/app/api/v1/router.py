@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (
+    assistant,
     audit,
     auth,
     budgets,
@@ -28,6 +29,7 @@ api_router.include_router(budgets.router)
 api_router.include_router(audit.router)
 api_router.include_router(stats.router)
 api_router.include_router(telegram.router)
+api_router.include_router(assistant.router)
 
 
 @api_router.get("/health", tags=["meta"], summary="Проверка живости")

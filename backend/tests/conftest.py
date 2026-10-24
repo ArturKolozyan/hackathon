@@ -25,6 +25,12 @@ os.environ["WEBHOOK_URL"] = ""
 os.environ["SMTP_HOST"] = ""
 os.environ["TELEGRAM_BOT_TOKEN"] = ""
 os.environ["TELEGRAM_CHAT_ID"] = ""
+os.environ["GIGACHAT_AUTH_KEY"] = ""
+os.environ["GIGACHAT_SCOPE"] = "GIGACHAT_API_PERS"
+os.environ["GIGACHAT_MODEL"] = "GigaChat-2-Max"
+os.environ["GIGACHAT_FALLBACK_MODEL"] = "GigaChat-2-Pro"
+os.environ["YANDEX_SPEECHKIT_API_KEY"] = ""
+os.environ["YANDEX_FOLDER_ID"] = ""
 
 
 def _with_db(url: str, name: str) -> str:
@@ -87,9 +93,9 @@ def db_session(migrated):
     db = SessionLocal()
     db.execute(
         text(
-            "TRUNCATE email_codes, login_attempts, team_invites, telegram_link_tokens, telegram_integration, "
-            "telegram_bot, notification_deliveries, audit_logs, budgets, payment_occurrences, "
-            "recurring_payments, auth_sessions, memberships, users, teams "
+            "TRUNCATE assistant_messages, assistant_actions, email_codes, login_attempts, team_invites, "
+            "telegram_link_tokens, telegram_integration, telegram_bot, notification_deliveries, audit_logs, "
+            "budgets, payment_occurrences, recurring_payments, auth_sessions, memberships, users, teams "
             "RESTART IDENTITY CASCADE"
         )
     )

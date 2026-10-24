@@ -13,7 +13,6 @@ www.rekeeper.ru {
 }
 
 rekeeper.ru {
-	encode zstd gzip
 	header {
 		defer
 		X-Content-Type-Options nosniff
@@ -21,7 +20,18 @@ rekeeper.ru {
 		X-Frame-Options SAMEORIGIN
 		-Server
 	}
-	reverse_proxy web:80 {
-		header_up Host {host}
+	# Ответ ассистента идёт кусками. Сжатие здесь буферизует поток.
+	@assistant path /api/v1/assistant/messages /api/v1/assistant/messages/*
+	handle @assistant {
+		reverse_proxy web:80 {
+			header_up Host {host}
+			flush_interval -1
+		}
+	}
+	handle {
+		encode zstd gzip
+		reverse_proxy web:80 {
+			header_up Host {host}
+		}
 	}
 }

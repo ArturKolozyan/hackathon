@@ -959,3 +959,96 @@ button.cal-more {
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
 }
+
+.assistant {
+  max-width: 820px;
+  height: calc(100dvh - 148px);
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.assistant-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.bubble, .assistant-card {
+  max-width: min(100%, 560px);
+  white-space: pre-wrap;
+}
+
+.assistant-bubble, .assistant-card { margin-right: auto; }
+
+.user-bubble {
+  margin-left: auto;
+  background: var(--accent-soft);
+  border: 1px solid transparent;
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.assistant-bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px 14px;
+}
+
+.assistant-card { display: grid; gap: 12px; width: min(100%, 560px); }
+.assistant-card-text { white-space: pre-wrap; }
+.assistant-edit { display: grid; gap: 8px; }
+
+.assistant-compose {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.assistant-compose textarea {
+  flex: 1;
+  min-height: 52px;
+  max-height: 140px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  background: var(--field);
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.assistant-compose textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.assistant-compose .mic { min-width: 108px; }
+.assistant-hint { font-size: 0.86rem; }
+
+.caret {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .assistant { height: auto; min-height: calc(100dvh - 180px); }
+  .assistant-compose { flex-wrap: wrap; }
+  .assistant-compose textarea { flex-basis: 100%; }
+  .assistant-compose .primary,
+  .assistant-compose .ghost { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .caret { display: none; }
+}

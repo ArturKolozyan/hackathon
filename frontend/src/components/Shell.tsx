@@ -65,6 +65,7 @@ export function Shell() {
           <NavLink to="/" end>
             Инбокс
           </NavLink>
+          <NavLink to="/assistant">Ассистент</NavLink>
           <NavLink to="/calendar">Календарь</NavLink>
           <NavLink to="/history">История</NavLink>
           <NavLink to="/budget">Бюджет</NavLink>

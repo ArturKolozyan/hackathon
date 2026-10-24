@@ -46,6 +46,19 @@ class Settings(BaseSettings):
     webhook_secret: str = ""
     webhook_attempts: int = 3
     webhook_backoff_seconds: float = 0.4
+    # Ассистент. Пустой ключ — свободные фразы молчат, короткие команды по базе живы.
+    gigachat_auth_key: str = ""
+    gigachat_scope: str = "GIGACHAT_API_PERS"
+    gigachat_model: str = "GigaChat-2-Max"
+    gigachat_fallback_model: str = "GigaChat-2-Pro"
+    gigachat_oauth_url: str = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+    gigachat_api_base: str = "https://gigachat.devices.sberbank.ru/api/v1"
+    gigachat_ca_file: str = ""
+    yandex_speechkit_api_key: str = ""
+    yandex_folder_id: str = ""
+    yandex_stt_url: str = "https://stt.api.cloud.yandex.net/speech/v1/stt:recognize"
+    assistant_http_timeout: float = 25.0
+    assistant_http_retries: int = 2
 
     @property
     def cors_origin_list(self) -> list[str]:
