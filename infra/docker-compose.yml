@@ -2,9 +2,9 @@
 # Контейнеры: web, api, worker, bot, assistant (профиль), db, caddy.
 # backup — служебный pg_dump и архив чеков, в список продукта не входит, но на сервере остаётся.
 # Файлы чеков живут в томе receipts: api пишет, backup читает.
-# Отличия жюри и rekeeper.ru — только infra/.env. Отдельных override-файлов нет.
-# Файл лежит в infra/: сборка из ../backend и ../frontend, имя проекта задано ниже,
-# поэтому тома и сеть остаются invoice-keeper_*, как до переезда.
+# Отличия жюри и rekeeper.ru — только .env в корне репозитория. Отдельных override-файлов нет.
+# Запуск из корня: docker compose --env-file .env -f infra/docker-compose.yml up --build -d
+# Сборка из ../backend и ../frontend, имя проекта задано ниже: тома и сеть invoice-keeper_*.
 # Ассистент стартует, только если в .env задан COMPOSE_PROFILES=assistant.
 
 name: invoice-keeper
@@ -47,7 +47,7 @@ services:
       BACKUP_DIR: /backups
     volumes:
       - ./ops/backup:/opt/backup:ro
-      - ./backups:/backups
+      - ../backups:/backups
       - receipts:/receipts:ro
     depends_on:
       db:
@@ -56,7 +56,9 @@ services:
 
   api:
     build: ../backend
-    env_file: .env
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       ASSISTANT_URL: http://assistant:8002
@@ -85,7 +87,9 @@ services:
 
   worker:
     build: ../backend
-    env_file: .env
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TZ: ${TIMEZONE:-Europe/Moscow}
@@ -109,7 +113,9 @@ services:
 
   bot:
     build: ../backend
-    env_file: .env
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       ASSISTANT_URL: http://assistant:8002
@@ -139,7 +145,9 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile.assistant
-    env_file: .env
+    env_file:
+      - path: ../.env
+        required: false
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       TZ: ${TIMEZONE:-Europe/Moscow}
@@ -186,7 +194,7 @@ services:
       - "${HTTPS_PORT:-8443}:443"
       - "${HTTPS_PORT:-8443}:443/udp"
     volumes:
-      - ./ops/caddy/entrypoint.sh:/entrypoint.sh:ro
+      - ./caddy/entrypoint.sh:/entrypoint.sh:ro
       - caddy_data:/data
       - caddy_config:/config
     entrypoint: ["/bin/sh", "/entrypoint.sh"]

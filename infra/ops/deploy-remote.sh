@@ -4,16 +4,17 @@
 set -euo pipefail
 
 cd /opt/invoice-keeper
+dc() { docker compose --env-file "/opt/invoice-keeper/.env" -f "/opt/invoice-keeper/infra/docker-compose.yml" "$@"; }
 
 report() {
   local code=$?
   [ "$code" = 0 ] && return
   echo "--- отчёт об ошибке ---"
   echo "deploy упал, код $code"
-  docker compose ps -a 2>&1 || true
-  for service in $(docker compose config --services 2>/dev/null); do
+  dc ps -a 2>&1 || true
+  for service in $(dc config --services 2>/dev/null); do
     echo "----- $service (последние 100)"
-    docker compose logs --no-color --tail=100 "$service" 2>&1 || true
+    dc logs --no-color --tail=100 "$service" 2>&1 || true
   done
 }
 trap report EXIT
@@ -26,17 +27,8 @@ echo "== git pull"
 git pull --ff-only origin main
 git log -1 --oneline
 
-# Разовый переезд в infra/: .env и бэкапы раньше лежали в корне. Повторный запуск ничего не делает.
-for item in .env backups; do
-  if [ -e "$item" ] && [ ! -e "infra/$item" ]; then
-    echo "== mv $item infra/$item"
-    mv "$item" "infra/$item"
-  fi
-done
-cd infra
-
 echo "== docker compose up --build -d"
-docker compose up --build -d
+dc up --build -d
 
 port=$(grep -E '^HTTP_PORT=' .env | tail -n 1 | cut -d= -f2- || true)
 port=${port:-8080}
@@ -44,7 +36,7 @@ echo "== healthz http://127.0.0.1:${port}/healthz"
 for _ in $(seq 1 36); do
   if curl -fsS --max-time 5 "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
     echo "healthz ok"
-    docker compose ps
+    dc ps
     exit 0
   fi
   sleep 5

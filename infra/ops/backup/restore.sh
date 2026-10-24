@@ -3,7 +3,7 @@
 # Останавливает писателей (api, worker, backup), не останавливает Postgres.
 # Архив receipts-<stamp>-*.tar.gz рядом с дампом распаковывается в том receipts,
 # пока api остановлен. Архива нет — файлы чеков остаются как есть.
-# Запуск из любого каталога: скрипт сам переходит в infra/, путь к дампу — от infra/.
+# Запуск из любого каталога: скрипт сам переходит в корень репозитория, путь к дампу — от корня.
 #
 #   infra/ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
 set -eu
@@ -14,7 +14,7 @@ if [ "${1:-}" != "--yes" ] || [ -z "${2:-}" ]; then
   exit 2
 fi
 
-ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
+ROOT=$(CDPATH= cd -- "$(dirname "$0")/../../.." && pwd)
 cd "$ROOT"
 
 file=$2
@@ -35,7 +35,7 @@ if [ ! -f "$file" ]; then
   exit 2
 fi
 
-COMPOSE="docker compose"
+COMPOSE="docker compose --env-file $ROOT/.env -f $ROOT/infra/docker-compose.yml"
 
 echo "stopping api worker bot backup"
 # shellcheck disable=SC2086

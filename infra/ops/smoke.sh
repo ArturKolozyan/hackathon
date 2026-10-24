@@ -1,6 +1,6 @@
 #!/bin/sh
 # Смоук жюри на чистой машине: без ключей ассистента, затем с остановленным assistant.
-# Запуск из любого каталога: скрипт сам переходит в infra/. Требует Docker.
+# Запуск из любого каталога: скрипт сам переходит в корень репозитория, .env там же. Требует Docker.
 set -eu
 # В CI запускается через bash: упавшая команда и строка сразу видны в логе.
 if [ -n "${BASH_VERSION:-}" ]; then
@@ -8,12 +8,13 @@ if [ -n "${BASH_VERSION:-}" ]; then
   trap 'echo "smoke упал: строка $LINENO: $BASH_COMMAND" >&2' ERR
 fi
 
-root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+root=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 cd "$root"
+dc() { docker compose --env-file "$root/.env" -f "$root/infra/docker-compose.yml" "$@"; }
 
 cp .env.example .env
 # пример уже без ключей и без профиля ассистента
-docker compose up --build -d
+dc up --build -d
 
 port=8080
 if [ -f .env ]; then
@@ -35,8 +36,8 @@ for _ in $(seq 1 60); do
 done
 if [ "$ok" != 1 ]; then
   echo "health не поднялся" >&2
-  docker compose ps >&2 || true
-  docker compose logs --tail=80 api web caddy >&2 || true
+  dc ps >&2 || true
+  dc logs --tail=80 api web caddy >&2 || true
   exit 1
 fi
 
@@ -86,7 +87,7 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 -H "Authorization: B
   "$base/api/v1/recurring-payments")
 test "$code" = 403
 
-docker compose restart
+dc restart
 ok=0
 for _ in $(seq 1 40); do
   if curl -fsS --max-time 5 "$base/api/v1/health" >/dev/null 2>&1; then
@@ -100,16 +101,16 @@ login admin@invoice.local change-me
 token=$(auth)
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" -H "X-Team-Id: $accounting" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
 
-docker compose stop bot
+dc stop bot
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/payments/summary" >/dev/null
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/users" >/dev/null
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/payment-occurrences" >/dev/null
 
 # Ключ есть, контейнер остановлен: фича включена, но недоступна. Кейс жив.
 printf '\nGIGACHAT_AUTH_KEY=dummy-not-a-real-key\nCOMPOSE_PROFILES=assistant\n' >> .env
-docker compose up -d --force-recreate --no-deps api
-docker compose up -d assistant || true
-docker compose stop assistant || true
+dc up -d --force-recreate --no-deps api
+dc up -d assistant || true
+dc stop assistant || true
 ok=0
 for _ in $(seq 1 40); do
   if curl -fsS --max-time 5 "$base/api/v1/health" >/dev/null 2>&1; then
@@ -131,5 +132,5 @@ PY
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" -H "X-Team-Id: $accounting" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/users" >/dev/null
 
-docker compose down -v
+dc down -v
 echo "smoke ok"

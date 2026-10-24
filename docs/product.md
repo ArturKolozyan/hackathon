@@ -4,7 +4,7 @@
 
 **Статус:** одна установка — одна организация. Согласовано как on-prem кейса, 2026-10-24.
 
-**Живой адрес:** https://rekeeper.ru. Тот же `infra/docker-compose.yml`, отличия только в `infra/.env`.
+**Живой адрес:** https://rekeeper.ru. Тот же `infra/docker-compose.yml`, отличия только в `.env`.
 
 ## Идея
 

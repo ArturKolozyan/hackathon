@@ -40,4 +40,6 @@
 
 `docs/`: product · design · pitch · qa · infra (+ README).
 
+`.env` и `.env.example` — в корне. `infra/`: `docker-compose.yml`, `caddy/` (Caddyfile, entrypoint), `ops/` (бэкап, деплой, смоук, отчёт CI). Запуск из корня: `docker compose --env-file .env -f infra/docker-compose.yml up --build -d`.
+
 Актуально: 2026-10-23.

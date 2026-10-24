@@ -1,5 +1,5 @@
 # verify → deploy → healthcheck. Первый упавший шаг останавливает workflow.
-# pull_request гоняет только verify. Секреты приложения в /opt/invoice-keeper/infra/.env.
+# pull_request гоняет только verify. Секреты приложения остаются в /opt/invoice-keeper/.env.
 # Упало — в Summary запуска блок «упал шаг …»: хвост лога шага, для smoke и deploy ещё
 # docker compose ps и логи сервисов. Полные логи — артефакт <job>-logs.
 name: Deploy

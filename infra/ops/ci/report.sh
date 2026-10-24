@@ -4,9 +4,9 @@
 # STEPS — toJSON(steps) из workflow.
 set -uo pipefail
 
-# Workflow запускает скрипт из корня репозитория, compose-файл лежит в infra/.
-export COMPOSE_FILE
-COMPOSE_FILE="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)/docker-compose.yml"
+# compose-файл в infra/, .env в корне репозитория.
+root=$(CDPATH= cd -- "$(dirname "$0")/../../.." && pwd)
+dc() { docker compose --env-file "$root/.env" -f "$root/infra/docker-compose.yml" "$@"; }
 
 MARK='--- отчёт об ошибке ---'
 out=${GITHUB_STEP_SUMMARY:-/dev/stdout}
@@ -41,16 +41,16 @@ show() {
     show "$log"
     echo '```'
   done
-  if [[ " $failed " == *" smoke "* ]] && docker compose ps -aq 2>/dev/null | grep -q .; then
+  if [[ " $failed " == *" smoke "* ]] && dc ps -aq 2>/dev/null | grep -q .; then
     echo
     echo '### docker compose ps'
     echo '```text'
-    docker compose ps -a 2>&1
+    dc ps -a 2>&1
     echo '```'
-    for service in $(docker compose ps -a --format '{{.Service}}' | sort -u); do
+    for service in $(dc ps -a --format '{{.Service}}' | sort -u); do
       echo "### logs $service (последние 100)"
       echo '```text'
-      docker compose logs --no-color --tail=100 "$service" 2>&1
+      dc logs --no-color --tail=100 "$service" 2>&1
       echo '```'
     done
   fi

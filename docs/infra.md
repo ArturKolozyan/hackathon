@@ -6,7 +6,7 @@
 
 ## Каталог infra/
 
-Всё про запуск — в `infra/`: `docker-compose.yml`, `.env` (в git нет), `.env.example`, `Caddyfile`, `ops/` и `backups/` (в git нет). Сборка из `../backend` и `../frontend`. Деплой один раз сам переносит старые `.env` и `backups/` из корня в `infra/`.
+`.env` (в git нет) и `.env.example` — в корне репозитория. В `infra/`: `docker-compose.yml`, `caddy/` (`Caddyfile` и `entrypoint.sh`), `ops/` (бэкап, деплой, смоук, отчёт CI). Бэкапы — в корневом `backups/` (в git нет), compose монтирует `../backups`. Все команды из корня: `docker compose --env-file .env -f infra/docker-compose.yml …`; ниже для краткости `docker compose` в тексте означает именно это. Имя проекта `invoice-keeper` задано в compose-файле, тома и сеть те же, что до переезда.
 
 ## Кабинет Aeza
 
@@ -69,7 +69,7 @@ ssh -L 8080:127.0.0.1:80 root@217.144.184.232
 
 Дальше в браузере http://127.0.0.1:8080. При `COOKIE_SECURE=true` браузер по этому HTTP сессию не сохранит: туннель годится, чтобы увидеть health и страницу входа. Логин в браузере — через https://rekeeper.ru. Если https мёртв и зайти надо именно так: на сервере временно `COOKIE_SECURE=false`, пересоздать `api`, зайти, вернуть `true` и снова пересоздать `api`.
 
-Локально панель: http://localhost:8080. `DOMAIN` пустой — Caddy отдаёт HTTP и в Let's Encrypt не ходит. Команда одна, из `infra/`: `docker compose up --build -d`, см. [README](../README.md). На ноутбуке не задавайте `DOMAIN=rekeeper.ru`: выпуск сертификата с чужой машины бьёт лимит Let's Encrypt.
+Локально панель: http://localhost:8080. `DOMAIN` пустой — Caddy отдаёт HTTP и в Let's Encrypt не ходит. Команда одна, из корня: `docker compose --env-file .env -f infra/docker-compose.yml up --build -d`, см. [README](../README.md). На ноутбуке не задавайте `DOMAIN=rekeeper.ru`: выпуск сертификата с чужой машины бьёт лимит Let's Encrypt.
 
 ## Порты
 
@@ -115,15 +115,14 @@ Push в `main`, pull request и ручной `workflow_dispatch` → [`.github/w
 
 Логи контейнеров: одна строка на запись `время уровень логгер текст`, traceback ниже. Уровень — `LOG_LEVEL` в `.env`, по умолчанию `INFO`. Необработанная ошибка запроса пишется uvicorn с traceback.
 
-Деплой на сервере делает ровно то, что README: `git pull --ff-only origin main`, `cd infra` и `docker compose up --build -d`. Отдельных `-f` нет. Имя проекта `invoice-keeper` задано в compose-файле, поэтому тома и сеть после переезда в `infra/` те же.
+Деплой на сервере делает ровно то, что README: `git pull --ff-only origin main` и `docker compose --env-file .env -f infra/docker-compose.yml up --build -d` из корня.
 
 SSH:
 
 ```bash
 cd /opt/invoice-keeper
 git pull --ff-only origin main
-cd infra
-docker compose up --build -d
+docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 curl -fsS http://127.0.0.1/healthz
 curl -fsS https://rekeeper.ru/api/v1/health
 ```
@@ -160,7 +159,7 @@ Actions ходит **ключом**, не паролем из таблицы SSH
 
 ### Серверный `.env`
 
-Файл деплой не перезаписывает. До мержа, в `/opt/invoice-keeper/infra/.env`, заменить или добавить ровно эти строки:
+Файл деплой не перезаписывает. До мержа, в `/opt/invoice-keeper/.env`, заменить или добавить ровно эти строки:
 
 ```
 COOKIE_SECURE=true
@@ -183,7 +182,7 @@ TELEGRAM_NETWORK=ipv6
 `COOKIE_SECURE=true` API читает при старте. Если поправить `.env` после того, как workflow уже пересоздал контейнеры, нужен ещё один прогон:
 
 ```bash
-docker compose up -d api worker bot
+docker compose --env-file .env -f infra/docker-compose.yml up -d api worker bot
 ```
 
 Порядок без второго захода: сначала эти три строки, потом мерж.
@@ -198,10 +197,10 @@ Workflow каталог и `.env` не создаёт. Docker Compose на се�
 
 ```bash
 git clone https://github.com/ArturKolozyan/hackathon.git /opt/invoice-keeper
-cd /opt/invoice-keeper/infra
+cd /opt/invoice-keeper
 cp .env.example .env
 # затем три строки прода из раздела выше
-docker compose up --build -d
+docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 curl -fsS http://127.0.0.1/healthz
 ```
 
@@ -209,10 +208,10 @@ curl -fsS http://127.0.0.1/healthz
 
 ```bash
 ssh root@217.144.184.232
-cd /opt/invoice-keeper && git pull --ff-only origin main && cd infra && docker compose up --build -d
+cd /opt/invoice-keeper && git pull --ff-only origin main && docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 curl -fsS http://127.0.0.1/healthz
 curl -fsS https://rekeeper.ru/api/v1/health
-docker compose ps
+docker compose --env-file .env -f infra/docker-compose.yml ps
 ```
 
 `bot` в bridge, не в `host`. `backup` — `running`, в `backups/` лежит дамп. Если 80/443 уже держит сервис `caddy` этого compose, его не останавливать. Чужой процесс на этих портах — остановить до `up`.
@@ -227,7 +226,7 @@ docker compose ps
 - Откат на коммит без Caddy: тот же `up` с `--remove-orphans`, иначе старый контейнер `caddy` продолжит держать 80/443. Том `caddy_data` при откате не удалять.
 
 ```bash
-docker compose up --build -d --remove-orphans
+docker compose --env-file .env -f infra/docker-compose.yml up --build -d --remove-orphans
 ```
 
 ## Бэкапы Postgres
@@ -236,7 +235,7 @@ docker compose up --build -d --remove-orphans
 
 Деплой и так делает `docker compose up`. Сервис поднимается и откатывается вместе с репозиторием. Unit на хосте пришлось бы ещё копировать и `enable` в том же SSH, и при откате коммита таймер остался бы старым. `pg_dump` берётся из того же образа `postgres:16-alpine`, что и сервер: клиент на хост ставить не нужно, версии не разъедутся. В `postgres:16-alpine` нет cron и tzdata, пакеты при старте не ставим (зеркала с Москвы лишняя точка отказа). Цикл в `ops/backup/loop.sh` спит до полуночи. Москва — UTC+3 круглый год, без летнего времени, поэтому полночь считается от `date -u`, а не от часового пояса контейнера.
 
-Дамп — custom-формат (`pg_dump -Fc`, сжатие 6). Это не `.sql.gz`: gzip его не открывает, восстановление — `pg_restore`. Пароль только в `PGPASSWORD` внутри контейнера, в командную строку не попадает. Каталог на хосте — `./backups` от корня репозитория. На VPS это `/opt/invoice-keeper/infra/backups`. `git reset --hard` его не трогает, `git clean` деплой не делает. Права каталога `700`. Контейнер идёт от root: у образа Postgres пользователь `postgres`, ему хостовый каталог не записать. Сервер базы этот контейнер не запускает. В git дампы не коммитить.
+Дамп — custom-формат (`pg_dump -Fc`, сжатие 6). Это не `.sql.gz`: gzip его не открывает, восстановление — `pg_restore`. Пароль только в `PGPASSWORD` внутри контейнера, в командную строку не попадает. Каталог на хосте — `./backups` от корня репозитория. На VPS это `/opt/invoice-keeper/backups`. `git reset --hard` его не трогает, `git clean` деплой не делает. Права каталога `700`. Контейнер идёт от root: у образа Postgres пользователь `postgres`, ему хостовый каталог не записать. Сервер базы этот контейнер не запускает. В git дампы не коммитить.
 
 Расписание: каждый день в 00:00 по Москве, хранятся **7 последних файлов**, не «7 календарных дней, если за день их несколько». Старые удаляются только после успешного нового дампа. Неудачный `pg_dump` оставляет предыдущие файлы и повторяется через минуту. Если контейнер проспал полночь, при старте снимает один дамп за текущие сутки, когда файла за эту дату ещё нет. Имя: `invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump`, время в имени — московское.
 
@@ -249,9 +248,9 @@ docker compose up --build -d --remove-orphans
 Проверка после деплоя:
 
 ```bash
-cd /opt/invoice-keeper/infra
-docker compose ps backup
-docker compose logs --tail=20 backup
+cd /opt/invoice-keeper
+docker compose --env-file .env -f infra/docker-compose.yml ps backup
+docker compose --env-file .env -f infra/docker-compose.yml logs --tail=20 backup
 ls -l backups
 ```
 
@@ -262,14 +261,14 @@ ls -l backups
 Скрипт [infra/ops/backup/restore.sh](../infra/ops/backup/restore.sh) останавливает `api`, `worker`, `bot` и `backup` (чтобы не писали в ту же базу), сессии к базе обрывает, `pg_restore --clean --if-exists` прогоняет внутри контейнера `db`. Пока `api` стоит, распаковывает в том `receipts` архив `receipts-<тот же штамп>-*.tar.gz` из того же каталога (старое содержимое тома заменяется; архива нет — файлы остаются как есть). Затем снова запускает эти сервисы и ждёт `/healthz` на `HTTP_PORT` из `.env`. Postgres не останавливается. Без `--yes` скрипт ничего не делает.
 
 ```bash
-cd /opt/invoice-keeper/infra
-ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
+cd /opt/invoice-keeper
+infra/ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
 ```
 
 Сегодняшний файл после восстановления не перезаписывается до следующей полуночи. Нужен новый снимок сразу — удалить `backups/invoice-keeper-<сегодня>T*.dump` и перезапустить `backup`:
 
 ```bash
-docker compose restart backup
+docker compose --env-file .env -f infra/docker-compose.yml restart backup
 ```
 
 ### Файлы чеков
@@ -282,7 +281,7 @@ docker compose run --rm -v "$PWD/backups:/b:ro" --entrypoint sh api -c 'tar -xzf
 
 Файлы, на которые не ссылается ни один период, и недописанные `*.part` старше часа `api` стирает при старте. Вручную: `docker compose exec api python -m app.receipts_sweep`.
 
-Бэкапы лежат на том же диске, что и база. Копию `backups/` держать вне VPS: например, cron на другой машине раз в сутки после 00:30 по Москве делает `rsync -a --delete root@<vps>:/opt/invoice-keeper/infra/backups/ /srv/rekeeper-backups/`.
+Бэкапы лежат на том же диске, что и база. Копию `backups/` держать вне VPS: например, cron на другой машине раз в сутки после 00:30 по Москве делает `rsync -a --delete root@<vps>:/opt/invoice-keeper/backups/ /srv/rekeeper-backups/`.
 
 Курсы для подсказки «≈ … ₽» под суммой в USD и EUR `api` берёт у ЦБ РФ (`www.cbr.ru/scripts/XML_daily.asp`, запасной `www.cbr-xml-daily.ru`), держит в памяти и обновляет раз в час. ЦБ недоступен — подсказки нет, остальное работает. В итоги курс не входит.
 
@@ -302,7 +301,7 @@ docker compose run --rm -v "$PWD/backups:/b:ro" --entrypoint sh api -c 'tar -xzf
 - [ ] `curl -fsS https://rekeeper.ru/api/v1/health` и 301 с `https://www.rekeeper.ru` на apex
 - [ ] Снаружи 5432 и 8000 больше не открываются
 - [ ] В логе `bot` нет таймаута IPv4 до `api.telegram.org` и нет пути `api.telegram.org/bot<токен>/`
-- [ ] `backup` running, в `/opt/invoice-keeper/infra/backups` есть `invoice-keeper-*.dump`
+- [ ] `backup` running, в `/opt/invoice-keeper/backups` есть `invoice-keeper-*.dump`
 - [ ] BotFather → токен + chat_id, если ещё не стоят в `.env`
 
-Следующий шаг: в `/opt/invoice-keeper/infra/.env` домен, порты 80/443, IPv6 и удаление `COMPOSE_FILE`; `ss` на 80/443 и остановить только чужой процесс, если порт занят не нашим `caddy`; мерж. После зелёного Actions — `curl` на https, лог `bot` без токена, файл в `backups/`.
+Следующий шаг: в `/opt/invoice-keeper/.env` домен, порты 80/443, IPv6 и удаление `COMPOSE_FILE`; `ss` на 80/443 и остановить только чужой процесс, если порт занят не нашим `caddy`; мерж. После зелёного Actions — `curl` на https, лог `bot` без токена, файл в `backups/`.

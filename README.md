@@ -8,18 +8,18 @@
 
 ```bash
 git clone https://github.com/ArturKolozyan/hackathon.git
-cd hackathon/infra
+cd hackathon
 cp .env.example .env
-docker compose up --build -d
+docker compose --env-file .env -f infra/docker-compose.yml up --build -d
 ```
 
-Всё про запуск лежит в `infra/`: `docker-compose.yml`, `.env.example`, `Caddyfile`, скрипты `ops/`. Команды `docker compose` выполняются оттуда.
+`.env` и `.env.example` лежат в корне. Compose-файл, Caddy и скрипты — в `infra/` (`infra/docker-compose.yml`, `infra/caddy/`, `infra/ops/`). Команды `docker compose` запускаются из корня с `--env-file .env -f infra/docker-compose.yml`.
 
 Панель: http://localhost:8080  
 API: http://localhost:8080/api/v1  
 Swagger: http://localhost:8080/api/v1/docs
 
-Порт берётся из `HTTP_PORT` в `infra/.env`. По умолчанию 8080, права root и домен не нужны.
+Порт берётся из `HTTP_PORT` в `.env`. По умолчанию 8080, права root и домен не нужны.
 
 Демо, если `SEED_DEMO=true` и база пустая:
 
@@ -36,7 +36,7 @@ Swagger: http://localhost:8080/api/v1/docs
 Большой набор хостинг-компании: 6 отделов, 13 человек, 44 платежа, история за 8 месяцев, просрочки, сроки сегодня, через 3 и 7 дней. Запуск вручную, владелец из `.env` не трогается:
 
 ```bash
-docker compose exec api python -m app.demo_data
+docker compose --env-file .env -f infra/docker-compose.yml exec api python -m app.demo_data
 ```
 
 Пароль демо-людей генерируется и печатается один раз, почты — `@hosting.example`. Если отделы или платежи уже есть, команда ничего не делает. `--force` стирает отделы, платежи, бюджеты, журнал и всех, кроме владельца, и сеет заново. Прошлые напоминания помечаются отправленными, воркер шлёт только сегодняшние; `--quiet` глушит и их.
@@ -197,8 +197,8 @@ curl -s -b /tmp/cj -H 'Content-Type: application/json' \
 Раньше Caddy и Telegram жили отдельными файлами. Теперь всё в `infra/docker-compose.yml`.
 
 1. Посмотреть, кто слушает 80 и 443. Если это уже сервис `caddy` из этого compose — ничего не останавливать. Останавливать процесс на хосте нужно только когда порты заняты другим Caddy или nginx, не нашим контейнером.
-2. В серверном `infra/.env` выставить `DOMAIN=rekeeper.ru`, `HTTP_PORT=80`, `HTTPS_PORT=443`, `ENABLE_IPV6=true`, `TELEGRAM_NETWORK=ipv6`. Удалить `COMPOSE_FILE`, если он указывал на `compose.telegram-host.yml`.
+2. В серверном `.env` выставить `DOMAIN=rekeeper.ru`, `HTTP_PORT=80`, `HTTPS_PORT=443`, `ENABLE_IPV6=true`, `TELEGRAM_NETWORK=ipv6`. Удалить `COMPOSE_FILE`, если он указывал на `compose.telegram-host.yml`.
 3. Том `caddy_data` не удалять: в нём сертификат.
-4. `git pull --ff-only origin main && cd infra && docker compose up --build -d`.
+4. `git pull --ff-only origin main && docker compose --env-file .env -f infra/docker-compose.yml up --build -d`.
 
 IPv6 у Docker bridge на части VPS не выходит в интернет, даже если у хоста он есть. `ENABLE_IPV6=true` просит compose включить IPv6 у сети. Если Telegram всё ещё недоступен из контейнера, `TELEGRAM_PROXY` на прокси хоста или проверка `ip6tables`. Отдельного host-network файла больше нет: без IPv6 на машине оставьте `ENABLE_IPV6=false`, бот уйдёт в IPv4 через `TELEGRAM_NETWORK=auto`.
