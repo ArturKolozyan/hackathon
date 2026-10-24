@@ -28,7 +28,7 @@ def _in_snapshot(row: PaymentOccurrence, ref: date, horizon: int) -> bool:
     return (row.period_year, row.period_month) <= (end.year, end.month)
 
 
-def build_summary(db: Session, as_of: date | None = None) -> SummaryOut:
+def build_summary(db: Session, as_of: date | None = None, team_id=None) -> SummaryOut:
     settings = get_settings()
     real_today = clock.today()
     ref = as_of or real_today
@@ -36,17 +36,20 @@ def build_summary(db: Session, as_of: date | None = None) -> SummaryOut:
     ensure_all(db, anchor)
     db.commit()
     db.expire_all()
-    rows = db.scalars(
-        select(PaymentOccurrence).options(
-            joinedload(PaymentOccurrence.template).joinedload(RecurringPayment.responsible),
-            joinedload(PaymentOccurrence.payer),
-        )
-    ).unique().all()
+    stmt = select(PaymentOccurrence).options(
+        joinedload(PaymentOccurrence.template).joinedload(RecurringPayment.responsible),
+        joinedload(PaymentOccurrence.payer),
+    )
+    if team_id is not None:
+        stmt = stmt.where(PaymentOccurrence.team_id == team_id)
+    rows = db.scalars(stmt).unique().all()
     counts = {"overdue": 0, "due_soon": 0, "upcoming": 0, "paid": 0}
     totals = {currency: {key: Decimal("0.00") for key in counts} for currency in CURRENCIES}
     seen: set[str] = set()
     zone = settings.zone
     for row in rows:
+        if row.template is not None and row.template.is_archived and row.paid_at is None:
+            continue
         if as_of is not None and not _in_snapshot(row, ref, settings.horizon_months):
             continue
         status = classify(row.due_date, _paid_as_of(row.paid_at, as_of, zone), ref, settings.soon_days)

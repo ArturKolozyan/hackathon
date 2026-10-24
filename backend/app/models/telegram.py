@@ -8,8 +8,19 @@ from app.models.base import Base
 from app.models.user import User
 
 
+class TelegramBot(Base):
+    """Один бот на установку. Username кэширует worker из getMe, командам он общий."""
+
+    __tablename__ = "telegram_bot"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    bot_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    bot_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class TelegramIntegration(Base):
-    """Одна строка на инсталляцию: username бота и чат команды.
+    """Чат одной команды. TELEGRAM_CHAT_ID — запасной, только если команда в базе одна.
 
     team_status:
     - absent — в базе чата нет, можно взять TELEGRAM_CHAT_ID;
@@ -25,7 +36,10 @@ class TelegramIntegration(Base):
         ),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    team_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), unique=True
+    )
     bot_username: Mapped[str | None] = mapped_column(String(64), nullable=True)
     bot_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     team_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -51,6 +65,9 @@ class TelegramLinkToken(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     token: Mapped[str] = mapped_column(String(64), unique=True)
     purpose: Mapped[str] = mapped_column(String(16))
+    team_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("teams.id", ondelete="CASCADE"), nullable=True
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

@@ -1,28 +1,68 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, Outlet } from "react-router-dom";
-import { api, type User } from "./api";
+import { api, setStoredTeamId, type Me, type TeamRole } from "./api";
 import { LoadingBlock } from "./components/ui";
 
 type AuthState = {
-  user: User | null;
+  user: Me | null;
   ready: boolean;
-  setUser: (user: User | null) => void;
+  setUser: (user: Me | null) => void;
+  refresh: () => Promise<void>;
+  switchTeam: (teamId: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
 
+function remember(user: Me | null) {
+  setStoredTeamId(user?.active_team_id ?? null);
+}
+
+export function roleOf(user: Me | null): TeamRole | null {
+  if (!user?.active_team_id) return null;
+  return user.memberships.find((row) => row.team_id === user.active_team_id)?.role ?? null;
+}
+
+export function roleLabel(role: TeamRole | null): string {
+  if (role === "owner") return "владелец";
+  if (role === "admin") return "админ";
+  return "участник";
+}
+
+export function canManage(user: Me | null): boolean {
+  const role = roleOf(user);
+  return role === "owner" || role === "admin";
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUserState] = useState<Me | null>(null);
   const [ready, setReady] = useState(false);
 
+  function setUser(next: Me | null) {
+    remember(next);
+    setUserState(next);
+  }
+
+  async function refresh() {
+    const me = await api<Me>("/api/v1/auth/me");
+    setUser(me);
+  }
+
+  async function switchTeam(teamId: string) {
+    const me = await api<Me>("/api/v1/me/active-team", {
+      method: "POST",
+      body: JSON.stringify({ team_id: teamId }),
+    });
+    setUser(me);
+  }
+
   useEffect(() => {
-    api<User>("/api/v1/auth/me")
+    api<Me>("/api/v1/auth/me")
       .then(setUser)
       .catch(() => setUser(null))
       .finally(() => setReady(true));
   }, []);
 
-  const value = useMemo(() => ({ user, ready, setUser }), [user, ready]);
+  const value = useMemo(() => ({ user, ready, setUser, refresh, switchTeam }), [user, ready]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -45,13 +85,19 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
-export function AdminOnly() {
+export function RequireTeam() {
   const { user } = useAuth();
-  if (user?.role !== "admin") {
+  if (!user?.active_team_id || user.memberships.length === 0) return <Navigate to="/start" replace />;
+  return <Outlet />;
+}
+
+export function ManageOnly() {
+  const { user } = useAuth();
+  if (!canManage(user)) {
     return (
       <section className="panel note">
-        <h1>Только для админа</h1>
-        <p>Шаблоны, люди и журнал — у администратора. Очередь, календарь и бюджет видны всей команде.</p>
+        <h1>Только для админа команды</h1>
+        <p>Шаблоны, состав и журнал — у владельца и админа. Очередь, календарь, бюджет и статистика видны всем.</p>
       </section>
     );
   }

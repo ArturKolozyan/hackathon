@@ -3,18 +3,19 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_admin
+from app.core.deps import get_current_user, require_manager
 from app.models import User
 from app.schemas.telegram import NotificationsIn, TeamTelegram, TelegramLinkOut, TelegramSelf
 from app.services import time as clock
+from app.services.access import TeamContext
 from app.services.telegram_links import (
     bot_username,
     deep_link,
     disconnect_team,
-    integration_row,
     issue_token,
     request_test,
     resolve_team_chat_id,
+    team_row,
     unlink_user,
 )
 
@@ -36,9 +37,9 @@ def _self_out(db: Session, user: User) -> TelegramSelf:
     )
 
 
-def _team_out(db: Session) -> TeamTelegram:
-    row = integration_row(db)
-    chat_id, source = resolve_team_chat_id(db)
+def _team_out(db: Session, team_id) -> TeamTelegram:
+    row = team_row(db, team_id)
+    chat_id, source = resolve_team_chat_id(db, team_id)
     if source == "database":
         status = "connected"
     elif row is not None and row.team_status == "disconnected":
@@ -83,32 +84,32 @@ def _require_bot(db: Session) -> str:
 
 
 @router.get("/telegram/status", response_model=TeamTelegram, summary="Чат команды в Telegram")
-def team_status(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> TeamTelegram:
-    return _team_out(db)
+def team_status(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TeamTelegram:
+    return _team_out(db, ctx.team.id)
 
 
 @router.post("/telegram/team-chat/link", response_model=TelegramLinkOut, summary="Ссылка для чата команды")
-def team_link(actor: User = Depends(require_admin), db: Session = Depends(get_db)) -> TelegramLinkOut:
+def team_link(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TelegramLinkOut:
     username = _require_bot(db)
-    token = issue_token(db, purpose="team", user=actor)
+    token = issue_token(db, purpose="team", user=ctx.user, team_id=ctx.team.id)
     return TelegramLinkOut(url=deep_link(username, token.token, group=True), expires_at=token.expires_at)
 
 
 @router.delete("/telegram/team-chat", response_model=TeamTelegram, summary="Отключить чат команды")
-def team_unlink(actor: User = Depends(require_admin), db: Session = Depends(get_db)) -> TeamTelegram:
-    disconnect_team(db, actor=actor)
-    return _team_out(db)
+def team_unlink(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TeamTelegram:
+    disconnect_team(db, actor=ctx.user, team_id=ctx.team.id)
+    return _team_out(db, ctx.team.id)
 
 
 @router.post("/telegram/team-chat/test", response_model=TeamTelegram, summary="Тестовое сообщение в чат команды")
-def team_test(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> TeamTelegram:
+def team_test(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TeamTelegram:
     if not get_settings().telegram_bot_token.strip():
         raise HTTPException(status_code=409, detail="В .env нет TELEGRAM_BOT_TOKEN")
     try:
-        request_test(db)
+        request_test(db, ctx.team.id)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
-    return _team_out(db)
+    return _team_out(db, ctx.team.id)
 
 
 @router.get("/me/telegram", response_model=TelegramSelf, summary="Личный Telegram")

@@ -1,15 +1,24 @@
-"""SMTP-канал напоминания. Выключенный или неполный SMTP — no-op, процесс не падает.
+"""SMTP. Напоминания и письма аккаунта ходят в один сервер, но это разные письма.
 
-Срок «пора ли писать» здесь не считается: это уже решил should_remind.
+Напоминание молчит без EMAIL_ENABLED и SMTP_TO.
+Код и приглашение SMTP_TO не используют и от EMAIL_ENABLED не зависят:
+хватает SMTP_HOST. Пустой хост — dev, код остаётся в логе API.
+
+Прод: smtp.beget.com:2525 и SMTP_TLS (STARTTLS). Порт 465 с VPS закрыт,
+поэтому 465 — только явный SMTP_SSL, обычный порт всегда STARTTLS по флагу.
+Сокет ждёт не дольше 15 секунд. Письмо аккаунта уходит в фоне и не держит запрос.
 """
 
 import logging
 import smtplib
+import threading
 from email.message import EmailMessage
 
 from app.core.config import get_settings
 
 log = logging.getLogger("invoice_keeper.email")
+
+SMTP_TIMEOUT = 15
 
 _STATUS_RU = {
     "overdue": "просрочено",
@@ -17,6 +26,9 @@ _STATUS_RU = {
     "upcoming": "впереди",
     "paid": "оплачено",
 }
+
+_threads: list[threading.Thread] = []
+_lock = threading.Lock()
 
 
 def configured() -> bool:
@@ -29,8 +41,17 @@ def configured() -> bool:
     )
 
 
+def smtp_host_configured() -> bool:
+    return bool(get_settings().smtp_host.strip())
+
+
 def _header(value: str) -> str:
     return value.replace("\r", " ").replace("\n", " ").strip()
+
+
+def from_header() -> str:
+    raw = get_settings().smtp_from.strip()
+    return raw or "rekeeper <noreply@rekeeper.ru>"
 
 
 def public_url() -> str:
@@ -40,6 +61,23 @@ def public_url() -> str:
     if raw.startswith("https://") or raw.startswith("http://"):
         return raw
     return ""
+
+
+def connect_smtp():
+    """465 — неявный SSL. Любой другой порт, включая 2525, — SMTP и STARTTLS, если SMTP_TLS."""
+    settings = get_settings()
+    host = settings.smtp_host.strip()
+    if settings.smtp_port == 465:
+        client = smtplib.SMTP_SSL(host, settings.smtp_port, timeout=SMTP_TIMEOUT)
+        start_tls = False
+    else:
+        client = smtplib.SMTP(host, settings.smtp_port, timeout=SMTP_TIMEOUT)
+        start_tls = bool(settings.smtp_tls)
+    if start_tls:
+        client.starttls()
+    if settings.smtp_user.strip():
+        client.login(settings.smtp_user.strip(), settings.smtp_password)
+    return client
 
 
 def send_reminder_email(payload: dict) -> str:
@@ -68,19 +106,58 @@ def send_reminder_email(payload: dict) -> str:
         lines.append(panel)
     message.set_content("\n".join(lines), charset="utf-8")
     try:
-        if settings.smtp_port == 465:
-            client_factory = smtplib.SMTP_SSL
-            start_tls = False
-        else:
-            client_factory = smtplib.SMTP
-            start_tls = settings.smtp_tls
-        with client_factory(settings.smtp_host.strip(), settings.smtp_port, timeout=10) as client:
-            if start_tls:
-                client.starttls()
-            if settings.smtp_user.strip():
-                client.login(settings.smtp_user.strip(), settings.smtp_password)
+        with connect_smtp() as client:
             client.send_message(message)
     except Exception as exc:
         log.warning("email send failed: %s", type(exc).__name__)
         return "failed"
     return "sent"
+
+
+def deliver_auth_now(*, to: str, subject: str, text: str, html: str) -> None:
+    """Синхронно. Для фона и тестов. Исключение наружу, код в лог не пишем."""
+    message = EmailMessage()
+    message["Subject"] = _header(subject)
+    message["From"] = _header(from_header())
+    message["To"] = _header(to)
+    message.set_content(text, charset="utf-8")
+    message.add_alternative(html, subtype="html")
+    with connect_smtp() as client:
+        client.send_message(message)
+
+
+def _send_auth(payload: dict) -> None:
+    try:
+        deliver_auth_now(
+            to=payload["to"],
+            subject=payload["subject"],
+            text=payload["text"],
+            html=payload["html"],
+        )
+    except Exception as exc:
+        log.warning("письмо не ушло на %s: %s", payload["to"], type(exc).__name__)
+
+
+def send_auth_email(*, to: str, subject: str, text: str, html: str) -> str:
+    """log — хост пустой. smtp — поток уже ушёл, запрос регистрации его не ждёт."""
+    if not smtp_host_configured():
+        return "log"
+    thread = threading.Thread(
+        target=_send_auth,
+        args=({"to": to, "subject": subject, "text": text, "html": html},),
+        daemon=True,
+        name="rekeeper-mail",
+    )
+    with _lock:
+        _threads.append(thread)
+    thread.start()
+    return "smtp"
+
+
+def flush_auth_mail(timeout: float = 5) -> None:
+    """Тесты дожидаются фона. Запрос API этот метод не вызывает."""
+    with _lock:
+        pending = list(_threads)
+        _threads.clear()
+    for thread in pending:
+        thread.join(timeout)

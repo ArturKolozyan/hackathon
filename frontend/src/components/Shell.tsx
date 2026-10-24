@@ -1,13 +1,15 @@
 import { useEffect } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { useAuth } from "../auth";
+import { canManage, roleLabel, roleOf, useAuth } from "../auth";
 import { TeamMark, ThemeToggle, Wordmark } from "./Brand";
 
 export function Shell() {
-  const { user, setUser } = useAuth();
+  const { user, setUser, switchTeam } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const manage = canManage(user);
+  const role = roleOf(user);
 
   useEffect(() => {
     document.querySelector<HTMLElement>(".nav a.active")?.scrollIntoView({ inline: "nearest", block: "nearest" });
@@ -23,6 +25,11 @@ export function Shell() {
     navigate("/login");
   }
 
+  async function onTeam(teamId: string) {
+    if (!teamId || teamId === user?.active_team_id) return;
+    await switchTeam(teamId);
+  }
+
   return (
     <div className="app">
       <a className="skip" href="#content">
@@ -31,8 +38,22 @@ export function Shell() {
       <header className="topbar">
         <Wordmark to="/" />
         <div className="who">
+          {user && user.memberships.length > 0 && (
+            <select
+              className="team-switch"
+              aria-label="Команда"
+              value={user.active_team_id ?? ""}
+              onChange={(event) => void onTeam(event.target.value)}
+            >
+              {user.memberships.map((row) => (
+                <option key={row.team_id} value={row.team_id}>
+                  {row.team_name}
+                </option>
+              ))}
+            </select>
+          )}
           <span className="who-name">{user?.full_name}</span>
-          <span className="role">{user?.role === "admin" ? "админ" : "участник"}</span>
+          <span className="role">{roleLabel(role)}</span>
           <ThemeToggle />
           <button type="button" className="ghost" onClick={logout}>
             Выйти
@@ -47,20 +68,21 @@ export function Shell() {
           <NavLink to="/calendar">Календарь</NavLink>
           <NavLink to="/history">История</NavLink>
           <NavLink to="/budget">Бюджет</NavLink>
+          <NavLink to="/stats">Статистика</NavLink>
           <NavLink to="/settings">Настройки</NavLink>
-          {user?.role === "admin" && (
+          {manage && (
             <>
               <span className="nav-label">Админ</span>
-              <NavLink to="/admin/templates">Шаблоны</NavLink>
-              <NavLink to="/admin/users">Люди</NavLink>
-              <NavLink to="/admin/audit">Логи</NavLink>
+              <NavLink to="/templates">Шаблоны</NavLink>
+              <NavLink to="/team">Команда</NavLink>
+              <NavLink to="/audit">Журнал</NavLink>
             </>
           )}
           <TeamMark />
         </nav>
         <div className="workspace">
           <main id="content">
-            <Outlet />
+            <Outlet key={user?.active_team_id ?? "none"} />
           </main>
           <TeamMark />
         </div>

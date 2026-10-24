@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, api, type Inbox, type Occurrence, type Summary, type TeamTelegram, type TelegramSelf } from "../api";
-import { useAuth } from "../auth";
+import { canManage, useAuth } from "../auth";
 import { OccurrenceCard } from "../components/OccurrenceCard";
 import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { chipTone, formatMoney } from "../format";
 
 export function InboxPage() {
   const { user } = useAuth();
+  const manage = canManage(user);
   const [params, setParams] = useSearchParams();
   const mine = params.get("mine") === "1";
   const [asOf, setAsOf] = useState("");
@@ -41,11 +42,11 @@ export function InboxPage() {
     api<TelegramSelf>("/api/v1/me/telegram")
       .then(setSelfTg)
       .catch(() => setSelfTg(null));
-    if (user?.role !== "admin") return;
+    if (!manage) return;
     api<TeamTelegram>("/api/v1/telegram/status")
       .then(setTeamTg)
       .catch(() => setTeamTg(null));
-  }, [user?.role]);
+  }, [manage]);
 
   const totalOpen = inbox ? inbox.overdue.length + inbox.soon.length + inbox.rest.length : 0;
 
@@ -120,7 +121,7 @@ export function InboxPage() {
           </p>
         </>
       )}
-      {user?.role === "admin" && teamTg && teamTg.status !== "connected" && (
+      {manage && teamTg && teamTg.status !== "connected" && (
         <aside className="panel hint">
           <p>Подключи Telegram, чтобы получать напоминания.</p>
           <Link className="outline" to="/settings">

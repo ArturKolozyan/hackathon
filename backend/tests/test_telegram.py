@@ -11,7 +11,6 @@ from app.core.config import get_settings
 from app.integrations.telegram import TelegramClient, TelegramError, deliver, describe_transport, make_bot
 from app.main import app
 from app.models import AuditLog, NotificationDelivery, PaymentOccurrence, RecurringPayment, User
-from app.seed import seed
 from app.services.notify import dispatch_due_reminders
 from app.services.occurrences import ensure_template
 from app.services.telegram_cards import handle_callback, sync_telegram_cards
@@ -69,6 +68,9 @@ def tg_bot(monkeypatch):
 
 
 def _admin(db) -> User:
+    from app.services import time as clock
+    from app.services.teams import create_team
+
     found = db.scalar(select(User).where(User.email == "admin@invoice.local"))
     if found is not None:
         return found
@@ -76,10 +78,12 @@ def _admin(db) -> User:
         email="admin@invoice.local",
         full_name="Админ",
         password_hash="x",
-        role="admin",
         is_active=True,
+        email_verified_at=clock.now(),
     )
     db.add(user)
+    db.flush()
+    create_team(db, user, "Команда")
     db.flush()
     return user
 
@@ -87,6 +91,7 @@ def _admin(db) -> User:
 def _template(db, *, title: str, day: int, archived: bool = False, note: str | None = None) -> RecurringPayment:
     admin = _admin(db)
     template = RecurringPayment(
+        team_id=admin.active_team_id,
         title=title,
         amount=Decimal("40.00"),
         currency="USD",
@@ -314,7 +319,6 @@ def test_button_marks_paid_by_linked_user_and_keeps_note(db_session, monkeypatch
         email="maria@invoice.local",
         full_name="Мария",
         password_hash="x",
-        role="user",
         is_active=True,
     )
     db_session.add(maria)
@@ -472,7 +476,9 @@ def test_tick_without_token_keeps_horizon_and_with_token_sends_once(db_session, 
 
 
 def test_api_shows_reminder_and_button_leaves_inbox(client, db_session, tg_bot):
-    seed(demo=False)
+    from tests.support import bootstrap_owner
+
+    bootstrap_owner()
     login = client.post("/api/v1/auth/login", json={"email": "admin@invoice.local", "password": "change-me"})
     assert login.status_code == 200, login.text
     headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
@@ -521,7 +527,6 @@ def test_personal_reminder_dedup_and_toggle(db_session, tg_bot):
         email="ivan@invoice.local",
         full_name="Иван",
         password_hash="x",
-        role="user",
         is_active=True,
         telegram_user_id=777,
         telegram_reminders=False,

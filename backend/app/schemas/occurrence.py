@@ -45,7 +45,7 @@ class OccurrenceOut(BaseModel):
     receipt_url: str | None = None
     receipt_note: str | None = None
     template_archived: bool
-    responsible: UserBrief
+    responsible: UserBrief | None = None
     paid_by: UserBrief | None = Field(
         description=(
             "Кто подтвердил оплату. Веб (confirm и patch) — текущий пользователь. "

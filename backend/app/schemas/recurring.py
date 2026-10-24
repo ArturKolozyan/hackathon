@@ -25,7 +25,7 @@ class RecurringCreate(BaseModel):
     currency: str
     day_of_month: int = Field(ge=1, le=31)
     starts_on: date
-    responsible_user_id: UUID
+    responsible_user_id: UUID | None = None
 
     @field_validator("title")
     @classmethod
@@ -112,7 +112,7 @@ class RecurringOut(BaseModel):
     day_of_month: int
     starts_on: date
     is_archived: bool
-    responsible: UserBrief
+    responsible: UserBrief | None = None
     open_count: int
     paid_count: int
     created_at: datetime

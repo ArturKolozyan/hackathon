@@ -1,14 +1,46 @@
-export type Role = "admin" | "user";
+export type TeamRole = "owner" | "admin" | "member";
 
-export type User = {
+export type Membership = {
+  team_id: string;
+  team_name: string;
+  role: TeamRole;
+};
+
+export type Me = {
   id: string;
   email: string;
   full_name: string;
-  role: Role;
   is_active: boolean;
-  telegram_chat_id: string | null;
+  email_verified: boolean;
   created_at: string;
+  active_team_id: string | null;
+  memberships: Membership[];
+  telegram_chat_id: string | null;
 };
+
+export type Member = {
+  id: string;
+  email: string;
+  full_name: string;
+  role: TeamRole;
+  is_active: boolean;
+};
+
+export type Sent = {
+  delivery: "log" | "smtp" | string;
+  message: string;
+};
+
+const TEAM_KEY = "rekeeper-team";
+
+export function storedTeamId(): string | null {
+  return localStorage.getItem(TEAM_KEY);
+}
+
+export function setStoredTeamId(id: string | null) {
+  if (id) localStorage.setItem(TEAM_KEY, id);
+  else localStorage.removeItem(TEAM_KEY);
+}
 
 export type Occurrence = {
   id: string;
@@ -32,7 +64,7 @@ export type Occurrence = {
   receipt_note: string | null;
   telegram_reminded_at: string | null;
   template_archived: boolean;
-  responsible: { id: string; full_name: string; email: string };
+  responsible: { id: string; full_name: string; email: string } | null;
   paid_by: { id: string; full_name: string; email: string } | null;
 };
 
@@ -145,7 +177,7 @@ export type Template = {
   day_of_month: number;
   starts_on: string;
   is_archived: boolean;
-  responsible: { id: string; full_name: string; email: string };
+  responsible: { id: string; full_name: string; email: string } | null;
   open_count: number;
   paid_count: number;
   created_at: string;
@@ -173,11 +205,45 @@ function messageFrom(data: unknown, status: number): string {
   return `Ошибка ${status}`;
 }
 
+export type Stats = {
+  timezone: string;
+  today: string;
+  paid_from: string;
+  paid_to: string;
+  due_from: string | null;
+  due_to: string | null;
+  to_pay: { currency: string; amount: string; count: number }[];
+  overdue: { currency: string; amount: string; count: number }[];
+  paid: { currency: string; amount: string; count: number }[];
+  nearest: {
+    occurrence_id: string;
+    team_id: string;
+    team_name: string;
+    title: string;
+    due_date: string;
+    amount: string;
+    currency: string;
+    status: string;
+    responsible: { id: string; full_name: string; email: string } | null;
+  }[];
+  by_team: {
+    team_id: string;
+    team_name: string;
+    role: TeamRole;
+    to_pay: { currency: string; amount: string; count: number }[];
+    overdue: { currency: string; amount: string; count: number }[];
+    paid: { currency: string; amount: string; count: number }[];
+  }[];
+  people: { id: string; full_name: string; email: string }[];
+};
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   if (options.body && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
+  const team = storedTeamId();
+  if (team && !headers.has("X-Team-Id")) headers.set("X-Team-Id", team);
   const response = await fetch(path, { ...options, headers, credentials: "include" });
   if (response.status === 204) return undefined as T;
   const text = await response.text();

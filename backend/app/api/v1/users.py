@@ -1,125 +1,30 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import require_admin
-from app.core.security import hash_password
-from app.models import User
-from app.schemas.common import UserOut
-from app.schemas.user import UserCreate, UserUpdate
-from app.services.audit import record
-from app.services.templates import active_admin_count, touch
+from app.core.deps import get_team_context
+from app.schemas.team import MemberOut
+from app.services.access import TeamContext
+from app.services.teams import list_member_rows
 
 router = APIRouter(prefix="/users", tags=["users"])
 
 
-def _get_user(db: Session, user_id: UUID) -> User:
-    user = db.get(User, user_id)
-    if user is None:
-        raise HTTPException(status_code=404, detail="Пользователь не найден")
-    return user
+def _out(row) -> MemberOut:
+    user = row.user
+    return MemberOut(id=user.id, email=user.email, full_name=user.full_name, role=row.role, is_active=user.is_active)
 
 
-def _guard_last_admin(db: Session, user: User, *, next_role: str | None, next_active: bool | None, actor: User) -> None:
-    if actor.id == user.id and (next_active is False or (next_role is not None and next_role != "admin")):
-        raise HTTPException(status_code=409, detail="Нельзя снять с себя права администратора")
-    losing_admin = user.role == "admin" and user.is_active and (next_role == "user" or next_active is False)
-    if losing_admin and active_admin_count(db) <= 1:
-        raise HTTPException(status_code=409, detail="Нельзя отключить последнего админа")
+@router.get("", response_model=list[MemberOut], summary="Люди текущей команды")
+def list_users(ctx: TeamContext = Depends(get_team_context), db: Session = Depends(get_db)) -> list[MemberOut]:
+    return [_out(row) for row in list_member_rows(db, ctx.team.id)]
 
 
-@router.get("", response_model=list[UserOut], summary="Список людей")
-def list_users(_: User = Depends(require_admin), db: Session = Depends(get_db)) -> list[User]:
-    return list(db.scalars(select(User).order_by(User.full_name, User.email)).all())
-
-
-@router.post("", response_model=UserOut, status_code=201, summary="Создать человека")
-def create_user(payload: UserCreate, actor: User = Depends(require_admin), db: Session = Depends(get_db)) -> User:
-    user = User(
-        email=payload.email,
-        full_name=payload.full_name,
-        password_hash=hash_password(payload.password),
-        role=payload.role,
-        is_active=True,
-    )
-    db.add(user)
-    try:
-        db.flush()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже есть") from None
-    record(
-        db,
-        action="user.create",
-        actor=actor,
-        entity_type="user",
-        entity_id=user.id,
-        meta={"email": user.email, "role": user.role},
-    )
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-@router.get("/{user_id}", response_model=UserOut, summary="Карточка человека")
-def get_user(user_id: UUID, _: User = Depends(require_admin), db: Session = Depends(get_db)) -> User:
-    return _get_user(db, user_id)
-
-
-@router.patch("/{user_id}", response_model=UserOut, summary="Изменить человека")
-def update_user(
-    user_id: UUID,
-    payload: UserUpdate,
-    actor: User = Depends(require_admin),
-    db: Session = Depends(get_db),
-) -> User:
-    user = _get_user(db, user_id)
-    data = payload.model_dump(exclude_unset=True)
-    _guard_last_admin(db, user, next_role=data.get("role"), next_active=data.get("is_active"), actor=actor)
-    password_changed = bool(data.get("password"))
-    fields = [key for key in data if key != "password"]
-    if "password" in data:
-        password = data.pop("password")
-        if password:
-            user.password_hash = hash_password(password)
-    for key, value in data.items():
-        setattr(user, key, value)
-    touch(user)
-    record(
-        db,
-        action="user.update",
-        actor=actor,
-        entity_type="user",
-        entity_id=user.id,
-        meta={"fields": fields, "password_changed": password_changed, "email": user.email},
-    )
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Пользователь с такой почтой уже есть") from None
-    db.refresh(user)
-    return user
-
-
-@router.delete("/{user_id}", response_model=UserOut, summary="Отключить человека")
-def deactivate_user(user_id: UUID, actor: User = Depends(require_admin), db: Session = Depends(get_db)) -> User:
-    user = _get_user(db, user_id)
-    _guard_last_admin(db, user, next_role=None, next_active=False, actor=actor)
-    user.is_active = False
-    touch(user)
-    record(
-        db,
-        action="user.delete",
-        actor=actor,
-        entity_type="user",
-        entity_id=user.id,
-        meta={"email": user.email, "is_active": False},
-    )
-    db.commit()
-    db.refresh(user)
-    return user
+@router.get("/{user_id}", response_model=MemberOut, summary="Человек текущей команды")
+def get_user(user_id: UUID, ctx: TeamContext = Depends(get_team_context), db: Session = Depends(get_db)) -> MemberOut:
+    for row in list_member_rows(db, ctx.team.id):
+        if row.user_id == user_id:
+            return _out(row)
+    raise HTTPException(status_code=404, detail="Участник не найден")

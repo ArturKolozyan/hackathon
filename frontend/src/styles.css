@@ -638,6 +638,88 @@ a.primary, a.outline, a.ghost {
 .table td { padding: 12px; border-top: 1px solid var(--border); vertical-align: top; }
 .pager { margin-top: 14px; }
 
+.team-switch {
+  width: auto;
+  max-width: 11rem;
+  min-height: 40px;
+  height: 40px;
+}
+
+.code-input {
+  letter-spacing: 0.28em;
+  font-size: 1.35rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.dev-banner {
+  background: var(--soon-soft);
+  color: var(--soon-ink);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.auth-links {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-links a,
+.caption a {
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.filters > label { min-width: 140px; }
+
+.check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  width: 100%;
+}
+
+.check-row label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  min-height: 40px;
+}
+
+.check-row input { width: auto; min-height: 0; }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.stat-team {
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+  padding: 16px;
+  display: grid;
+  gap: 6px;
+  font: inherit;
+}
+
+.stat-team:hover { border-color: var(--accent-ink); }
+
+.money .count { margin-left: 8px; vertical-align: middle; }
+
 @media (max-width: 420px) {
   h1 { font-size: 1.55rem; }
   .role { display: none; }

@@ -45,7 +45,7 @@ def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, to
         receipt_url=occurrence.receipt_url,
         receipt_note=occurrence.receipt_note,
         template_archived=template.is_archived,
-        responsible=user_brief(responsible),
+        responsible=user_brief(responsible) if responsible is not None else None,
         paid_by=user_brief(occurrence.payer) if occurrence.payer is not None else None,
         telegram_reminded_at=occurrence.telegram_reminded_at,
     )
@@ -71,7 +71,7 @@ def recurring_out(template: RecurringPayment, occurrences: list[PaymentOccurrenc
         day_of_month=template.day_of_month,
         starts_on=template.starts_on,
         is_archived=template.is_archived,
-        responsible=user_brief(template.responsible),
+        responsible=user_brief(template.responsible) if template.responsible is not None else None,
         open_count=open_count,
         paid_count=paid_count,
         created_at=template.created_at,

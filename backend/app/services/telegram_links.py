@@ -1,56 +1,84 @@
 """Привязка чата команды и личного Telegram. Deep link собирает API, бот живёт в worker.
 
 Токен одноразовый, 15 минут. Сырой токен в журнал не пишем.
-TELEGRAM_CHAT_ID — запасной чат, только пока в базе нет явного состояния.
-«Отключить» ставит disconnected и глушит env, иначе кнопка ничего не выключает.
+TELEGRAM_CHAT_ID — запасной чат, только когда в базе ровно одна команда
+и у неё нет явного состояния (нет строки или status=absent). Несколько команд
+env не делят: иначе один чат прилип бы ко всем.
 """
 
 from __future__ import annotations
 
 import logging
 import secrets
+import uuid
 from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.integrations.telegram import TelegramError
-from app.models import PaymentOccurrence, TelegramIntegration, TelegramLinkToken, User
+from app.models import PaymentOccurrence, Team, TelegramBot, TelegramIntegration, TelegramLinkToken, User
 from app.services import time as clock
 from app.services.audit import record
+from app.services.teams import membership
 
 log = logging.getLogger("invoice_keeper.telegram")
 
 TOKEN_TTL = timedelta(minutes=15)
-INTEGRATION_ID = 1
 TEAM_RECIPIENT = "team"
 UNLINKED_ALERT = "Сначала привяжи Telegram в профиле rekeeper"
 _GONE = ("left", "kicked")
+_MANAGERS = {"owner", "admin"}
 
 
-def integration_row(db: Session, *, create: bool = False) -> TelegramIntegration | None:
-    row = db.get(TelegramIntegration, INTEGRATION_ID)
+def bot_row(db: Session, *, create: bool = False) -> TelegramBot | None:
+    row = db.get(TelegramBot, 1)
     if row is None and create:
-        row = TelegramIntegration(id=INTEGRATION_ID, team_status="absent")
+        row = TelegramBot(id=1)
         db.add(row)
         db.flush()
     return row
 
 
-def resolve_team_chat_id(db: Session) -> tuple[str | None, str]:
+def team_row(db: Session, team_id: uuid.UUID, *, create: bool = False) -> TelegramIntegration | None:
+    row = db.scalar(select(TelegramIntegration).where(TelegramIntegration.team_id == team_id))
+    if row is None and create:
+        row = TelegramIntegration(team_id=team_id, team_status="absent")
+        db.add(row)
+        db.flush()
+    return row
+
+
+def _only_team(db: Session) -> uuid.UUID | None:
+    rows = list(db.scalars(select(Team.id)).all())
+    if len(rows) == 1:
+        return rows[0]
+    return None
+
+
+def resolve_team_chat_id(db: Session, team_id: uuid.UUID | None = None) -> tuple[str | None, str]:
     """Куда слать карточку команды: (chat_id, source).
 
     source: database | env | none.
     disconnected не падает обратно в env.
+    Без team_id берём единственную команду. Если команд несколько — none.
     """
-    row = integration_row(db)
+    if team_id is None:
+        team_id = _only_team(db)
+        if team_id is None:
+            return None, "none"
+    row = team_row(db, team_id)
     if row is not None and row.team_status == "connected" and row.team_chat_id:
         return row.team_chat_id, "database"
     if row is not None and row.team_status == "disconnected":
+        return None, "none"
+    if _only_team(db) != team_id:
+        return None, "none"
+    if row is not None and row.team_status != "absent":
         return None, "none"
     env_chat = get_settings().telegram_chat_id.strip()
     if env_chat:
@@ -59,7 +87,7 @@ def resolve_team_chat_id(db: Session) -> tuple[str | None, str]:
 
 
 def bot_username(db: Session) -> str | None:
-    row = integration_row(db)
+    row = bot_row(db)
     if row is None or not row.bot_username:
         return None
     return row.bot_username.strip().lstrip("@") or None
@@ -71,7 +99,7 @@ def remember_bot(me: dict[str, Any]) -> None:
         return
     db = SessionLocal()
     try:
-        row = integration_row(db, create=True)
+        row = bot_row(db, create=True)
         assert row is not None
         row.bot_username = username[:64]
         raw_id = me.get("id")
@@ -86,10 +114,13 @@ def remember_bot(me: dict[str, Any]) -> None:
         db.close()
 
 
-def issue_token(db: Session, *, purpose: str, user: User) -> TelegramLinkToken:
+def issue_token(db: Session, *, purpose: str, user: User, team_id: uuid.UUID | None = None) -> TelegramLinkToken:
+    if purpose == "team" and team_id is None:
+        team_id = user.active_team_id
     row = TelegramLinkToken(
         token=secrets.token_urlsafe(24),
         purpose=purpose,
+        team_id=team_id if purpose == "team" else None,
         user_id=user.id,
         expires_at=clock.now() + TOKEN_TTL,
     )
@@ -104,8 +135,8 @@ def deep_link(username: str, token: str, *, group: bool) -> str:
     return f"https://t.me/{username}?{key}={token}"
 
 
-def disconnect_team(db: Session, *, actor: User | None) -> TelegramIntegration:
-    row = integration_row(db, create=True)
+def disconnect_team(db: Session, *, actor: User | None, team_id: uuid.UUID) -> TelegramIntegration:
+    row = team_row(db, team_id, create=True)
     assert row is not None
     title = row.team_chat_title
     row.team_status = "disconnected"
@@ -120,6 +151,7 @@ def disconnect_team(db: Session, *, actor: User | None) -> TelegramIntegration:
         actor=actor,
         entity_type="telegram",
         meta={"title": title} if title else {},
+        team_id=team_id,
     )
     db.commit()
     db.refresh(row)
@@ -142,13 +174,13 @@ def unlink_user(db: Session, user: User) -> None:
     db.commit()
 
 
-def request_test(db: Session) -> TelegramIntegration:
-    chat_id, _source = resolve_team_chat_id(db)
+def request_test(db: Session, team_id: uuid.UUID) -> TelegramIntegration:
+    chat_id, _source = resolve_team_chat_id(db, team_id)
     if not chat_id:
         raise ValueError("Сначала подключите чат команды")
     if not get_settings().telegram_bot_token.strip():
         raise ValueError("В .env нет TELEGRAM_BOT_TOKEN")
-    row = integration_row(db, create=True)
+    row = team_row(db, team_id, create=True)
     assert row is not None
     row.test_requested_at = clock.now()
     row.test_sent_at = None
@@ -163,30 +195,35 @@ def flush_test_message(bot: Any) -> None:
     """Своя сессия: тик воркера не должен откатить доставки, если тест упадёт."""
     db = SessionLocal()
     try:
-        row = integration_row(db)
-        if row is None or row.test_requested_at is None or row.test_sent_at is not None or row.test_error:
-            return
-        chat_id, _source = resolve_team_chat_id(db)
-        if not chat_id:
-            row.test_error = "Чат не подключён"
-            row.updated_at = clock.now()
-            db.commit()
-            return
-        try:
-            bot.send_message(
-                chat_id,
-                "rekeeper на связи. Напоминания команды будут приходить сюда.",
-                {"inline_keyboard": []},
+        rows = db.scalars(
+            select(TelegramIntegration).where(
+                TelegramIntegration.test_requested_at.is_not(None),
+                TelegramIntegration.test_sent_at.is_(None),
+                TelegramIntegration.test_error.is_(None),
             )
-        except TelegramError as exc:
-            row.test_error = exc.description[:200]
+        ).all()
+        for row in rows:
+            chat_id, _source = resolve_team_chat_id(db, row.team_id)
+            if not chat_id:
+                row.test_error = "Чат не подключён"
+                row.updated_at = clock.now()
+                db.commit()
+                continue
+            try:
+                bot.send_message(
+                    chat_id,
+                    "rekeeper на связи. Напоминания команды будут приходить сюда.",
+                    {"inline_keyboard": []},
+                )
+            except TelegramError as exc:
+                row.test_error = exc.description[:200]
+                row.updated_at = clock.now()
+                db.commit()
+                continue
+            row.test_sent_at = clock.now()
+            row.test_error = None
             row.updated_at = clock.now()
             db.commit()
-            return
-        row.test_sent_at = clock.now()
-        row.test_error = None
-        row.updated_at = clock.now()
-        db.commit()
     except Exception:
         db.rollback()
         log.exception("telegram test flush failed")
@@ -240,8 +277,13 @@ def handle_membership(db: Session, member: dict[str, Any]) -> None:
     new_status = (member.get("new_chat_member") or {}).get("status") if isinstance(member.get("new_chat_member"), dict) else None
     if chat_id is None or new_status not in _GONE:
         return
-    row = integration_row(db)
-    if row is None or row.team_status != "connected" or row.team_chat_id != str(chat_id):
+    row = db.scalar(
+        select(TelegramIntegration).where(
+            TelegramIntegration.team_chat_id == str(chat_id),
+            TelegramIntegration.team_status == "connected",
+        )
+    )
+    if row is None:
         return
     row.team_status = "disconnected"
     row.team_disconnected_at = clock.now()
@@ -251,6 +293,7 @@ def handle_membership(db: Session, member: dict[str, Any]) -> None:
         action="telegram.team_disconnect",
         entity_type="telegram",
         meta={"title": row.team_chat_title, "reason": "bot_removed"},
+        team_id=row.team_id,
     )
     db.commit()
     log.info("telegram bot removed from team chat")
@@ -264,8 +307,8 @@ def migrate_chat(db: Session, message: dict[str, Any]) -> None:
         return
     old_key = str(old_id)
     new_key = str(new_id)
-    row = integration_row(db)
-    if row is not None and row.team_chat_id == old_key:
+    rows = db.scalars(select(TelegramIntegration).where(TelegramIntegration.team_chat_id == old_key)).all()
+    for row in rows:
         row.team_chat_id = new_key
         row.team_chat_type = "supergroup"
         row.team_status = "connected"
@@ -305,9 +348,12 @@ def _consume_start(db: Session, payload: str, chat: dict[str, Any], sender: dict
 
 def _connect_team(db: Session, token: TelegramLinkToken, chat: dict[str, Any]) -> str:
     creator = token.user
-    if creator is None or not creator.is_active or creator.role != "admin":
+    if creator is None or not creator.is_active or token.team_id is None:
         return "Ссылку может выдать только администратор. Создайте новую в rekeeper."
-    row = integration_row(db, create=True)
+    seat = membership(db, token.team_id, creator.id)
+    if seat is None or seat.role not in _MANAGERS:
+        return "Ссылку может выдать только администратор. Создайте новую в rekeeper."
+    row = team_row(db, token.team_id, create=True)
     assert row is not None
     title = str(chat.get("title") or "").strip() or "Группа"
     row.team_chat_id = str(chat.get("id"))
@@ -324,6 +370,7 @@ def _connect_team(db: Session, token: TelegramLinkToken, chat: dict[str, Any]) -
         actor=creator,
         entity_type="telegram",
         meta={"title": row.team_chat_title},
+        team_id=token.team_id,
     )
     db.commit()
     return "Подключено к rekeeper"
@@ -369,3 +416,7 @@ def _display_name(sender: dict[str, Any]) -> str | None:
     if not name:
         return None
     return name[:200]
+
+
+def team_count(db: Session) -> int:
+    return int(db.scalar(select(func.count()).select_from(Team)) or 0)

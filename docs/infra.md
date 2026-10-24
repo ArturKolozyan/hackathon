@@ -172,7 +172,7 @@ docker compose -f docker-compose.yml -f compose.telegram-host.yml up -d api work
 
 Порядок без второго захода: сначала эти три строки, потом мерж.
 
-Страница и `/api` на одном origin, nginx проксирует `/api` и передаёт `X-Forwarded-Proto` от Caddy. Браузер для UI CORS не спрашивает. `CORS_ORIGINS` — для прямого вызова API. `www` в список не входит: браузер на www не остаётся. Кука `SameSite=Lax`, `Secure` по флагу.
+Страница и `/api` на одном origin, nginx проксирует `/api` и передаёт `X-Forwarded-Proto` от Caddy. Имя `api` резолвится при запросе (Docker DNS `127.0.0.11`, кэш 10 с, только IPv4). Иначе после `docker compose up -d --force-recreate api` web держит старый IP и `/api/*` отвечает 502, пока не перезапустишь web. Браузер для UI CORS не спрашивает. `CORS_ORIGINS` — для прямого вызова API. `www` в список не входит: браузер на www не остаётся. Кука `SameSite=Lax`, `Secure` по флагу.
 
 Локальный `.env.example` оставляет `COOKIE_SECURE=false`.
 

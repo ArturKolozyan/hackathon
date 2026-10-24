@@ -5,7 +5,7 @@ from datetime import date, datetime
 import httpx
 import pytest
 
-from app.seed import seed
+from tests.support import add_person, bootstrap_owner
 from app.services.audit import sanitize
 from app.services.reminders import should_remind
 
@@ -21,7 +21,7 @@ def _auth(token: str) -> dict[str, str]:
 
 
 def _admin(client) -> dict[str, str]:
-    seed(demo=False)
+    bootstrap_owner()
     admin = _login(client, "admin@invoice.local", "change-me")
     return _auth(admin["access_token"])
 
@@ -200,14 +200,10 @@ def test_summary_as_of_keeps_today_and_shifts_status(client):
     assert client.get("/api/v1/payments/summary?as_of=2026-13-01", headers=headers).status_code == 422
 
 
-def test_budget_plan_versus_fact(client):
+def test_budget_plan_versus_fact(client, db_session):
     headers = _admin(client)
-    ivan = client.post(
-        "/api/v1/users",
-        headers=headers,
-        json={"email": "ivan@invoice.local", "full_name": "Иван", "password": "s3cret-pass", "role": "user"},
-    )
-    assert ivan.status_code == 201, ivan.text
+    add_person(db_session, email="ivan@invoice.local", password="s3cret-pass", name="Иван")
+    db_session.commit()
     user_headers = _auth(_login(client, "ivan@invoice.local", "s3cret-pass")["access_token"])
     payment_id = _template(client, headers, amount="40.00", currency="USD", day_of_month=12)
     october = next(item for item in _periods(client, headers, payment_id) if item["period"] == "2026-10")
@@ -263,18 +259,14 @@ def test_budget_plan_versus_fact(client):
     assert client.delete(f"/api/v1/budgets/{created.json()['id']}", headers=headers).status_code == 204
 
 
-def test_audit_log_is_admin_only_and_hides_secrets(client):
-    seed(demo=False)
+def test_audit_log_is_admin_only_and_hides_secrets(client, db_session):
+    bootstrap_owner()
     failed = client.post("/api/v1/auth/login", json={"email": "admin@invoice.local", "password": "wrong-pass-1"})
     assert failed.status_code == 401
     admin = _login(client, "admin@invoice.local", "change-me")
     headers = _auth(admin["access_token"])
-    created = client.post(
-        "/api/v1/users",
-        headers=headers,
-        json={"email": "ivan@invoice.local", "full_name": "Иван", "password": "s3cret-pass", "role": "user"},
-    )
-    assert created.status_code == 201, created.text
+    add_person(db_session, email="ivan@invoice.local", password="s3cret-pass", name="Иван")
+    db_session.commit()
     user_headers = _auth(_login(client, "ivan@invoice.local", "s3cret-pass")["access_token"])
     assert client.get("/api/v1/audit-logs", headers=user_headers).status_code == 403
     assert client.post("/api/v1/auth/logout", headers=user_headers).status_code == 204
@@ -305,7 +297,7 @@ def test_audit_log_is_admin_only_and_hides_secrets(client):
     assert "auth.login.failure" in actions
     assert "auth.login.success" in actions
     assert "auth.logout" in actions
-    assert "user.create" in actions
+    assert "member.join" in actions
     assert "template.create" in actions
     assert "occurrence.paid" in actions
     assert "occurrence.unpaid" in actions
