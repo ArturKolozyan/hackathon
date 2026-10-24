@@ -70,7 +70,7 @@ def test_personal_link_greeting_and_one_account(db_session):
     bot = FakeBot()
     token = issue_token(db_session, purpose="user", user=ivan)
     handle_update(db_session, bot, _message(f"/start {token.token}", chat_id=42, chat_type="private", sender=42))
-    assert bot.sent[-1]["text"] == "Привет, Иван! Теперь кнопки «Оплачено» записываются на тебя"
+    assert bot.sent[-1]["text"].startswith("Привет, Иван! Telegram привязан")
     db_session.refresh(ivan)
     assert ivan.telegram_user_id == 42
     assert ivan.telegram_username == "art"

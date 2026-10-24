@@ -7,7 +7,7 @@ from app.schemas.common import APIModel
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-__all__ = ["UserOut", "UserCreate", "UserUpdate", "DepartmentRole", "TelegramLinkSent"]
+__all__ = ["UserOut", "UserCreate", "UserUpdate", "DepartmentRole", "InviteOut"]
 
 
 class DepartmentRole(APIModel):
@@ -25,19 +25,20 @@ class UserOut(APIModel):
     is_owner: bool = False
     telegram_linked: bool = False
     must_change_password: bool = False
+    invite_pending: bool = Field(default=False, description="Человек ещё не задал пароль по приглашению")
+    invite_url: str | None = Field(default=None, description="Только в ответе на создание")
     departments: list[DepartmentRole] = Field(default_factory=list)
 
 
-class TelegramLinkSent(APIModel):
-    url: str | None = None
-    delivery: str
-    message: str
+class InviteOut(APIModel):
+    url: str
 
 
 class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     full_name: str = Field(min_length=1, max_length=200)
-    password: str = Field(min_length=8, max_length=200)
+    # Без пароля человек получает ссылку-приглашение и задаёт пароль сам.
+    password: str | None = Field(default=None, min_length=8, max_length=200)
     role: str = "user"
     department_id: UUID | None = None
     team_id: UUID | None = None

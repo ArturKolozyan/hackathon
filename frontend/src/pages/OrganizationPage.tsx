@@ -63,7 +63,7 @@ export function OrganizationPage() {
       </div>
       <p className="caption">
         Часовой пояс, дни напоминаний и повтор просрочки. По умолчанию значения из .env, здесь они переопределяются для всех отделов.
-        В каденции остаётся срок не меньше чем за 3 дня.
+        По умолчанию: за 7 и за 3 дня до срока, просрочка со следующего дня и затем каждый день (повтор 1). В каденции остаётся срок не меньше чем за 3 дня.
       </p>
       {!form && !error && <LoadingBlock label="Загружаем настройки…" />}
       {error && !form && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
@@ -79,7 +79,7 @@ export function OrganizationPage() {
               value={form.reminder_days}
               onChange={(event) => setForm({ ...form, reminder_days: event.target.value })}
               required
-              placeholder="7,3,0"
+              placeholder="7,3"
             />
           </label>
           <label>

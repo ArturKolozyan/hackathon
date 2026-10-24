@@ -51,7 +51,18 @@ export type DirectoryUser = {
   is_owner: boolean;
   telegram_linked: boolean;
   must_change_password: boolean;
+  invite_pending: boolean;
+  invite_url?: string | null;
   departments: { id: string; name: string; role: string }[];
+};
+
+export type InviteLink = {
+  url: string;
+};
+
+export type InviteInfo = {
+  email: string;
+  full_name: string;
 };
 
 export type Member = {
@@ -190,7 +201,7 @@ export type TelegramSelf = {
 
 export type TelegramLink = {
   url: string;
-  expires_at: string;
+  expires_at: string | null;
 };
 
 export type TeamTelegram = {

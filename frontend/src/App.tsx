@@ -7,6 +7,7 @@ import { CalendarPage } from "./pages/CalendarPage";
 import { ForgotPage } from "./pages/ForgotPage";
 import { HistoryPage } from "./pages/HistoryPage";
 import { InboxPage } from "./pages/InboxPage";
+import { InvitePage } from "./pages/InvitePage";
 import { FirstPasswordPage } from "./pages/FirstPasswordPage";
 import { LinkTelegramPage } from "./pages/LinkTelegramPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -25,6 +26,7 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/forgot" element={<ForgotPage />} />
       <Route path="/reset" element={<ResetPage />} />
+      <Route path="/invite/:token" element={<InvitePage />} />
       <Route element={<RequireAuth />}>
         <Route path="/first-password" element={<FirstPasswordPage />} />
         <Route path="/link-telegram" element={<LinkTelegramPage />} />

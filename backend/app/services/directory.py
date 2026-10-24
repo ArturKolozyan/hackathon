@@ -1,5 +1,6 @@
 """Люди организации. Эндпоинты кейса GET/POST/PATCH/DELETE /users."""
 
+import secrets
 from uuid import UUID
 
 from fastapi import HTTPException
@@ -7,8 +8,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import hash_password, revoke_user_sessions
+from app.integrations.email import public_url
 from app.models import Membership, RecurringPayment, Team, User
-from app.schemas.user import DepartmentRole, UserCreate, UserOut, UserUpdate
+from app.schemas.telegram import TelegramLinkOut
+from app.schemas.user import DepartmentRole, InviteOut, UserCreate, UserOut, UserUpdate
 from app.services import time as clock
 from app.services.accounts import create_verified_user
 from app.services.audit import record
@@ -49,6 +52,7 @@ def user_out(db: Session, user: User) -> UserOut:
         is_owner=user.is_owner,
         telegram_linked=user.telegram_user_id is not None,
         must_change_password=user.must_change_password,
+        invite_pending=user.invite_token is not None,
         departments=[
             DepartmentRole(id=row.team_id, name=row.team.name, role="admin" if row.role == "admin" else "user")
             for row in seats
@@ -117,7 +121,32 @@ def _guard_role(actor: User, role: str) -> None:
         raise HTTPException(status_code=403, detail="Админа назначает владелец")
 
 
+def _new_invite() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def invite_url(token: str) -> str:
+    """Без APP_PUBLIC_URL путь относительный: панель дописывает свой адрес."""
+    return f"{public_url()}/invite/{token}"
+
+
+def _start_invite(user: User) -> None:
+    """Пароль человек задаёт сам по ссылке. До этого войти нельзя."""
+    user.password_hash = hash_password(secrets.token_urlsafe(32))
+    user.must_change_password = False
+    user.telegram_onboarding_done = False
+    user.invite_token = _new_invite()
+
+
+def _with_invite(db: Session, user: User) -> UserOut:
+    out = user_out(db, user)
+    if not user.invite_token:
+        return out
+    return out.model_copy(update={"invite_url": invite_url(user.invite_token)})
+
+
 def create_user(db: Session, actor: User, payload: UserCreate) -> UserOut:
+    """Без пароля — ссылка-приглашение, письмо не уходит. С паролем — временный пароль, как раньше."""
     if not actor.is_owner and not _admin_team_ids(db, actor):
         raise HTTPException(status_code=403, detail="Недостаточно прав")
     _guard_role(actor, payload.role)
@@ -130,9 +159,11 @@ def create_user(db: Session, actor: User, payload: UserCreate) -> UserOut:
             db,
             email=payload.email,
             full_name=payload.full_name,
-            password=payload.password,
-            must_change_password=True,
+            password=payload.password or secrets.token_urlsafe(32),
+            must_change_password=payload.password is not None,
         )
+        if payload.password is None:
+            _start_invite(user)
         add_member(db, team, user, _seat_role(payload.role), actor=actor)
         record(
             db,
@@ -144,10 +175,7 @@ def create_user(db: Session, actor: User, payload: UserCreate) -> UserOut:
             team_id=team.id,
         )
         db.commit()
-        from app.services.mail import send_account_created
-
-        send_account_created(db, user)
-        return user_out(db, user)
+        return _with_invite(db, user)
     seat = membership(db, team.id, existing.id)
     if seat is not None and existing.is_active:
         raise HTTPException(status_code=409, detail="Человек уже в этом отделе")
@@ -158,9 +186,15 @@ def create_user(db: Session, actor: User, payload: UserCreate) -> UserOut:
         if foreign is not None:
             raise HTTPException(status_code=403, detail="В другой отдел добавляет только владелец")
     existing.full_name = payload.full_name
+    if payload.password is not None:
+        existing.password_hash = hash_password(payload.password)
+        existing.must_change_password = True
+        existing.invite_token = None
+    elif not existing.is_active:
+        # Вернувшийся человек заново задаёт пароль по новой ссылке.
+        _start_invite(existing)
+        revoke_user_sessions(db, existing.id)
     existing.is_active = True
-    existing.password_hash = hash_password(payload.password)
-    existing.must_change_password = True
     existing.updated_at = clock.now()
     if existing.email_verified_at is None:
         existing.email_verified_at = clock.now()
@@ -178,10 +212,7 @@ def create_user(db: Session, actor: User, payload: UserCreate) -> UserOut:
         team_id=team.id,
     )
     db.commit()
-    from app.services.mail import send_account_created
-
-    send_account_created(db, existing)
-    return user_out(db, existing)
+    return _with_invite(db, existing)
 
 
 def _editable(db: Session, actor: User, target: User) -> None:
@@ -277,28 +308,54 @@ def delete_user(db: Session, actor: User, user_id: UUID) -> None:
     db.commit()
 
 
-def resend_telegram_link(db: Session, actor: User, user_id: UUID) -> dict[str, str | None]:
-    """Та же ссылка, что в письме при создании. Права — как у правки человека."""
-    from app.integrations.email import send_auth_email
-    from app.services.telegram_links import bot_username, deep_link, issue_token
-
+def _manageable(db: Session, actor: User, user_id: UUID) -> User:
     target = db.get(User, user_id)
     if target is None or not target.is_active:
         raise HTTPException(status_code=404, detail="Пользователь не найден")
     _editable(db, actor, target)
+    return target
+
+
+def invite_link(db: Session, actor: User, user_id: UUID, *, renew: bool = False) -> InviteOut:
+    """Текущая ссылка-приглашение. renew — новая, старая перестаёт работать."""
+    target = _manageable(db, actor, user_id)
+    if target.invite_token is None:
+        raise HTTPException(status_code=409, detail="Человек уже задал пароль. Для Telegram — ссылка привязки.")
+    if renew:
+        target.invite_token = _new_invite()
+        target.updated_at = clock.now()
+        record(
+            db,
+            action="user.invite",
+            actor=actor,
+            entity_type="user",
+            entity_id=target.id,
+            meta={"email": target.email},
+            team_id=target.active_team_id,
+        )
+        db.commit()
+    return InviteOut(url=invite_url(target.invite_token))
+
+
+def person_telegram_link(db: Session, actor: User, user_id: UUID, *, renew: bool = False) -> TelegramLinkOut:
+    """Ссылка привязки Telegram человека. Админ копирует её и передаёт сам, письма нет."""
+    from app.services.telegram_links import bot_username, current_user_token, deep_link, issue_token
+
+    target = _manageable(db, actor, user_id)
     username = bot_username(db)
     if not username:
         raise HTTPException(
             status_code=503,
             detail="Имя бота ещё неизвестно. Подождите getMe или задайте TELEGRAM_BOT_USERNAME.",
         )
-    token = issue_token(db, purpose="user", user=target)
-    link = deep_link(username, token.token, group=False)
-    db.commit()
-    delivery = send_auth_email(
-        to=target.email,
-        subject="Привязка Telegram — rekeeper",
-        text=f"Привязать Telegram: {link}\nСсылка действует 15 минут.",
-        html=f'<p><a href="{link}">Привязать Telegram</a></p>',
-    )
-    return {"url": link, "delivery": delivery, "message": "Ссылка готова. Она также ушла на почту, если SMTP настроен."}
+    token = issue_token(db, purpose="user", user=target) if renew else current_user_token(db, target)
+    return TelegramLinkOut(url=deep_link(username, token.token, group=False), expires_at=token.expires_at)
+
+
+def unlink_person_telegram(db: Session, actor: User, user_id: UUID) -> UserOut:
+    from app.services.telegram_links import unlink_user
+
+    target = _manageable(db, actor, user_id)
+    unlink_user(db, target, actor=actor)
+    db.refresh(target)
+    return user_out(db, target)

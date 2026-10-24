@@ -256,23 +256,28 @@ def _channel_quiet(db: Session, items: list[tuple[PaymentOccurrence, str]], chan
 
 
 def fanout_digest(db: Session, items: list[tuple[PaymentOccurrence, str]]) -> int:
-    """Несколько просроченных периодов одного платежа — одно сообщение."""
+    """Несколько просроченных периодов одного платежа — одно сообщение.
+
+    Ключ доставки с датой: сводка повторяется вместе с повтором просрочки,
+    а не уходит один раз навсегда. В payload событие остаётся DIGEST.
+    """
     primary = min(items, key=lambda item: item[0].due_date)[0]
     payload = digest_payload(items)
+    key = f"{DIGEST}.{clock.today():%Y%m%d}"
     sent = 0
     delivered: list[tuple[str, str]] = []
     for channel, recipient in _plan(db, primary, DIGEST):
-        if _channel_quiet(db, items, channel, recipient) or _already(db, primary.id, DIGEST, channel, recipient):
+        if _channel_quiet(db, items, channel, recipient) or _already(db, primary.id, key, channel, recipient):
             continue
         try:
-            result = _send(db, channel, recipient, primary, DIGEST, payload)
+            result = _send(db, channel, recipient, primary, key, payload)
         except Exception:
             log.exception("digest %s failed", channel)
             result = "failed"
         if result not in {"sent", "queued"}:
             continue
         if result == "sent":
-            _mark(db, primary.id, DIGEST, channel, recipient)
+            _mark(db, primary.id, key, channel, recipient)
         delivered.append((channel, recipient))
         sent += 1
     for row, event in items:

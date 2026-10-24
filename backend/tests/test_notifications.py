@@ -52,10 +52,14 @@ def test_events_split_reminder_and_overdue():
     today = date(2026, 10, 23)
     base = {"paid_at": None, "archived": False, "today": today, "soon_days": 3}
     assert notification_events(due=date(2026, 10, 26), **base) == ["occurrence.reminder.d3"]
-    assert notification_events(due=date(2026, 10, 23), **base) == ["occurrence.reminder.d0"]
+    assert notification_events(due=date(2026, 10, 23), **base) == ["occurrence.reminder.d3"]
     assert notification_events(due=date(2026, 10, 27), **base) == []
     assert notification_events(due=date(2026, 10, 22), **base) == [OVERDUE]
-    assert notification_events(due=date(2026, 10, 1), **base) == ["occurrence.overdue.r7"]
+    assert notification_events(due=date(2026, 10, 1), **base) == ["occurrence.overdue.r21"]
+    assert notification_events(due=date(2026, 10, 21), **base) == ["occurrence.overdue.r1"]
+    assert notification_events(due=date(2026, 10, 25), paid_at=None, archived=False, today=today) == ["occurrence.reminder.d3"]
+    assert notification_events(due=date(2026, 10, 30), paid_at=None, archived=False, today=today) == ["occurrence.reminder.d7"]
+    assert notification_events(due=date(2026, 10, 1), **base, overdue_repeat_days=3) == ["occurrence.overdue.r7"]
     assert notification_events(due=date(2026, 10, 26), paid_at=object(), archived=False, today=today, soon_days=3) == []
     assert (
         notification_events(

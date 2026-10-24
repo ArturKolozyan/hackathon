@@ -39,6 +39,8 @@ class User(Base):
     is_owner: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     telegram_onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    # Ссылка-приглашение: пока не пусто, человек ещё не задал пароль. Новая ссылка заменяет старую.
+    invite_token: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True)
     # mine — только платежи, где человек ответственный; department — все платежи его отделов.
     notify_scope: Mapped[str] = mapped_column(String(16), default="mine", server_default="mine")
     notify_overdue: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")

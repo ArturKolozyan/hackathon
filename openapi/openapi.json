@@ -110,6 +110,7 @@
             "type": "string"
           },
           "meta": {
+            "additionalProperties": true,
             "title": "Meta",
             "type": "object"
           }
@@ -138,6 +139,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               }
             ],
@@ -292,6 +294,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               }
             ],
@@ -396,6 +399,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -594,6 +598,52 @@
           "rest"
         ],
         "title": "InboxOut",
+        "type": "object"
+      },
+      "InviteAcceptIn": {
+        "properties": {
+          "password": {
+            "maxLength": 200,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "InviteAcceptIn",
+        "type": "object"
+      },
+      "InviteInfo": {
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "full_name": {
+            "title": "Full Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "full_name"
+        ],
+        "title": "InviteInfo",
+        "type": "object"
+      },
+      "InviteOut": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "InviteOut",
         "type": "object"
       },
       "LoginIn": {
@@ -1114,6 +1164,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -1163,6 +1214,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -1532,6 +1584,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               }
             ],
@@ -1775,6 +1828,7 @@
                 "type": "number"
               },
               {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
                 "type": "string"
               },
               {
@@ -2468,9 +2522,17 @@
       "TelegramLinkOut": {
         "properties": {
           "expires_at": {
-            "format": "date-time",
-            "title": "Expires At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Пусто — до использования или новой ссылки",
+            "title": "Expires At"
           },
           "url": {
             "title": "Url",
@@ -2478,8 +2540,7 @@
           }
         },
         "required": [
-          "url",
-          "expires_at"
+          "url"
         ],
         "title": "TelegramLinkOut",
         "type": "object"
@@ -2624,10 +2685,17 @@
             "type": "string"
           },
           "password": {
-            "maxLength": 200,
-            "minLength": 8,
-            "title": "Password",
-            "type": "string"
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 8,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
           },
           "role": {
             "default": "user",
@@ -2649,8 +2717,7 @@
         },
         "required": [
           "email",
-          "full_name",
-          "password"
+          "full_name"
         ],
         "title": "UserCreate",
         "type": "object"
@@ -2676,6 +2743,24 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "invite_pending": {
+            "default": false,
+            "description": "Человек ещё не задал пароль по приглашению",
+            "title": "Invite Pending",
+            "type": "boolean"
+          },
+          "invite_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Только в ответе на создание",
+            "title": "Invite Url"
           },
           "is_active": {
             "title": "Is Active",
@@ -2789,6 +2874,13 @@
       },
       "ValidationError": {
         "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
           "loc": {
             "items": {
               "anyOf": [
@@ -2938,6 +3030,98 @@
         "summary": "Журнал действий",
         "tags": [
           "audit"
+        ]
+      }
+    },
+    "/api/v1/auth/invite/{token}": {
+      "get": {
+        "operationId": "invite_info_api_v1_auth_invite__token__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Приглашение: кого ждём",
+        "tags": [
+          "auth"
+        ]
+      },
+      "post": {
+        "operationId": "invite_accept_api_v1_auth_invite__token__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "token",
+            "required": true,
+            "schema": {
+              "title": "Token",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteAcceptIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Задать пароль по приглашению и войти",
+        "tags": [
+          "auth"
         ]
       }
     },
@@ -7692,9 +7876,9 @@
         ]
       }
     },
-    "/api/v1/users/{id}/telegram-link": {
-      "post": {
-        "operationId": "telegram_link_api_v1_users__id__telegram_link_post",
+    "/api/v1/users/{id}/invite": {
+      "get": {
+        "operationId": "get_invite_api_v1_users__id__invite_get",
         "parameters": [
           {
             "in": "path",
@@ -7728,18 +7912,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "anyOf": [
-                      {
-                        "type": "string"
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "title": "Response Telegram Link Api V1 Users  Id  Telegram Link Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/InviteOut"
                 }
               }
             },
@@ -7761,7 +7934,259 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Ещё раз прислать ссылку привязки Telegram",
+        "summary": "Текущая ссылка-приглашение",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "operationId": "renew_invite_api_v1_users__id__invite_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InviteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Новая ссылка-приглашение, старая гаснет",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/telegram": {
+      "delete": {
+        "operationId": "unlink_telegram_api_v1_users__id__telegram_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Отвязать Telegram человека",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{id}/telegram-link": {
+      "get": {
+        "operationId": "get_telegram_link_api_v1_users__id__telegram_link_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Текущая ссылка привязки Telegram",
+        "tags": [
+          "users"
+        ]
+      },
+      "post": {
+        "operationId": "renew_telegram_link_api_v1_users__id__telegram_link_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramLinkOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Новая ссылка привязки Telegram",
         "tags": [
           "users"
         ]

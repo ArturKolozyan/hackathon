@@ -5,9 +5,16 @@ from app.core.database import get_db
 from app.core.deps import get_current_user, read_token
 from app.core.security import attach_cookie, clear_cookie, issue_session, revoke_token, user_from_token
 from app.models import User
-from app.schemas.auth import ForgotIn, LoginIn, ResetIn, TokenOut
+from app.schemas.auth import ForgotIn, InviteAcceptIn, InviteInfo, LoginIn, ResetIn, TokenOut
 from app.schemas.me import MeOut
-from app.services.accounts import authenticate, request_password_reset, reset_password, to_me
+from app.services.accounts import (
+    accept_invite,
+    authenticate,
+    find_invite,
+    request_password_reset,
+    reset_password,
+    to_me,
+)
 from app.services.audit import record
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -65,6 +72,26 @@ def forgot(payload: ForgotIn, db: Session = Depends(get_db)) -> None:
 def reset_password_route(payload: ResetIn, db: Session = Depends(get_db)) -> None:
     reset_password(db, email=payload.email, code=payload.code, password=payload.password)
     db.commit()
+
+
+@router.get("/invite/{token}", response_model=InviteInfo, summary="Приглашение: кого ждём")
+def invite_info(token: str, db: Session = Depends(get_db)) -> InviteInfo:
+    user = find_invite(db, token)
+    return InviteInfo(email=user.email, full_name=user.full_name)
+
+
+@router.post("/invite/{token}", response_model=TokenOut, summary="Задать пароль по приглашению и войти")
+def invite_accept(token: str, payload: InviteAcceptIn, response: Response, db: Session = Depends(get_db)) -> TokenOut:
+    user = accept_invite(db, token, payload.password)
+    record(
+        db,
+        action="user.invite_accept",
+        actor=user,
+        entity_type="user",
+        entity_id=user.id,
+        meta={"email": user.email},
+    )
+    return _session(db, response, user)
 
 
 @router.get("/me", response_model=MeOut, summary="Текущий пользователь")

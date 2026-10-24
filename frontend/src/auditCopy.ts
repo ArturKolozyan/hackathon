@@ -10,6 +10,8 @@ const ACTIONS: Record<string, string> = {
   "user.create": "Человек создан",
   "user.update": "Человек изменён",
   "user.delete": "Человек отключён",
+  "user.invite": "Новая ссылка-приглашение",
+  "user.invite_accept": "Приглашение принято",
   "occurrence.paid": "Оплата",
   "occurrence.unpaid": "Оплата снята",
   "occurrence.paid_at": "Дата оплаты",

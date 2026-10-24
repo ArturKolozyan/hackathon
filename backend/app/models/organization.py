@@ -17,7 +17,7 @@ class OrganizationSettings(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     timezone: Mapped[str] = mapped_column(String(64), default="Europe/Moscow")
-    reminder_days: Mapped[str] = mapped_column(String(64), default="7,3,0")
-    overdue_repeat_days: Mapped[int] = mapped_column(Integer, default=3)
+    reminder_days: Mapped[str] = mapped_column(String(64), default="7,3")
+    overdue_repeat_days: Mapped[int] = mapped_column(Integer, default=1)
     owner_overdue_copy: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

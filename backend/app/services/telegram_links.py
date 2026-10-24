@@ -1,6 +1,7 @@
 """Привязка чата отдела и личного Telegram. Deep link собирает API, бот — отдельный процесс.
 
-Токен одноразовый, 15 минут. Сырой токен в журнал не пишем.
+Токен одноразовый и живёт до использования. Новая ссылка гасит прежние того же
+человека или отдела. Сырой токен в журнал не пишем.
 TELEGRAM_CHAT_ID — запасной чат, только когда в базе ровно одна команда
 и у неё нет явного состояния (нет строки или status=absent). Несколько команд
 env не делят: иначе один чат прилип бы ко всем.
@@ -11,10 +12,9 @@ from __future__ import annotations
 import logging
 import secrets
 import uuid
-from datetime import timedelta
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -28,7 +28,6 @@ from app.services.teams import membership
 
 log = logging.getLogger("invoice_keeper.telegram")
 
-TOKEN_TTL = timedelta(minutes=15)
 TEAM_RECIPIENT = "team"
 UNLINKED_ALERT = "Сначала привяжи Telegram в rekeeper: раздел «Уведомления»."
 _GONE = ("left", "kicked")
@@ -118,19 +117,41 @@ def remember_bot(me: dict[str, Any]) -> None:
 
 
 def issue_token(db: Session, *, purpose: str, user: User, team_id: uuid.UUID | None = None) -> TelegramLinkToken:
+    """Новая ссылка. Прежние неиспользованные того же человека (или отдела) гаснут."""
     if purpose == "team" and team_id is None:
         team_id = user.active_team_id
+    scope = TelegramLinkToken.team_id == team_id if purpose == "team" else TelegramLinkToken.user_id == user.id
+    db.execute(
+        update(TelegramLinkToken)
+        .where(TelegramLinkToken.purpose == purpose, TelegramLinkToken.used_at.is_(None), scope)
+        .values(used_at=clock.now())
+    )
     row = TelegramLinkToken(
         token=secrets.token_urlsafe(24),
         purpose=purpose,
         team_id=team_id if purpose == "team" else None,
         user_id=user.id,
-        expires_at=clock.now() + TOKEN_TTL,
+        expires_at=None,
     )
     db.add(row)
     db.commit()
     db.refresh(row)
     return row
+
+
+def current_user_token(db: Session, user: User) -> TelegramLinkToken:
+    """Действующая личная ссылка или новая. Повторный показ не гасит уже отправленную."""
+    row = db.scalar(
+        select(TelegramLinkToken)
+        .where(
+            TelegramLinkToken.purpose == "user",
+            TelegramLinkToken.user_id == user.id,
+            TelegramLinkToken.used_at.is_(None),
+            or_(TelegramLinkToken.expires_at.is_(None), TelegramLinkToken.expires_at > clock.now()),
+        )
+        .order_by(TelegramLinkToken.created_at.desc())
+    )
+    return row or issue_token(db, purpose="user", user=user)
 
 
 def deep_link(username: str, token: str, *, group: bool) -> str:
@@ -161,7 +182,7 @@ def disconnect_team(db: Session, *, actor: User | None, team_id: uuid.UUID) -> T
     return row
 
 
-def unlink_user(db: Session, user: User) -> None:
+def unlink_user(db: Session, user: User, *, actor: User | None = None) -> None:
     user.telegram_user_id = None
     user.telegram_username = None
     user.telegram_display_name = None
@@ -169,7 +190,7 @@ def unlink_user(db: Session, user: User) -> None:
     record(
         db,
         action="telegram.user_unlink",
-        actor=user,
+        actor=actor or user,
         entity_type="user",
         entity_id=user.id,
         meta={"email": user.email},
@@ -352,8 +373,11 @@ def migrate_chat(db: Session, message: dict[str, Any]) -> None:
     old_id = chat.get("id")
     if new_id is None or old_id is None:
         return
-    old_key = str(old_id)
-    new_key = str(new_id)
+    move_chat(db, str(old_id), str(new_id))
+
+
+def move_chat(db: Session, old_key: str, new_key: str) -> None:
+    """Группа стала супергруппой: новый id чата у отдела и у отправленных карточек."""
     rows = db.scalars(select(TelegramIntegration).where(TelegramIntegration.team_chat_id == old_key)).all()
     for row in rows:
         row.team_chat_id = new_key
@@ -380,7 +404,8 @@ def _consume_start(db: Session, payload: str, chat: dict[str, Any], sender: dict
             return "Привязка в rekeeper: Уведомления → Привязать Telegram."
         return "Чат отдела подключается из rekeeper: Уведомления → Подключить чат отдела."
     token = db.scalar(select(TelegramLinkToken).where(TelegramLinkToken.token == payload))
-    if token is None or token.used_at is not None or token.expires_at <= clock.now():
+    expired = token is not None and token.expires_at is not None and token.expires_at <= clock.now()
+    if token is None or token.used_at is not None or expired:
         return "Ссылка недействительна или истекла. Создайте новую в rekeeper."
     if token.purpose == "team":
         if private:
@@ -443,6 +468,8 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
     owner.telegram_username = str(username).lstrip("@")[:32] if isinstance(username, str) and username else None
     owner.telegram_display_name = _display_name(sender)
     owner.telegram_onboarding_done = True
+    # Одна привязка на всё: после неё личные напоминания включены.
+    owner.telegram_reminders = True
     owner.updated_at = clock.now()
     token.used_at = clock.now()
     try:
@@ -459,7 +486,10 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
         meta={"email": owner.email},
     )
     db.commit()
-    return f"Привет, {owner.full_name}! Теперь кнопки «Оплачено» записываются на тебя"
+    return (
+        f"Привет, {owner.full_name}! Telegram привязан: «Оплачено» в чате отдела записывается на тебя, "
+        "личные напоминания приходят сюда."
+    )
 
 
 def _display_name(sender: dict[str, Any]) -> str | None:

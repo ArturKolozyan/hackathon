@@ -40,7 +40,7 @@ export function LinkTelegramPage() {
     <div className="login-page">
       <section className="panel login-form">
         <h1>Привяжите Telegram</h1>
-        <p className="desc">Личные напоминания и кнопка «Оплачено» заработают после привязки. Это можно сделать позже в разделе «Уведомления».</p>
+        <p className="desc">Одна привязка на всё: «Оплачено» в чате отдела записывается на вас, личные напоминания приходят в Telegram. Можно сделать позже в разделе «Уведомления».</p>
         {link && (
           <p>
             <a href={link} target="_blank" rel="noreferrer">

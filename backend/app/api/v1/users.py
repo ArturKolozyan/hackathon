@@ -6,8 +6,17 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.models import User
-from app.schemas.user import UserCreate, UserOut, UserUpdate
-from app.services.directory import create_user, delete_user, list_users, resend_telegram_link, update_user
+from app.schemas.telegram import TelegramLinkOut
+from app.schemas.user import InviteOut, UserCreate, UserOut, UserUpdate
+from app.services.directory import (
+    create_user,
+    delete_user,
+    invite_link,
+    list_users,
+    person_telegram_link,
+    unlink_person_telegram,
+    update_user,
+)
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -55,6 +64,26 @@ def remove_person(id: UUID, user: User = Depends(get_current_user), db: Session 
     delete_user(db, _actor(user), id)
 
 
-@router.post("/{id}/telegram-link", summary="Ещё раз прислать ссылку привязки Telegram")
-def telegram_link(id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, str | None]:
-    return resend_telegram_link(db, _actor(user), id)
+@router.get("/{id}/invite", response_model=InviteOut, summary="Текущая ссылка-приглашение")
+def get_invite(id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> InviteOut:
+    return invite_link(db, _actor(user), id)
+
+
+@router.post("/{id}/invite", response_model=InviteOut, summary="Новая ссылка-приглашение, старая гаснет")
+def renew_invite(id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> InviteOut:
+    return invite_link(db, _actor(user), id, renew=True)
+
+
+@router.get("/{id}/telegram-link", response_model=TelegramLinkOut, summary="Текущая ссылка привязки Telegram")
+def get_telegram_link(id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramLinkOut:
+    return person_telegram_link(db, _actor(user), id)
+
+
+@router.post("/{id}/telegram-link", response_model=TelegramLinkOut, summary="Новая ссылка привязки Telegram")
+def renew_telegram_link(id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramLinkOut:
+    return person_telegram_link(db, _actor(user), id, renew=True)
+
+
+@router.delete("/{id}/telegram", response_model=UserOut, summary="Отвязать Telegram человека")
+def unlink_telegram(id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserOut:
+    return unlink_person_telegram(db, _actor(user), id)

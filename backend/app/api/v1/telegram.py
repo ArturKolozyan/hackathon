@@ -10,6 +10,7 @@ from app.services import time as clock
 from app.services.access import TeamContext
 from app.services.telegram_links import (
     bot_username,
+    current_user_token,
     deep_link,
     disconnect_team,
     issue_token,
@@ -122,7 +123,7 @@ def my_telegram(user: User = Depends(get_current_user), db: Session = Depends(ge
 @router.post("/me/telegram/link", response_model=TelegramLinkOut, summary="Ссылка для привязки Telegram")
 def my_link(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramLinkOut:
     username = _require_bot(db)
-    token = issue_token(db, purpose="user", user=user)
+    token = current_user_token(db, user)
     return TelegramLinkOut(url=deep_link(username, token.token, group=False), expires_at=token.expires_at)
 
 

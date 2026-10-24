@@ -26,7 +26,6 @@ export function NotificationsPage() {
   const [emailOn, setEmailOn] = useState(true);
   const [emailTeams, setEmailTeams] = useState<string[]>([]);
   const [tgOn, setTgOn] = useState(true);
-  const [tgTeams, setTgTeams] = useState<string[]>([]);
   const [scope, setScope] = useState<"mine" | "department">("mine");
   const [overdueOn, setOverdueOn] = useState(true);
   const [webhookUrl, setWebhookUrl] = useState("");
@@ -43,7 +42,6 @@ export function NotificationsPage() {
     setEmailOn(next.email.enabled);
     setEmailTeams(next.email.team_ids);
     setTgOn(next.telegram.enabled);
-    setTgTeams(next.telegram.team_ids);
     setScope(next.telegram.notify_scope || "mine");
     setOverdueOn(next.telegram.notify_overdue);
     setWebhookUrl(next.team.webhook_url ?? "");
@@ -101,7 +99,6 @@ export function NotificationsPage() {
             email_enabled: emailOn,
             email_team_ids: emailTeams,
             telegram_enabled: tgOn,
-            telegram_team_ids: tgTeams,
             notify_scope: scope,
             notify_overdue: overdueOn,
           }),
@@ -148,10 +145,10 @@ export function NotificationsPage() {
           </div>
           <p className="desc">
             {data.telegram.linked
-              ? `${personLabel(data.telegram)}. Кнопка «Оплачено» записывается на вас.`
-              : "Привяжите Telegram, чтобы закрывать платежи из чата своим именем и получать личные напоминания."}
+              ? `${personLabel(data.telegram)}. «Оплачено» в чате отдела записывается на вас, личные напоминания приходят сюда.`
+              : "Одна привязка на всё: «Оплачено» в чате отдела записывается на вас, личные напоминания приходят в Telegram."}
           </p>
-          <p className="desc">По платежам, где вы ответственный, напоминание в личку приходит всегда, если Telegram привязан.</p>
+          <p className="desc">Ниже — что присылать в личку. Выключенные сообщения не отвязывают Telegram: «Оплачено» продолжит работать.</p>
           {data.telegram.linked ? (
             <div className="row-actions">
               {confirmUnlink ? (
@@ -223,7 +220,7 @@ export function NotificationsPage() {
           )}
           {personalLink && (
             <div className="link-box">
-              <p className="desc">Ссылка действует 15 минут. Откройте её в Telegram.</p>
+              <p className="desc">Откройте ссылку в Telegram и нажмите «Старт». Она работает, пока ею не воспользуются.</p>
               <a href={personalLink.url} target="_blank" rel="noreferrer">
                 Открыть в Telegram
               </a>
@@ -255,7 +252,6 @@ export function NotificationsPage() {
               Писать о просрочке
             </label>
           </div>
-          <TeamChecks teams={data.teams} selected={tgTeams} onToggle={(id) => setTgTeams(toggleId(tgTeams, id))} />
         </section>
 
         <section className="panel settings-card">
@@ -366,7 +362,7 @@ export function NotificationsPage() {
           )}
           {teamLink && (
             <div className="link-box">
-              <p className="desc">Ссылка действует 15 минут. Добавьте бота в группу. В чат придёт одна сводка, не карточки по всем платежам.</p>
+              <p className="desc">Ссылка работает до использования или до новой. Добавьте бота в группу. В чат придёт одна сводка, не карточки по всем платежам.</p>
               <a href={teamLink.url} target="_blank" rel="noreferrer">
                 Открыть в Telegram
               </a>

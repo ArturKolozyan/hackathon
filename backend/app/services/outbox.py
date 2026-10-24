@@ -4,18 +4,26 @@ from __future__ import annotations
 
 import logging
 import uuid
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
+from app.integrations.telegram import TelegramError
 from app.models import NotificationDelivery, PaymentOccurrence, RecurringPayment
 from app.services import time as clock
 from app.services.reminders import DIGEST, is_reminder, is_overdue
-from app.services.telegram_links import TEAM_RECIPIENT, resolve_team_chat_id
+from app.services.telegram_links import TEAM_RECIPIENT, move_chat, resolve_team_chat_id
 
 log = logging.getLogger("invoice_keeper.outbox")
+
+# Временный сбой (сеть, 429, 5xx) повторяем, но не вечно: сдаёмся после
+# MAX_ATTEMPTS попыток, когда строка старше RETRY_WINDOW. Короткий обрыв
+# сети на минуту не съедает напоминание.
+MAX_ATTEMPTS = 30
+RETRY_WINDOW = timedelta(hours=24)
 
 
 def _already(db: Session, occurrence_id: uuid.UUID, event: str, recipient: str) -> bool:
@@ -81,7 +89,7 @@ def _chat_for(db: Session, row: NotificationDelivery, occurrence: PaymentOccurre
 def _outgoing_text(db: Session, occurrence: PaymentOccurrence, event: str, today) -> str:
     from app.services.telegram_cards import telegram_text
 
-    if event != DIGEST:
+    if not event.startswith(DIGEST):
         return telegram_text(occurrence)
     siblings = list(
         db.scalars(
@@ -103,12 +111,48 @@ def _outgoing_text(db: Session, occurrence: PaymentOccurrence, event: str, today
     return "\n".join(lines)
 
 
+def _previous_card(occurrence: PaymentOccurrence, slot: str) -> tuple[str | None, int | None]:
+    if slot == "dm":
+        return occurrence.dm_chat_id, occurrence.dm_message_id
+    return occurrence.telegram_chat_id, occurrence.telegram_message_id
+
+
+def _drop_button(bot, chat_id: str, message_id: int) -> None:
+    """Новая карточка того же периода ушла в этот чат: у старой убираем «Оплачено»."""
+    from app.services.telegram_cards import EMPTY_KEYBOARD
+
+    try:
+        bot.edit_markup(chat_id, message_id, EMPTY_KEYBOARD)
+    except Exception as exc:
+        log.info("old card button kept chat=%s message=%s (%s)", chat_id, message_id, exc)
+
+
+def _send(db: Session, row: NotificationDelivery, occurrence: PaymentOccurrence, chat_id: str, slot: str, today) -> str:
+    """Отправить карточку. Группа стала супергруппой — переносим id и шлём ещё раз. Возвращает чат."""
+    from app.integrations.telegram import deliver
+
+    text = _outgoing_text(db, occurrence, row.event, today)
+    try:
+        deliver(text, chat_id=chat_id, occurrence_id=str(occurrence.id), event=row.event, slot=slot)
+        return chat_id
+    except TelegramError as exc:
+        moved = exc.migrate_to_chat_id
+        if moved is None or slot != "team":
+            raise
+    new_chat = str(moved)
+    # move_chat коммитит до повторной отправки: deliver пишет id сообщения своей сессией.
+    move_chat(db, chat_id, new_chat)
+    deliver(text, chat_id=new_chat, occurrence_id=str(occurrence.id), event=row.event, slot=slot)
+    return new_chat
+
+
 def drain_telegram(db: Session, bot) -> int:
     """Отправить pending. Просроченный T-3 не шлём: просрочка — отдельное событие.
 
-    Оплаченный или архивный период пропускаем. Сбой сети оставляет pending.
+    Оплаченный или архивный период пропускаем. Постоянная ошибка (бот
+    заблокирован или выгнан, чата нет) сразу закрывает строку как skipped.
+    Временная оставляет pending до лимита попыток.
     """
-    from app.integrations.telegram import deliver
 
     rows = list(
         db.scalars(
@@ -147,14 +191,9 @@ def drain_telegram(db: Session, bot) -> int:
                 row.status = "skipped"
             continue
         slot = "dm" if row.recipient.startswith("user:") else "team"
+        old_chat, old_message = _previous_card(occurrence, slot)
         try:
-            deliver(
-                _outgoing_text(db, occurrence, row.event, today),
-                chat_id=chat_id,
-                occurrence_id=str(occurrence.id),
-                event=row.event,
-                slot=slot,
-            )
+            chat_id = _send(db, row, occurrence, chat_id, slot, today)
         except NotImplementedError:
             row.attempts += 1
             row.last_error = "no transport"
@@ -162,10 +201,18 @@ def drain_telegram(db: Session, bot) -> int:
         except Exception as exc:
             row.attempts += 1
             row.last_error = str(exc)[:500]
-            log.warning("telegram outbox failed occurrence=%s (%s)", row.occurrence_id, exc)
+            permanent = isinstance(exc, TelegramError) and exc.permanent
+            expired = row.attempts >= MAX_ATTEMPTS and clock.now() - row.created_at >= RETRY_WINDOW
+            if permanent or expired:
+                row.status = "skipped"
+            log.warning(
+                "telegram outbox failed occurrence=%s permanent=%s (%s)", row.occurrence_id, permanent, exc
+            )
             continue
         row.status = "sent"
         row.last_error = None
         sent += 1
+        if old_message is not None and old_chat == chat_id and not row.event.startswith(DIGEST):
+            _drop_button(bot, chat_id, int(old_message))
     db.commit()
     return sent

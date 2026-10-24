@@ -45,6 +45,15 @@ class ResetIn(BaseModel):
         return code_value(value)
 
 
+class InviteInfo(BaseModel):
+    email: str
+    full_name: str
+
+
+class InviteAcceptIn(BaseModel):
+    password: str = Field(min_length=8, max_length=200)
+
+
 class SentOut(BaseModel):
     delivery: str
     message: str

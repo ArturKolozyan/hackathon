@@ -14,7 +14,7 @@ class TelegramSelf(BaseModel):
 
 class TelegramLinkOut(BaseModel):
     url: str
-    expires_at: datetime
+    expires_at: datetime | None = Field(default=None, description="Пусто — до использования или новой ссылки")
 
 
 class TeamTelegram(BaseModel):

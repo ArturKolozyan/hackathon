@@ -24,6 +24,7 @@ BAD_CODE = "Неверный код."
 EXPIRED = "Код недействителен или истёк. Запросите новый."
 TOO_MANY = "Слишком много попыток. Запросите новый код."
 TOO_SOON = "Повторная отправка возможна через минуту."
+INVITE_GONE = "Ссылка не работает: пароль уже задан или выдана новая ссылка. Попросите администратора."
 
 
 def to_me(db: Session, user: User) -> MeOut:
@@ -90,6 +91,29 @@ def authenticate(db: Session, email: str, password: str) -> User:
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Учётная запись отключена")
     clear_failure(db, normalized)
+    return user
+
+
+def find_invite(db: Session, token: str) -> User:
+    user = db.scalar(select(User).where(User.invite_token == token)) if token else None
+    if user is None or not user.is_active:
+        raise HTTPException(status_code=404, detail=INVITE_GONE)
+    return user
+
+
+def accept_invite(db: Session, token: str, password: str) -> User:
+    """Человек сам задаёт пароль. Ссылка гаснет, дальше обычный вход."""
+    if len(password) < 8:
+        raise HTTPException(status_code=422, detail="Пароль короче 8 символов")
+    user = find_invite(db, token)
+    user.password_hash = hash_password(password)
+    user.invite_token = None
+    user.must_change_password = False
+    if user.email_verified_at is None:
+        user.email_verified_at = clock.now()
+    user.updated_at = clock.now()
+    clear_failure(db, user.email)
+    db.flush()
     return user
 
 
@@ -187,6 +211,7 @@ def reset_password(db: Session, *, email: str, code: str, password: str) -> User
     if user.is_owner:
         raise HTTPException(status_code=403, detail="Учётку владельца нельзя изменить")
     user.password_hash = hash_password(password)
+    user.invite_token = None
     user.updated_at = clock.now()
     revoke_user_sessions(db, user.id)
     clear_failure(db, email)

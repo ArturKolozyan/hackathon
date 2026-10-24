@@ -25,11 +25,24 @@ ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 
 
 class TelegramError(Exception):
-    def __init__(self, method: str, description: str, status: int | None = None) -> None:
+    def __init__(
+        self,
+        method: str,
+        description: str,
+        status: int | None = None,
+        *,
+        migrate_to_chat_id: int | None = None,
+    ) -> None:
         self.method = method
         self.description = description
         self.status = status
+        self.migrate_to_chat_id = migrate_to_chat_id
         super().__init__(f"{method}: {description}")
+
+    @property
+    def permanent(self) -> bool:
+        """Повтор не поможет: бот заблокирован, выгнан, чата нет, запрос битый."""
+        return self.status in (400, 403) and self.migrate_to_chat_id is None
 
 
 _cached_family: str | None = None
@@ -179,7 +192,14 @@ class TelegramClient:
             raise TelegramError(method, "bad json", response.status_code) from None
         if not isinstance(body, dict) or not body.get("ok") or response.status_code >= 400:
             description = body.get("description") if isinstance(body, dict) else "error"
-            raise TelegramError(method, str(description or "error"), response.status_code)
+            parameters = body.get("parameters") if isinstance(body, dict) else None
+            migrate_to = parameters.get("migrate_to_chat_id") if isinstance(parameters, dict) else None
+            raise TelegramError(
+                method,
+                str(description or "error"),
+                response.status_code,
+                migrate_to_chat_id=int(migrate_to) if migrate_to is not None else None,
+            )
         return body.get("result")
 
     def get_me(self) -> dict[str, Any]:
@@ -224,6 +244,13 @@ class TelegramClient:
             read_timeout=20,
         )
 
+    def edit_markup(self, chat_id: str, message_id: int, reply_markup: dict[str, Any]) -> None:
+        self._call(
+            "editMessageReplyMarkup",
+            {"chat_id": chat_id, "message_id": message_id, "reply_markup": reply_markup},
+            read_timeout=20,
+        )
+
     def answer_callback(self, callback_query_id: str, text: str, *, show_alert: bool = False) -> None:
         payload: dict[str, Any] = {"callback_query_id": callback_query_id, "text": text[:200]}
         if show_alert:
@@ -262,7 +289,8 @@ def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str, slot: st
         raise NotImplementedError("TELEGRAM_BOT_TOKEN empty")
     from app.services.telegram_cards import EMPTY_KEYBOARD, fingerprint, pay_keyboard
 
-    with_button = event != "occurrence.overdue.digest" and (
+    digest = event.startswith("occurrence.overdue.digest")
+    with_button = not digest and (
         event.startswith("occurrence.reminder") or event.startswith("occurrence.overdue")
     )
     try:
@@ -275,6 +303,9 @@ def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str, slot: st
         message_id = client.send_message(chat_id, text, markup)
     finally:
         client.close()
+    if digest:
+        # Сводка без кнопки не занимает слот карточки: иначе правка перепишет её в карточку периода.
+        return
     _remember(period_id, chat_id, message_id, fingerprint(text, with_button), slot=slot)
 
 

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings, get_settings
 from app.models.organization import OrganizationSettings
 from app.services import time as clock
-from app.services.reminders import DEFAULT_OFFSETS
+from app.services.reminders import DEFAULT_OFFSETS, DEFAULT_OVERDUE_REPEAT
 
 SINGLETON = 1
 
@@ -26,7 +26,7 @@ class OrgConfig:
 def parse_reminder_days(raw: str) -> tuple[int, ...]:
     parts = [item.strip() for item in raw.replace(";", ",").split(",") if item.strip()]
     if not parts:
-        raise HTTPException(status_code=422, detail="Укажите дни напоминаний, например 7,3,0")
+        raise HTTPException(status_code=422, detail="Укажите дни напоминаний, например 7,3")
     days: list[int] = []
     for part in parts:
         try:
@@ -52,7 +52,7 @@ def _from_env(settings: Settings) -> OrgConfig:
         days = parse_reminder_days(raw) if raw else DEFAULT_OFFSETS
     except HTTPException:
         days = DEFAULT_OFFSETS
-    repeat = settings.overdue_repeat_days if settings.overdue_repeat_days >= 1 else 3
+    repeat = settings.overdue_repeat_days if settings.overdue_repeat_days >= 1 else DEFAULT_OVERDUE_REPEAT
     return OrgConfig(
         timezone=settings.timezone,
         reminder_days=days,

@@ -1,7 +1,7 @@
 """Каденция напоминаний одного периода.
 
-Точки до срока задаёт организация (по умолчанию 7, 3 и 0 — день срока).
-Просрочка — на следующий день, затем повтор каждые N дней, пока не оплачено.
+Точки до срока задаёт организация (по умолчанию за 7 и за 3 дня, в день срока молчим).
+Просрочка — на следующий день, затем повтор каждые N дней (по умолчанию каждый день), пока не оплачено.
 За один проход уходит только ближайшая уже наступившая точка: платёж,
 созданный за два дня, получает одно «скоро», а не T-7 вместе с T-3.
 Оплаченный молчит. Архив не шлёт будущие точки; повтор уже существующей
@@ -13,7 +13,8 @@ from datetime import date, datetime
 REMINDER = "occurrence.reminder"
 OVERDUE = "occurrence.overdue"
 DIGEST = "occurrence.overdue.digest"
-DEFAULT_OFFSETS = (7, 3, 0)
+DEFAULT_OFFSETS = (7, 3)
+DEFAULT_OVERDUE_REPEAT = 1
 
 
 def is_reminder(event: str) -> bool:
@@ -49,14 +50,14 @@ def notification_events(
     today: date,
     soon_days: int | None = None,
     offsets: tuple[int, ...] | None = None,
-    overdue_repeat_days: int = 3,
+    overdue_repeat_days: int = DEFAULT_OVERDUE_REPEAT,
     remind_archived_overdue: bool = True,
 ) -> list[str]:
     if paid_at is not None:
         return []
     chosen = offsets
     if chosen is None:
-        chosen = (soon_days, 0) if soon_days is not None else DEFAULT_OFFSETS
+        chosen = (soon_days,) if soon_days is not None else DEFAULT_OFFSETS
     days_until = (due - today).days
     if days_until < 0:
         if archived and not remind_archived_overdue:
@@ -77,7 +78,7 @@ def should_remind(
     today: date,
     soon_days: int | None = None,
     offsets: tuple[int, ...] | None = None,
-    overdue_repeat_days: int = 3,
+    overdue_repeat_days: int = DEFAULT_OVERDUE_REPEAT,
     remind_archived_overdue: bool = True,
 ) -> bool:
     return bool(
