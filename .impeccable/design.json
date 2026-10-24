@@ -1,16 +1,18 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-10-24T06:10:00Z",
+  "generatedAt": "2026-10-24T06:40:00Z",
   "title": "Design System: rekeeper",
   "extensions": {
     "colorMeta": {
       "accent": { "role": "primary", "displayName": "Сигнальный оранжевый", "canonical": "#FF6B1A" },
+      "on-accent": { "role": "primary", "displayName": "Текст на заливке акцента", "canonical": "#0E0E0E" },
+      "accent-ink-light": { "role": "primary", "displayName": "Оранжевый текст на светлой", "canonical": "#B44000" },
       "bg-dark": { "role": "neutral", "displayName": "Ночной фон", "canonical": "#0E0E0E" },
       "surface-dark": { "role": "neutral", "displayName": "Ночная карточка", "canonical": "#1A1A1A" },
       "bg-light": { "role": "neutral", "displayName": "Слоновая кость", "canonical": "#FAF6EC" },
       "surface-light": { "role": "neutral", "displayName": "Белая карточка", "canonical": "#FFFFFF" },
       "text-light": { "role": "neutral", "displayName": "Текст на кости", "canonical": "#1F1B16" },
-      "muted-light": { "role": "neutral", "displayName": "Приглушённый на кости", "canonical": "#7A7266" },
+      "muted-light": { "role": "neutral", "displayName": "Приглушённый на кости", "canonical": "#6E665A" },
       "overdue": { "role": "status", "displayName": "Просрочено", "canonical": "#E5483D" },
       "soon": { "role": "status", "displayName": "Скоро", "canonical": "#E0A100" },
       "paid": { "role": "status", "displayName": "Оплачено", "canonical": "#22A35A" }
@@ -37,9 +39,9 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "Единственная заливка акцента. Текст белый.",
+      "description": "Единственная заливка акцента. Текст #0E0E0E.",
       "html": "<button class=\"ds-btn-primary\">Оплачено</button>",
-      "css": ".ds-btn-primary { background: #FF6B1A; color: #fff; border: 1px solid transparent; border-radius: 12px; min-height: 44px; padding: 8px 14px; font-family: Inter, system-ui, sans-serif; font-weight: 600; } .ds-btn-primary:hover { background: #FF8A47; } .ds-btn-primary:focus-visible { outline: 2px solid #FF6B1A; outline-offset: 2px; }"
+      "css": ".ds-btn-primary { background: #FF6B1A; color: #0E0E0E; border: 1px solid transparent; border-radius: 12px; min-height: 44px; padding: 8px 14px; font-family: Inter, system-ui, sans-serif; font-weight: 600; } .ds-btn-primary:hover { background: #FF8A47; color: #0E0E0E; } .ds-btn-primary:focus-visible { outline: 2px solid #FF6B1A; outline-offset: 2px; }"
     },
     {
       "name": "Ghost Button",
@@ -85,7 +87,8 @@
       "Без теней"
     ],
     "rules": [
-      { "name": "The One Orange Rule", "body": "#FF6B1A только у CTA и у линейки суммы.", "section": "colors" },
+      { "name": "The One Orange Rule", "body": "Заливка #FF6B1A только у CTA и у линейки суммы.", "section": "colors" },
+      { "name": "Contrast", "body": "Текст на оранжевой заливке — #0E0E0E в обеих темах. Оранжевый текст и обводка на светлой — #B44000 (--accent-ink). Приглушённый текст светлой — #6E665A.", "section": "colors" },
       { "name": "The Soft Status Rule", "body": "Пилюля — 16% канона, не залитая кнопка.", "section": "colors" },
       { "name": "The Inter Rule", "body": "Семейство зафиксировано. Замена Inter ломает бриф.", "section": "typography" },
       { "name": "The Flat Rule", "body": "Нет теней у карточек, меню и тостов.", "section": "elevation" }
@@ -97,7 +100,7 @@
     "donts": [
       "Don't менять hex, Inter, радиусы 16/12/10/999, шаг 8 и запрет теней.",
       "Don't добавлять градиенты, второй акцент или заливные статус-кнопки.",
-      "Don't чинить контраст белого на #FF6B1A сменой токена."
+      "Don't возвращать белый текст на #FF6B1A и не красить заливку в accent-ink."
     ]
   }
 }
