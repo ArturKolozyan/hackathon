@@ -1,0 +1,11 @@
+{
+  "detector": {
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "Inter",
+        "reason": "Brand font locked in docs/design.md. Do not replace Inter."
+      }
+    ]
+  }
+}

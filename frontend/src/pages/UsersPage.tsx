@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ApiError, api, type User } from "../api";
 import { useAuth } from "../auth";
+import { EmptyState, ErrorState, InlineConfirm, LoadingBlock } from "../components/ui";
 
 type Draft = {
   full_name: string;
@@ -17,6 +18,8 @@ export function UsersPage() {
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editing, setEditing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [confirmOff, setConfirmOff] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -24,7 +27,9 @@ export function UsersPage() {
   }, []);
 
   useEffect(() => {
-    load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"));
+    load()
+      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"))
+      .finally(() => setReady(true));
   }, [load]);
 
   async function submit(event: FormEvent) {
@@ -78,7 +83,7 @@ export function UsersPage() {
           <h1>Кто в команде</h1>
         </div>
       </div>
-      <form className="panel form-grid" onSubmit={submit}>
+      <form id="user-form" className="panel form-grid" onSubmit={submit} aria-busy={busy}>
         <h2>{editing ? "Правка" : "Новый человек"}</h2>
         <label>
           Имя
@@ -112,9 +117,9 @@ export function UsersPage() {
           </select>
         </label>
         {error && (
-          <p className="error span-2" role="alert">
-            {error}
-          </p>
+          <div className="span-2">
+            <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />
+          </div>
         )}
         <div className="row-actions span-2">
           <button className="primary" disabled={busy} type="submit">
@@ -134,6 +139,8 @@ export function UsersPage() {
           )}
         </div>
       </form>
+      {!ready && !error && <LoadingBlock label="Загружаем людей…" />}
+      {ready && !error && items.length === 0 && <EmptyState title="В команде пока никого">Добавьте человека формой выше.</EmptyState>}
       <div className="list">
         {items.map((person) => (
           <article key={person.id} className="card">
@@ -148,19 +155,45 @@ export function UsersPage() {
               </p>
             </div>
             <div className="card-actions">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  setEditing(person.id);
-                  setDraft({ full_name: person.full_name, email: person.email, password: "", role: person.role });
-                }}
-              >
-                Изменить
-              </button>
-              <button type="button" className="ghost" disabled={person.id === actor?.id} onClick={() => void toggle(person)}>
-                {person.is_active ? "Отключить" : "Включить"}
-              </button>
+              {confirmOff === person.id ? (
+                <InlineConfirm
+                  title={`Отключить ${person.full_name}? Войти этот человек не сможет.`}
+                  confirmLabel="Отключить"
+                  onConfirm={() => {
+                    setConfirmOff(null);
+                    void toggle(person);
+                  }}
+                  onCancel={() => setConfirmOff(null)}
+                />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
+                      setEditing(person.id);
+                      document.getElementById("user-form")?.scrollIntoView({ block: "start" });
+                      setDraft({ full_name: person.full_name, email: person.email, password: "", role: person.role });
+                    }}
+                  >
+                    Изменить
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    disabled={person.id === actor?.id}
+                    onClick={() => {
+                      if (person.is_active) {
+                        setConfirmOff(person.id);
+                        return;
+                      }
+                      void toggle(person);
+                    }}
+                  >
+                    {person.is_active ? "Отключить" : "Включить"}
+                  </button>
+                </>
+              )}
             </div>
           </article>
         ))}
