@@ -5,6 +5,9 @@ colors:
   accent: "#FF6B1A"
   accent-hover-dark: "#FF8A47"
   accent-hover-light: "#D9560C"
+  on-accent: "#0E0E0E"
+  accent-ink-dark: "#FF6B1A"
+  accent-ink-light: "#B44000"
   bg-dark: "#0E0E0E"
   surface-dark: "#1A1A1A"
   border-dark: "#2A2A2A"
@@ -15,7 +18,7 @@ colors:
   surface-light: "#FFFFFF"
   border-light: "#E8E0CC"
   text-light: "#1F1B16"
-  muted-light: "#7A7266"
+  muted-light: "#6E665A"
   overdue: "#E5483D"
   overdue-ink-light: "#C5362C"
   soon: "#E0A100"
@@ -67,18 +70,18 @@ spacing:
 components:
   button-primary:
     backgroundColor: "{colors.accent}"
-    textColor: "#FFFFFF"
+    textColor: "{colors.on-accent}"
     rounded: "{rounded.control}"
     padding: "8px 14px"
     height: "44px"
   button-primary-hover:
     backgroundColor: "{colors.accent-hover-dark}"
-    textColor: "#FFFFFF"
+    textColor: "{colors.on-accent}"
     rounded: "{rounded.control}"
     padding: "8px 14px"
   button-secondary:
     backgroundColor: "transparent"
-    textColor: "{colors.accent}"
+    textColor: "{colors.accent-ink-dark}"
     rounded: "{rounded.control}"
     padding: "8px 14px"
     height: "44px"
@@ -108,7 +111,7 @@ components:
 
 # Design System: rekeeper
 
-Канон для людей — [docs/design.md](docs/design.md). Этот файл зеркалит уже принятую систему (решение Artur, 2026-10-23) в формате DESIGN.md. Нового визуального направления нет. Если значения расходятся, верны `docs/design.md` и `frontend/src/styles.css`. Токены не перекрашивать.
+Канон для людей — [docs/design.md](docs/design.md). Этот файл зеркалит уже принятую систему (решение Artur, 2026-10-23, контраст — 2026-10-24) в формате DESIGN.md. Нового визуального направления нет. Если значения расходятся, верны `docs/design.md` и `frontend/src/styles.css`.
 
 ## Overview
 
@@ -132,17 +135,20 @@ components:
 
 ### Primary
 
-- **Сигнальный оранжевый** (`colors.accent`): кнопка primary, линейка под суммой в инбоксе и в итогах, обводка secondary, активная навигация на 16% заливке. Не статус и не фон экрана.
+- **Сигнальный оранжевый** (`colors.accent`): заливка кнопки primary, линейка под суммой в инбоксе и в итогах, активная навигация на 16% заливке. Не статус и не фон экрана. Текст на этой заливке — `colors.on-accent`.
+- **Чернила акцента** (`colors.accent-ink-dark` / `colors.accent-ink-light`): оранжевый как текст и обводка. На тёмной совпадает с заливкой. На светлой темнее, заливка не меняется.
 
 ### Neutral
 
 - **Ночной фон** (`colors.bg-dark`) и **ночная карточка** (`colors.surface-dark`): дефолтная тема. Граница — `colors.border-dark`. Поле формы чуть темнее карточки (`colors.field-dark`).
 - **Слоновая кость** (`colors.bg-light`) и **белая карточка** (`colors.surface-light`): светлая тема. Граница — `colors.border-light`.
-- Текст и приглушённый текст меняются с темой: белый / `#A3A3A3` ночью, `#1F1B16` / `#7A7266` днём.
+- Текст и приглушённый текст меняются с темой: белый / `#A3A3A3` ночью, `#1F1B16` / `#6E665A` днём.
 
 ### Named Rules
 
-**The One Orange Rule.** `#FF6B1A` только у CTA и у линейки суммы. Статусы его не занимают. Второго оранжевого нет: на мудборде светлой темы был `#F26A1B`, в продукте его нет.
+**The One Orange Rule.** Заливка `#FF6B1A` только у CTA и у линейки суммы. Статусы её не занимают. Второй заливочный оранжевый не добавляется.
+
+**Contrast.** На заливке акцента текст тёмный: `--on-accent` `#0E0E0E`, обе темы, включая hover `#FF8A47` и `#D9560C`. Оранжевый текст и обводка — `--accent-ink`: `#FF6B1A` на тёмной, `#B44000` на светлой. Приглушённый текст светлой темы — `#6E665A`.
 
 **The Soft Status Rule.** Оплачено `#22A35A`, скоро `#E0A100`, просрочено `#E5483D`. Пилюля — 16% канона, текст и точка каноном на тёмной теме. На светлой текст темнее: `#157A42`, `#8A5E00`, `#C5362C`. «Впереди» — `--muted` на 16%, без четвёртого цвета.
 
@@ -188,8 +194,8 @@ components:
 ### Buttons
 
 - **Shape:** скругление 12px, высота не ниже 40px.
-- **Primary:** заливка акцента, текст белый. Hover — `#FF8A47` ночью и `#D9560C` днём.
-- **Secondary:** прозрачный фон, обводка акцента. Пример — «Дата».
+- **Primary:** заливка акцента, текст `#0E0E0E`. Hover — `#FF8A47` ночью и `#D9560C` днём, текст тот же.
+- **Secondary:** прозрачный фон, обводка и текст `--accent-ink`. Пример — «Дата».
 - **Ghost:** обводка границы, текст обычный. Отмена и тихие действия.
 
 ### Chips
@@ -209,7 +215,7 @@ components:
 ### Inputs / Fields
 
 - **Style:** фон `--field`, граница `--border`, радиус 10px.
-- **Focus:** граница акцента.
+- **Focus:** граница `--accent-ink`.
 - **Error:** текст цветом чернил просрочки, жирный, с `role="alert"`.
 
 ### Navigation
@@ -233,4 +239,4 @@ components:
 - **Don't** менять hex, Inter, радиусы 16/12/10/999, шаг 8 и запрет теней.
 - **Don't** добавлять градиенты, второй акцент, бумажный фон, Manrope, cyan AEZA или заливные статус-кнопки.
 - **Don't** превращать инбокс в таблицу и писать «Invoice Keeper» в UI.
-- **Don't** чинить контраст белого на `#FF6B1A` и приглушённого текста на слоновой кости сменой токена. Это отдельное решение, оно не принято.
+- **Don't** возвращать белый текст на `#FF6B1A` и не красить заливку в `--accent-ink`.
