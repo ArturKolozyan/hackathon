@@ -4,6 +4,7 @@ from app.models.assistant import AssistantAction, AssistantMessage
 from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.budget import Budget
+from app.models.channel import ChannelSubscription
 from app.models.delivery import NotificationDelivery
 from app.models.email_code import EmailCode
 from app.models.invite import TeamInvite
@@ -24,6 +25,7 @@ __all__ = [
     "AuthSession",
     "Base",
     "Budget",
+    "ChannelSubscription",
     "EmailCode",
     "LoginAttempt",
     "Membership",

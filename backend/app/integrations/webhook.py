@@ -23,25 +23,20 @@ def _post(url: str, body: bytes, headers: dict[str, str]) -> int:
         return response.status_code
 
 
-def send_webhook(payload: dict) -> str:
-    settings = get_settings()
-    url = settings.webhook_url.strip()
-    if not settings.webhook_enabled or not url:
-        return "skipped"
+def _deliver(url: str, payload: dict, *, secret: str, attempts: int) -> str:
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
         "User-Agent": "rekeeper-webhook",
         "X-Rekeeper-Event": str(payload.get("event", "")),
     }
-    secret = settings.webhook_secret.strip()
     if secret:
         digest = hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
         headers["X-Rekeeper-Signature"] = f"sha256={digest}"
-    attempts = max(1, settings.webhook_attempts)
-    backoff = max(0.0, settings.webhook_backoff_seconds)
+    tries = max(1, attempts)
+    backoff = max(0.0, get_settings().webhook_backoff_seconds)
     last = "error"
-    for attempt in range(attempts):
+    for attempt in range(tries):
         if attempt:
             time.sleep(backoff * (2 ** (attempt - 1)))
         try:
@@ -56,3 +51,38 @@ def send_webhook(payload: dict) -> str:
         log.warning("webhook attempt %s status %s", attempt + 1, status)
     log.error("webhook gave up: %s", last)
     return "failed"
+
+
+def send_webhook(payload: dict) -> str:
+    settings = get_settings()
+    url = settings.webhook_url.strip()
+    if not settings.webhook_enabled or not url:
+        return "skipped"
+    return _deliver(url, payload, secret=settings.webhook_secret.strip(), attempts=settings.webhook_attempts)
+
+
+def send_team_webhook(url: str, payload: dict) -> str:
+    """Один заход за тик. Секрет установки сюда не подставляется."""
+    cleaned = url.strip()
+    if not cleaned:
+        return "skipped"
+    return _deliver(cleaned, payload, secret="", attempts=1)
+
+
+def probe_webhook(url: str, payload: dict) -> tuple[str, str]:
+    cleaned = url.strip()
+    if not cleaned:
+        return "skipped", "URL пустой"
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "User-Agent": "rekeeper-webhook",
+        "X-Rekeeper-Event": str(payload.get("event", "")),
+    }
+    try:
+        status = _post(cleaned, body, headers)
+    except Exception as exc:
+        return "failed", type(exc).__name__
+    if 200 <= status < 300:
+        return "sent", f"Ответ {status}"
+    return "failed", f"Ответ {status}"

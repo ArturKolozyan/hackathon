@@ -30,7 +30,7 @@ log = logging.getLogger("invoice_keeper.telegram")
 
 TOKEN_TTL = timedelta(minutes=15)
 TEAM_RECIPIENT = "team"
-UNLINKED_ALERT = "Сначала привяжи Telegram в профиле rekeeper"
+UNLINKED_ALERT = "Сначала привяжи Telegram в rekeeper: раздел «Уведомления»."
 _GONE = ("left", "kicked")
 _MANAGERS = {"owner", "admin"}
 
@@ -224,11 +224,55 @@ def flush_test_message(bot: Any) -> None:
             row.test_error = None
             row.updated_at = clock.now()
             db.commit()
+        _flush_personal_tests(db, bot)
     except Exception:
         db.rollback()
         log.exception("telegram test flush failed")
     finally:
         db.close()
+
+
+def request_personal_test(db: Session, user: User) -> None:
+    if user.telegram_user_id is None:
+        raise ValueError("Сначала привяжите Telegram")
+    if not get_settings().telegram_bot_token.strip():
+        raise ValueError("В .env нет TELEGRAM_BOT_TOKEN")
+    user.telegram_test_requested_at = clock.now()
+    user.telegram_test_sent_at = None
+    user.telegram_test_error = None
+    user.updated_at = clock.now()
+    db.commit()
+
+
+def _flush_personal_tests(db: Session, bot: Any) -> None:
+    rows = db.scalars(
+        select(User).where(
+            User.telegram_test_requested_at.is_not(None),
+            User.telegram_test_sent_at.is_(None),
+            User.telegram_test_error.is_(None),
+        )
+    ).all()
+    for user in rows:
+        if user.telegram_user_id is None:
+            user.telegram_test_error = "Telegram не привязан"
+            user.updated_at = clock.now()
+            db.commit()
+            continue
+        try:
+            bot.send_message(
+                str(user.telegram_user_id),
+                "rekeeper: тестовое уведомление. Личные напоминания будут приходить сюда.",
+                {"inline_keyboard": []},
+            )
+        except TelegramError as exc:
+            user.telegram_test_error = exc.description[:200]
+            user.updated_at = clock.now()
+            db.commit()
+            continue
+        user.telegram_test_sent_at = clock.now()
+        user.telegram_test_error = None
+        user.updated_at = clock.now()
+        db.commit()
 
 
 def start_payload(text: object) -> str | None:
@@ -330,8 +374,8 @@ def _consume_start(db: Session, payload: str, chat: dict[str, Any], sender: dict
     private = is_private_chat(chat)
     if payload == "":
         if private:
-            return "Привязка в rekeeper: Настройки → Привязать Telegram."
-        return "Чат команды подключается из rekeeper: Настройки → Подключить чат команды."
+            return "Привязка в rekeeper: Уведомления → Привязать Telegram."
+        return "Чат команды подключается из rekeeper: Уведомления → Подключить чат команды."
     token = db.scalar(select(TelegramLinkToken).where(TelegramLinkToken.token == payload))
     if token is None or token.used_at is not None or token.expires_at <= clock.now():
         return "Ссылка недействительна или истекла. Создайте новую в rekeeper."
@@ -372,8 +416,12 @@ def _connect_team(db: Session, token: TelegramLinkToken, chat: dict[str, Any]) -
         meta={"title": row.team_chat_title},
         team_id=token.team_id,
     )
+    from app.services.notify import acknowledge_team_backlog, connect_digest, list_open_occurrences
+
+    open_rows = list_open_occurrences(db, token.team_id)
+    acknowledge_team_backlog(db, token.team_id, open_rows)
     db.commit()
-    return "Подключено к rekeeper"
+    return connect_digest(open_rows)
 
 
 def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any]) -> str:

@@ -41,6 +41,12 @@ def configured() -> bool:
     )
 
 
+def personal_mail_ready() -> bool:
+    """Личное письмо не смотрит на SMTP_TO. Порт 465 здесь не выбирается: его берёт connect_smtp."""
+    settings = get_settings()
+    return bool(settings.email_enabled and settings.smtp_host.strip() and settings.smtp_from.strip())
+
+
 def smtp_host_configured() -> bool:
     return bool(get_settings().smtp_host.strip())
 
@@ -80,16 +86,17 @@ def connect_smtp():
     return client
 
 
-def send_reminder_email(payload: dict) -> str:
-    if not configured():
-        return "skipped"
+def _compose_reminder(payload: dict, recipients: list[str]) -> EmailMessage:
     settings = get_settings()
     body = payload["occurrence"]
     status = _STATUS_RU.get(body["status"], body["status"])
+    overdue = payload.get("event") == "occurrence.overdue" or body.get("status") == "overdue"
     message = EmailMessage()
-    message["Subject"] = _header(f"rekeeper: {body['title']} до {body['due_date']}")
+    if overdue:
+        message["Subject"] = _header(f"rekeeper: просрочено — {body['title']}")
+    else:
+        message["Subject"] = _header(f"rekeeper: {body['title']} до {body['due_date']}")
     message["From"] = _header(settings.smtp_from)
-    recipients = [item.strip() for item in settings.smtp_to.split(",") if item.strip()]
     message["To"] = ", ".join(_header(item) for item in recipients)
     lines = [
         "rekeeper",
@@ -99,12 +106,18 @@ def send_reminder_email(payload: dict) -> str:
         f"Срок: {body['due_date']}",
         f"Статус: {status}",
         "",
-        "Напоминание об обязательстве команды. Оплату отмечайте в панели.",
     ]
+    if overdue:
+        lines.append("Срок прошёл.")
+    lines.append("Напоминание об обязательстве команды. Оплату отмечайте в панели.")
     panel = public_url()
     if panel:
         lines.append(panel)
     message.set_content("\n".join(lines), charset="utf-8")
+    return message
+
+
+def _deliver(message: EmailMessage) -> str:
     try:
         with connect_smtp() as client:
             client.send_message(message)
@@ -112,6 +125,42 @@ def send_reminder_email(payload: dict) -> str:
         log.warning("email send failed: %s", type(exc).__name__)
         return "failed"
     return "sent"
+
+
+def send_reminder_email(payload: dict, *, to: str | None = None) -> str:
+    """to=None — общий ящик SMTP_TO. Иначе письмо на почту человека, SMTP_TO не нужен."""
+    if to is None:
+        if not configured():
+            return "skipped"
+        recipients = [item.strip() for item in get_settings().smtp_to.split(",") if item.strip()]
+    else:
+        if not personal_mail_ready():
+            return "skipped"
+        address = to.strip()
+        if not address:
+            return "skipped"
+        recipients = [address]
+    return _deliver(_compose_reminder(payload, recipients))
+
+
+def send_test_email(to: str) -> str:
+    if not personal_mail_ready():
+        return "skipped"
+    message = EmailMessage()
+    message["Subject"] = _header("rekeeper: тестовое уведомление")
+    message["From"] = _header(get_settings().smtp_from)
+    message["To"] = _header(to)
+    lines = [
+        "rekeeper",
+        "",
+        "Это тестовое уведомление.",
+        "Письма о платежах выбранных команд будут приходить на этот адрес.",
+    ]
+    panel = public_url()
+    if panel:
+        lines.append(panel)
+    message.set_content("\n".join(lines), charset="utf-8")
+    return _deliver(message)
 
 
 def deliver_auth_now(*, to: str, subject: str, text: str, html: str) -> None:

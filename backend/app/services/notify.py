@@ -15,18 +15,21 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.integrations.email import send_reminder_email
-from app.integrations.webhook import send_webhook
-from app.models import NotificationDelivery, PaymentOccurrence, RecurringPayment, User
+from app.integrations.webhook import send_team_webhook, send_webhook
+from app.models import Membership, NotificationDelivery, PaymentOccurrence, RecurringPayment, Team, User
 from app.services import time as clock
-from app.services.reminders import should_remind
+from app.services.channels import wants_email, wants_telegram
+from app.services.reminders import notification_events
 from app.services.schedule import classify, period_key
 from app.services.telegram_links import TEAM_RECIPIENT, resolve_team_chat_id
 
 log = logging.getLogger("invoice_keeper.notify")
 
 REMINDER = "occurrence.reminder"
+OVERDUE = "occurrence.overdue"
 PAID = "occurrence.paid"
 UNPAID = "occurrence.unpaid"
+_LIVE = (REMINDER, OVERDUE)
 
 
 def occurrence_payload(occurrence: PaymentOccurrence, event: str) -> dict:
@@ -76,18 +79,6 @@ def _mark(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recip
         return
 
 
-def _personal_user(occurrence: PaymentOccurrence) -> User | None:
-    template = occurrence.template
-    if template is None:
-        return None
-    user = template.responsible
-    if user is None or not user.is_active:
-        return None
-    if not user.telegram_reminders or user.telegram_user_id is None:
-        return None
-    return user
-
-
 def _telegram(text: str, occurrence: PaymentOccurrence, event: str, *, chat_id: str, slot: str) -> str:
     token = get_settings().telegram_bot_token.strip()
     if not token or not chat_id:
@@ -104,13 +95,66 @@ def _telegram(text: str, occurrence: PaymentOccurrence, event: str, *, chat_id: 
     return "sent"
 
 
-def _plan(occurrence: PaymentOccurrence, event: str) -> list[tuple[str, str]]:
-    if event != REMINDER:
-        return [("webhook", "")]
-    plan = [("email", ""), ("webhook", ""), ("telegram", TEAM_RECIPIENT)]
-    user = _personal_user(occurrence)
-    if user is not None:
-        plan.append(("telegram", f"user:{user.id}"))
+def _team_webhook(db: Session, team_id: uuid.UUID) -> str:
+    team = db.get(Team, team_id)
+    if team is None or not team.webhook_url:
+        return ""
+    return team.webhook_url.strip()
+
+
+def _user_by_recipient(db: Session, recipient: str) -> User | None:
+    raw = recipient.removeprefix("user:")
+    try:
+        user_id = uuid.UUID(raw)
+    except ValueError:
+        return None
+    return db.get(User, user_id)
+
+
+def _personal_plan(db: Session, occurrence: PaymentOccurrence) -> list[tuple[str, str]]:
+    template = occurrence.template
+    responsible_id = template.responsible_user_id if template is not None else None
+    seats = db.scalars(
+        select(Membership)
+        .where(Membership.team_id == occurrence.team_id)
+        .options(joinedload(Membership.user))
+    ).unique().all()
+    plan: list[tuple[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for seat in seats:
+        user = seat.user
+        if user is None:
+            continue
+        if wants_email(db, user, occurrence.team_id):
+            item = ("email", f"user:{user.id}")
+            if item not in seen:
+                seen.add(item)
+                plan.append(item)
+        if wants_telegram(db, user, occurrence.team_id, responsible=user.id == responsible_id):
+            item = ("telegram", f"user:{user.id}")
+            if item not in seen:
+                seen.add(item)
+                plan.append(item)
+    responsible = template.responsible if template is not None else None
+    if responsible is not None and responsible.id == responsible_id and responsible.id not in {seat.user_id for seat in seats}:
+        if wants_telegram(db, responsible, occurrence.team_id, responsible=True):
+            item = ("telegram", f"user:{responsible.id}")
+            if item not in seen:
+                plan.append(item)
+    return plan
+
+
+def _plan(db: Session, occurrence: PaymentOccurrence, event: str) -> list[tuple[str, str]]:
+    plan: list[tuple[str, str]] = []
+    if event in _LIVE:
+        plan.append(("email", ""))
+    plan.append(("webhook", ""))
+    if _team_webhook(db, occurrence.team_id):
+        plan.append(("webhook", f"team:{occurrence.team_id}"))
+    if event not in _LIVE:
+        return plan
+    plan.append(("telegram", TEAM_RECIPIENT))
+    plan.extend(_personal_plan(db, occurrence))
     return plan
 
 
@@ -123,9 +167,16 @@ def _send(
     payload: dict,
 ) -> str:
     if channel == "email":
-        return send_reminder_email(payload)
+        if recipient == "":
+            return send_reminder_email(payload)
+        user = _user_by_recipient(db, recipient)
+        if user is None or not user.is_active:
+            return "skipped"
+        return send_reminder_email(payload, to=user.email)
     if channel == "webhook":
-        return send_webhook(payload)
+        if recipient == "":
+            return send_webhook(payload)
+        return send_team_webhook(_team_webhook(db, occurrence.team_id), payload)
     if channel != "telegram":
         return "skipped"
     from app.services.telegram_cards import telegram_text
@@ -134,8 +185,8 @@ def _send(
     if recipient == TEAM_RECIPIENT:
         chat_id, _source = resolve_team_chat_id(db, occurrence.team_id)
         return _telegram(text, occurrence, event, chat_id=chat_id or "", slot="team")
-    user = _personal_user(occurrence)
-    if user is None or f"user:{user.id}" != recipient or user.telegram_user_id is None:
+    user = _user_by_recipient(db, recipient)
+    if user is None or user.telegram_user_id is None:
         return "skipped"
     return _telegram(text, occurrence, event, chat_id=str(user.telegram_user_id), slot="dm")
 
@@ -143,7 +194,7 @@ def _send(
 def fanout(db: Session, occurrence: PaymentOccurrence, event: str) -> int:
     payload = occurrence_payload(occurrence, event)
     sent = 0
-    for channel, recipient in _plan(occurrence, event):
+    for channel, recipient in _plan(db, occurrence, event):
         if _already(db, occurrence.id, event, channel, recipient):
             continue
         try:
@@ -177,13 +228,75 @@ def dispatch_due_reminders(db: Session) -> int:
     for row in rows:
         template = row.template
         archived = template is None or template.is_archived
-        if not should_remind(
+        events = notification_events(
             due=row.due_date,
             paid_at=row.paid_at,
             archived=archived,
             today=today,
             soon_days=settings.soon_days,
-        ):
-            continue
-        sent += fanout(db, row, REMINDER)
+        )
+        for event in events:
+            sent += fanout(db, row, event)
     return sent
+
+
+def list_open_occurrences(db: Session, team_id: uuid.UUID) -> list[PaymentOccurrence]:
+    """Неоплаченные периоды живых шаблонов. Ближайшие — первыми."""
+    stmt = (
+        select(PaymentOccurrence)
+        .join(RecurringPayment, RecurringPayment.id == PaymentOccurrence.recurring_payment_id)
+        .where(
+            PaymentOccurrence.team_id == team_id,
+            PaymentOccurrence.paid_at.is_(None),
+            RecurringPayment.is_archived.is_(False),
+        )
+        .order_by(PaymentOccurrence.due_date, PaymentOccurrence.title, PaymentOccurrence.id)
+    )
+    return list(db.scalars(stmt).all())
+
+
+def payments_phrase(count: int) -> str:
+    hundred = count % 100
+    ten = count % 10
+    if 11 <= hundred <= 14:
+        word = "платежей"
+    elif ten == 1:
+        word = "платёж"
+    elif 2 <= ten <= 4:
+        word = "платежа"
+    else:
+        word = "платежей"
+    return f"{count} {word}"
+
+
+def connect_digest(rows: list[PaymentOccurrence]) -> str:
+    if not rows:
+        return "Подключено. Сейчас открытых платежей нет."
+    nearest = rows[:5]
+    parts = [
+        f"{row.title} · {row.amount:.2f} {row.currency} · до {row.due_date.strftime('%d.%m.%Y')}"
+        for row in nearest
+    ]
+    tail = f"; и ещё {len(rows) - len(nearest)}" if len(rows) > len(nearest) else ""
+    return f"Подключено. Сейчас открыто {payments_phrase(len(rows))}, ближайшие: " + "; ".join(parts) + tail
+
+
+def acknowledge_team_backlog(db: Session, team_id: uuid.UUID, rows: list[PaymentOccurrence]) -> None:
+    """Сводка при подключении закрывает уже назревшие карточки чата.
+
+    Строка доставки здесь — не вторая отправка, а отметка «чат уже в курсе».
+    Личка и будущие T-3 / просрочка не глушатся.
+    """
+    settings = get_settings()
+    today = clock.today()
+    for row in rows:
+        if row.team_id != team_id:
+            continue
+        for event in notification_events(
+            due=row.due_date,
+            paid_at=row.paid_at,
+            archived=False,
+            today=today,
+            soon_days=settings.soon_days,
+        ):
+            _mark(db, row.id, event, "telegram", TEAM_RECIPIENT)

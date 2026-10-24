@@ -70,6 +70,7 @@ export function Shell() {
           <NavLink to="/history">История</NavLink>
           <NavLink to="/budget">Бюджет</NavLink>
           <NavLink to="/stats">Статистика</NavLink>
+          <NavLink to="/notifications">Уведомления</NavLink>
           <NavLink to="/settings">Настройки</NavLink>
           {manage && (
             <>

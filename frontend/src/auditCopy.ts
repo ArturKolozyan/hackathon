@@ -21,6 +21,7 @@ const ACTIONS: Record<string, string> = {
   "telegram.team_disconnect": "Чат команды отключён",
   "telegram.user_link": "Telegram привязан",
   "telegram.user_unlink": "Telegram отвязан",
+  "team.webhook": "Webhook команды",
 };
 
 const FIELDS: Record<string, string> = {
@@ -63,6 +64,7 @@ function phrase(key: string, value: unknown, meta: Record<string, unknown>): str
   if (key === "password_changed") return value ? "пароль изменён" : null;
   if (key === "is_active") return value ? "доступ включён" : "доступ отключён";
   if (key === "source" && value === "telegram") return "откуда: Telegram";
+  if (key === "state" && (value === "задан" || value === "снят")) return `адрес ${value}`;
   if (key === "reason" && value === "bot_removed") return "причина: бота удалили из чата";
   if (key === "role") {
     const role = value === "admin" ? "админ" : value === "user" ? "участник" : String(value);

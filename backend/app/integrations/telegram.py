@@ -181,7 +181,7 @@ def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str, slot: st
         raise NotImplementedError("TELEGRAM_BOT_TOKEN empty")
     from app.services.telegram_cards import EMPTY_KEYBOARD, fingerprint, pay_keyboard
 
-    with_button = event == "occurrence.reminder"
+    with_button = event in ("occurrence.reminder", "occurrence.overdue")
     try:
         period_id = uuid.UUID(occurrence_id)
     except ValueError:

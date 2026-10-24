@@ -124,7 +124,7 @@ export function InboxPage() {
       {manage && teamTg && teamTg.status !== "connected" && (
         <aside className="panel hint">
           <p>Подключи Telegram, чтобы получать напоминания.</p>
-          <Link className="outline" to="/settings">
+          <Link className="outline" to="/notifications">
             Подключить
           </Link>
         </aside>
@@ -132,7 +132,7 @@ export function InboxPage() {
       {selfTg && !selfTg.linked && (
         <aside className="panel hint">
           <p>Привяжи Telegram, чтобы кнопка «Оплачено» была твоей.</p>
-          <Link className="outline" to="/settings">
+          <Link className="outline" to="/notifications">
             Привязать
           </Link>
         </aside>

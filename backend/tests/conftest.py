@@ -94,8 +94,8 @@ def db_session(migrated):
     db.execute(
         text(
             "TRUNCATE assistant_messages, assistant_actions, email_codes, login_attempts, team_invites, "
-            "telegram_link_tokens, telegram_integration, telegram_bot, notification_deliveries, audit_logs, "
-            "budgets, payment_occurrences, recurring_payments, auth_sessions, memberships, users, teams "
+            "telegram_link_tokens, telegram_integration, telegram_bot, notification_deliveries, channel_subscriptions, "
+            "audit_logs, budgets, payment_occurrences, recurring_payments, auth_sessions, memberships, users, teams "
             "RESTART IDENTITY CASCADE"
         )
     )

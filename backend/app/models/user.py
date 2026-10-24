@@ -26,6 +26,12 @@ class User(Base):
     telegram_username: Mapped[str | None] = mapped_column(String(32), nullable=True)
     telegram_display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     telegram_reminders: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    telegram_scope_set: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    telegram_test_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_test_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_test_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    email_reminders: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    email_scope_set: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
