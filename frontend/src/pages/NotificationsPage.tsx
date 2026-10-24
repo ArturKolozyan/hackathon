@@ -268,7 +268,7 @@ export function NotificationsPage() {
           <div className="check-row">
             <label>
               <input type="checkbox" checked={emailOn} onChange={(event) => setEmailOn(event.target.checked)} />
-              Получать по выбранным командам
+              Получать по выбранным отделам
             </label>
           </div>
           <TeamChecks teams={data.teams} selected={emailTeams} onToggle={(id) => setEmailTeams(toggleId(emailTeams, id))} />
@@ -294,7 +294,7 @@ export function NotificationsPage() {
 
         <section className="panel settings-card">
           <div className="row-between">
-            <h2>Чат команды · {data.team.team_name}</h2>
+            <h2>Чат отдела · {data.team.team_name}</h2>
             <span className={`pill ${teamTg.status === "connected" ? "pill-paid" : "pill-neutral"}`}>
               {teamTg.status === "connected" ? "подключён" : teamTg.status === "disconnected" ? "отключено" : "не подключён"}
             </span>
@@ -316,7 +316,7 @@ export function NotificationsPage() {
                   })
                 }
               >
-                Подключить чат команды
+                Подключить чат отдела
               </button>
               <button
                 type="button"
@@ -379,8 +379,8 @@ export function NotificationsPage() {
         </section>
 
         <section className="panel settings-card">
-          <h2>Webhook команды</h2>
-          <p className="desc">POST JSON на адрес команды: напоминание, просрочка, оплата. «Проверить» шлёт тестовое событие.</p>
+          <h2>Webhook отдела</h2>
+          <p className="desc">POST JSON на адрес отдела: напоминание, просрочка, оплата. «Проверить» шлёт тестовое событие.</p>
           <form
             className="pay-form"
             onSubmit={(event) => {
@@ -466,7 +466,7 @@ function TeamChecks({
   selected: string[];
   onToggle: (id: string) => void;
 }) {
-  if (teams.length === 0) return <p className="desc">Вы ещё не в команде.</p>;
+  if (teams.length === 0) return <p className="desc">Вы ещё не в отделе.</p>;
   return (
     <div className="check-row">
       {teams.map((team) => (

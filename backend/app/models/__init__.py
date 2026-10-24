@@ -7,9 +7,9 @@ from app.models.budget import Budget
 from app.models.channel import ChannelSubscription
 from app.models.delivery import NotificationDelivery
 from app.models.email_code import EmailCode
-from app.models.invite import TeamInvite
 from app.models.login_attempt import LoginAttempt
 from app.models.occurrence import PaymentOccurrence
+from app.models.organization import OrganizationSettings
 from app.models.recurring import RecurringPayment
 from app.models.session import AuthSession
 from app.models.team import Membership, Team
@@ -30,10 +30,10 @@ __all__ = [
     "LoginAttempt",
     "Membership",
     "NotificationDelivery",
+    "OrganizationSettings",
     "PaymentOccurrence",
     "RecurringPayment",
     "Team",
-    "TeamInvite",
     "TelegramBot",
     "TelegramIntegration",
     "TelegramLinkToken",

@@ -13,7 +13,7 @@ from app.services.stats import build_stats
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 
-@router.get("", response_model=StatsOut, summary="Статистика по всем командам")
+@router.get("", response_model=StatsOut, summary="Статистика по всем отделам")
 def stats(
     team_id: list[UUID] | None = Query(default=None),
     status: str | None = Query(default=None, pattern="^(overdue|due_soon|upcoming|paid)$"),

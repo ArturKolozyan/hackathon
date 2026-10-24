@@ -134,7 +134,7 @@ def person_text(db: Session, team_id: uuid.UUID, name: str) -> str:
     found = names.match_users(db, name, team_id)
     if not found:
         people = ", ".join(user.full_name for user in names.active_users(db, team_id)) or "никого"
-        return f"Человека «{name}» не нашёл. Сейчас в команде: {people}."
+        return f"Человека «{name}» не нашёл. Сейчас в отделе: {people}."
     if len(found) > 1:
         return "Нашёл несколько людей: " + ", ".join(user.full_name for user in found) + ". Уточни имя."
     person = found[0]

@@ -378,8 +378,8 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
     assert "https://rekeeper.ru" in text
     assert len(posts) == 1
     reminder = json.loads(posts[0][0].decode())
-    assert reminder["event"] == "occurrence.overdue"
-    assert posts[0][1]["X-Rekeeper-Event"] == "occurrence.overdue"
+    assert reminder["event"] == "occurrence.overdue.r7"
+    assert posts[0][1]["X-Rekeeper-Event"] == "occurrence.overdue.r7"
     import hashlib
     import hmac
 
@@ -404,7 +404,10 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
         db.close()
     assert len(messages) == 2
 
-    archived = client.delete(f"/api/v1/recurring-payments/{payment_id}", headers=headers)
+    archived = client.delete(
+        f"/api/v1/recurring-payments/{payment_id}?remind_overdue=false",
+        headers=headers,
+    )
     assert archived.status_code == 200
     db = SessionLocal()
     try:
@@ -586,7 +589,7 @@ def test_telegram_hook_skipped_until_implemented(client, monkeypatch, settings_g
     def ready(text, *, chat_id, occurrence_id, event, slot="team"):
         calls["n"] += 1
         assert chat_id == "100"
-        assert event == "occurrence.overdue"
+        assert event == "occurrence.overdue.r7"
         assert slot == "team"
         assert "Ждёт бота" in text
 

@@ -51,8 +51,10 @@ hdr="Authorization: Bearer $token"
 
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/auth/me" | grep -q admin@invoice.local
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
-curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/recurring-payments" | grep -q 'Сервер'
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/recurring-payments" | grep -q 'Подписка'
+curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/teams" >/tmp/rekeeper-teams.json
+infra=$(python3 -c 'import json; rows=json.load(open("/tmp/rekeeper-teams.json")); print(next(row["id"] for row in rows if row["name"]=="Инфраструктура"))')
+curl -fsS --max-time 10 -H "$hdr" -H "X-Team-Id: $infra" "$base/api/v1/recurring-payments" | grep -q 'Сервер'
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/payment-occurrences" >/dev/null
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/payments/summary" >/dev/null
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/users" >/dev/null

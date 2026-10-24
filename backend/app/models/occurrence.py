@@ -15,6 +15,7 @@ class PaymentOccurrence(Base):
         CheckConstraint("period_month between 1 and 12", name="ck_payment_occurrences_month"),
         CheckConstraint("currency in ('RUB', 'USD', 'EUR')", name="ck_payment_occurrences_currency"),
         CheckConstraint("amount > 0", name="ck_payment_occurrences_amount"),
+        CheckConstraint("paid_amount is null or paid_amount > 0", name="ck_payment_occurrences_paid_amount"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -28,6 +29,7 @@ class PaymentOccurrence(Base):
     title: Mapped[str] = mapped_column(String(200))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    paid_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3))
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_by_id: Mapped[uuid.UUID | None] = mapped_column(

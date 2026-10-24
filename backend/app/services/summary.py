@@ -48,8 +48,6 @@ def build_summary(db: Session, as_of: date | None = None, team_id=None) -> Summa
     seen: set[str] = set()
     zone = settings.zone
     for row in rows:
-        if row.template is not None and row.template.is_archived and row.paid_at is None:
-            continue
         if as_of is not None and not _in_snapshot(row, ref, settings.horizon_months):
             continue
         status = classify(row.due_date, _paid_as_of(row.paid_at, as_of, zone), ref, settings.soon_days)

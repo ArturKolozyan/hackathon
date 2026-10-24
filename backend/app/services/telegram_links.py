@@ -180,7 +180,7 @@ def unlink_user(db: Session, user: User) -> None:
 def request_test(db: Session, team_id: uuid.UUID) -> TelegramIntegration:
     chat_id, _source = resolve_team_chat_id(db, team_id)
     if not chat_id:
-        raise ValueError("Сначала подключите чат команды")
+        raise ValueError("Сначала подключите чат отдела")
     if not get_settings().telegram_bot_token.strip():
         raise ValueError("В .env нет TELEGRAM_BOT_TOKEN")
     row = team_row(db, team_id, create=True)
@@ -215,7 +215,7 @@ def flush_test_message(bot: Any) -> None:
             try:
                 bot.send_message(
                     chat_id,
-                    "rekeeper на связи. Напоминания команды будут приходить сюда.",
+                    "rekeeper на связи. Напоминания отдела будут приходить сюда.",
                     {"inline_keyboard": []},
                 )
             except TelegramError as exc:
@@ -378,7 +378,7 @@ def _consume_start(db: Session, payload: str, chat: dict[str, Any], sender: dict
     if payload == "":
         if private:
             return "Привязка в rekeeper: Уведомления → Привязать Telegram."
-        return "Чат команды подключается из rekeeper: Уведомления → Подключить чат команды."
+        return "Чат отдела подключается из rekeeper: Уведомления → Подключить чат отдела."
     token = db.scalar(select(TelegramLinkToken).where(TelegramLinkToken.token == payload))
     if token is None or token.used_at is not None or token.expires_at <= clock.now():
         return "Ссылка недействительна или истекла. Создайте новую в rekeeper."

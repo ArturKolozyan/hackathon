@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 
 from app.core.config import get_settings
 from app.models import ChannelSubscription, NotificationDelivery, PaymentOccurrence, User
-from app.services.notify import OVERDUE, REMINDER, dispatch_due_reminders
+from app.services.notify import OVERDUE, dispatch_due_reminders
 from app.services.reminders import notification_events, should_remind
 from app.services.telegram_cards import handle_callback
 from app.services.telegram_links import issue_token
@@ -51,13 +51,24 @@ def tg_bot(monkeypatch):
 def test_events_split_reminder_and_overdue():
     today = date(2026, 10, 23)
     base = {"paid_at": None, "archived": False, "today": today, "soon_days": 3}
-    assert notification_events(due=date(2026, 10, 26), **base) == [REMINDER]
-    assert notification_events(due=date(2026, 10, 23), **base) == [REMINDER]
+    assert notification_events(due=date(2026, 10, 26), **base) == ["occurrence.reminder.d3"]
+    assert notification_events(due=date(2026, 10, 23), **base) == ["occurrence.reminder.d0"]
     assert notification_events(due=date(2026, 10, 27), **base) == []
     assert notification_events(due=date(2026, 10, 22), **base) == [OVERDUE]
-    assert notification_events(due=date(2026, 10, 1), **base) == [OVERDUE]
+    assert notification_events(due=date(2026, 10, 1), **base) == ["occurrence.overdue.r7"]
     assert notification_events(due=date(2026, 10, 26), paid_at=object(), archived=False, today=today, soon_days=3) == []
-    assert notification_events(due=date(2026, 10, 22), paid_at=None, archived=True, today=today, soon_days=3) == []
+    assert (
+        notification_events(
+            due=date(2026, 10, 22),
+            paid_at=None,
+            archived=True,
+            today=today,
+            soon_days=3,
+            remind_archived_overdue=False,
+        )
+        == []
+    )
+    assert notification_events(due=date(2026, 10, 22), paid_at=None, archived=True, today=today, soon_days=3) == [OVERDUE]
     for due in (date(2026, 10, 26), date(2026, 10, 23), date(2026, 10, 22), date(2026, 10, 27)):
         args = {"due": due, "paid_at": None, "archived": False, "today": today, "soon_days": 3}
         assert bool(notification_events(**args)) is should_remind(**args)
@@ -66,7 +77,7 @@ def test_events_split_reminder_and_overdue():
 def test_dispatch_dedups_t3_and_overdue(db_session, tg_bot):
     soon = _template(db_session, title="Скоро", day=26)
     late = _template(db_session, title="Долг", day=22)
-    early = _template(db_session, title="Рано", day=27)
+    early = _template(db_session, title="Рано", day=31)
     assert dispatch_due_reminders(db_session) == 2
     assert dispatch_due_reminders(db_session) == 0
 
@@ -81,17 +92,17 @@ def test_dispatch_dedups_t3_and_overdue(db_session, tg_bot):
             ).all()
         )
 
-    soon_rows = rows(soon, REMINDER)
+    soon_rows = rows(soon, "occurrence.reminder.d3")
     late_rows = rows(late, OVERDUE)
     assert len(soon_rows) == 1
     assert soon_rows[0].channel == "telegram"
     assert soon_rows[0].recipient == "team"
     assert len(late_rows) == 1
     assert late_rows[0].event == OVERDUE
-    assert rows(early, REMINDER) == []
+    assert rows(early, "occurrence.reminder.d7") == []
     assert rows(early, OVERDUE) == []
     assert rows(soon, OVERDUE) == []
-    assert rows(late, REMINDER) == []
+    assert rows(late, "occurrence.reminder.d0") == []
     counted = db_session.scalar(select(func.count()).select_from(NotificationDelivery))
     assert counted == 2
 
@@ -202,9 +213,9 @@ def test_personal_scope_follows_responsibility_and_telegram_toggle(db_session, t
 def test_connect_sends_summary_not_cards(db_session, tg_bot, monkeypatch):
     admin = _admin(db_session)
     _bind(db_session, admin, 501)
-    _template(db_session, title="Долг", day=20)
+    _template(db_session, title="Долг", day=22)
     _template(db_session, title="Скоро", day=26)
-    _template(db_session, title="Потом", day=27)
+    _template(db_session, title="Потом", day=31)
     bot = FakeBot()
     token = issue_token(db_session, purpose="team", user=admin)
     handle_update(
@@ -236,7 +247,7 @@ def test_connect_sends_summary_not_cards(db_session, tg_bot, monkeypatch):
     group_cards = [item for item in tg_bot.sent if item["chat_id"] == "-100500" and item["reply_markup"]["inline_keyboard"]]
     assert len(group_cards) == 1
     assert "Потом" in group_cards[0]["text"]
-    assert "27.10.2026" in group_cards[0]["text"]
+    assert "31.10.2026" in group_cards[0]["text"]
     assert dispatch_due_reminders(db_session) == 0
 
 
@@ -257,7 +268,7 @@ def test_unlinked_and_outsider_cannot_mark_paid(db_session, monkeypatch):
     bot = FakeBot()
     handle_callback(db_session, bot, _callback(row.id, sender=404))
     assert _reload(db_session, row).paid_at is None
-    assert bot.answers[-1][1] == "Нет доступа к этой команде"
+    assert bot.answers[-1][1] == "Нет доступа к этому отделу"
     handle_callback(db_session, bot, _callback(row.id, sender=909))
     assert _reload(db_session, row).paid_at is None
     assert "привяжи Telegram" in bot.answers[-1][1]

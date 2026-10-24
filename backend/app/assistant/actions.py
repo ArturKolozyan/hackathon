@@ -103,7 +103,7 @@ def _one_person(db: Session, team_id: uuid.UUID, name: str, actor: User):
     found = names.match_users(db, name, team_id)
     if not found:
         people = ", ".join(user.full_name for user in names.active_users(db, team_id)) or "никого"
-        return None, f"Не нашёл ответственного «{name}». Сейчас в команде: {people}."
+        return None, f"Не нашёл ответственного «{name}». Сейчас в отделе: {people}."
     if len(found) > 1:
         return None, "Нашёл несколько людей: " + ", ".join(user.full_name for user in found) + ". Уточни имя."
     return found[0], None
@@ -340,13 +340,13 @@ def _fresh_context(db: Session, ctx: TeamContext) -> TeamContext:
         raise AssistantDenied("Недостаточно прав")
     row = membership(db, team.id, user.id)
     if row is None and not user.is_owner:
-        raise AssistantDenied("Вы не в этой команде")
+        raise AssistantDenied("Вы не в этом отделе")
     return TeamContext(user=user, team=team, membership=row)
 
 
 def _execute(db: Session, ctx: TeamContext, action: AssistantAction) -> str:
     if action.team_id != ctx.team.id:
-        raise AssistantDenied("Вы не в этой команде")
+        raise AssistantDenied("Вы не в этом отделе")
     fields = action.payload.get("fields") or {}
     if action.kind == "create_payment":
         assert_manage_templates(ctx)
@@ -377,7 +377,7 @@ def _execute(db: Session, ctx: TeamContext, action: AssistantAction) -> str:
     if action.kind == "archive_payment":
         assert_manage_templates(ctx)
         archived = archive_payment(uuid.UUID(fields["payment_id"]), ctx, db)
-        return f"«{archived.title}» в архиве. Новые напоминания остановлены, история на месте."
+        return f"«{archived.title}» в архиве. Новые периоды не создаются, история на месте."
     if action.kind == "mark_paid":
         assert_mark_paid(ctx)
         occurrence = confirm(uuid.UUID(fields["occurrence_id"]), ConfirmIn(), ctx, db)
@@ -455,7 +455,7 @@ def _participant(db: Session, team_id: uuid.UUID, user_id: uuid.UUID) -> User:
     try:
         return require_participant(db, team_id, user_id)
     except HTTPException as exc:
-        detail = exc.detail if isinstance(exc.detail, str) else "Ответственный не в этой команде"
+        detail = exc.detail if isinstance(exc.detail, str) else "Ответственный не в этом отделе"
         raise HTTPException(status_code=422, detail=detail) from None
 
 

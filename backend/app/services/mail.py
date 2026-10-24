@@ -8,7 +8,6 @@ from app.integrations.email import public_url, send_auth_email
 log = logging.getLogger("invoice_keeper.mail")
 
 _TITLES = {
-    "register": ("Код для регистрации", "Введите его в rekeeper. Код действует 15 минут."),
     "reset_password": ("Сброс пароля", "Если вы не запрашивали сброс, это письмо можно закрыть. Код действует 15 минут."),
     "change_email": ("Новая почта", "Подтвердите адрес. Код действует 15 минут."),
 }
@@ -63,23 +62,6 @@ def send_account_created(db, user) -> str:
     delivery = send_auth_email(to=user.email, subject="Доступ в rekeeper", text=text, html=html_body)
     if delivery == "log":
         log.warning("SMTP не настроен: учётка %s создана, письмо не отправлено", user.email)
-    return delivery
-
-
-def send_invite(*, email: str, team_name: str, role: str, url: str) -> str:
-    role_ru = "администратором" if role == "admin" else "участником"
-    title = f"Вас зовут в «{team_name}»"
-    intro = f"Вы вступите {role_ru}. Ссылка одноразовая и живёт 7 дней."
-    text_block = f"Открыть приглашение: {url}"
-    button = (
-        f'<a href="{html.escape(url, quote=True)}" '
-        'style="display:inline-block;background:#FF6B1A;color:#ffffff;text-decoration:none;'
-        'padding:12px 18px;border-radius:12px;font-weight:700;">Принять приглашение</a>'
-    )
-    text, html_body = _letter(title, intro, text_block, button)
-    delivery = send_auth_email(to=email, subject=f"{title} — rekeeper", text=text, html=html_body)
-    if delivery == "log":
-        log.warning("SMTP не настроен, dev-режим: приглашение %s для %s", url, email)
     return delivery
 
 

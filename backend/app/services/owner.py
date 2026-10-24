@@ -24,7 +24,13 @@ def ensure_owner(settings: Settings | None = None) -> None:
         raise RuntimeError("Пароль владельца (OWNER_PASSWORD или ADMIN_PASSWORD) короче 8 символов")
     db = SessionLocal()
     try:
-        _apply(db, email=email, password=password, name=current.resolved_owner_name)
+        _apply(
+            db,
+            email=email,
+            password=password,
+            name=current.resolved_owner_name,
+            reset_password=current.owner_reset_password,
+        )
         db.commit()
     except Exception:
         db.rollback()
@@ -33,12 +39,26 @@ def ensure_owner(settings: Settings | None = None) -> None:
         db.close()
 
 
-def _apply(db: Session, *, email: str, password: str, name: str) -> User:
-    others = db.scalars(select(User).where(User.is_owner.is_(True), User.email != email)).all()
-    for row in others:
-        row.is_owner = False
-        row.updated_at = clock.now()
-    db.flush()
+def _apply(db: Session, *, email: str, password: str, name: str, reset_password: bool) -> User:
+    owner = db.scalar(select(User).where(User.is_owner.is_(True)))
+    if owner is not None:
+        if owner.email != email:
+            log.warning(
+                "OWNER_EMAIL=%s не совпадает с владельцем %s: второй владелец не создаётся",
+                email,
+                owner.email,
+            )
+        if reset_password:
+            owner.password_hash = hash_password(password)
+            owner.updated_at = clock.now()
+            log.warning(
+                "пароль владельца %s записан из OWNER_PASSWORD; верните OWNER_RESET_PASSWORD=false",
+                owner.email,
+            )
+        else:
+            log.info("владелец на месте: %s", owner.email)
+        db.flush()
+        return owner
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
         user = User(
@@ -59,9 +79,15 @@ def _apply(db: Session, *, email: str, password: str, name: str) -> User:
         user.is_owner = True
         user.is_active = True
         user.must_change_password = False
+        if reset_password:
+            user.password_hash = hash_password(password)
+            log.warning(
+                "пароль владельца %s записан из OWNER_PASSWORD; верните OWNER_RESET_PASSWORD=false",
+                user.email,
+            )
         if user.email_verified_at is None:
             user.email_verified_at = clock.now()
         user.updated_at = clock.now()
-        log.info("владелец подтверждён: %s", email)
+        log.info("владелец подтверждён: %s", user.email)
     db.flush()
     return user
