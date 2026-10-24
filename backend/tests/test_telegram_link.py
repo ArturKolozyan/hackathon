@@ -3,7 +3,7 @@ from datetime import timedelta
 from sqlalchemy import select
 
 from app.core.config import get_settings
-from app.models import PaymentOccurrence, TelegramIntegration, TelegramLinkToken, User
+from app.models import PaymentOccurrence, TelegramBot, TelegramIntegration, TelegramLinkToken, User
 from app.seed import seed
 from app.services import time as clock
 from app.services.telegram_cards import handle_callback
@@ -28,7 +28,7 @@ def _message(text: str, *, chat_id: int, chat_type: str, title: str | None = Non
 
 
 def _ready(db, username: str = "rekeeper_bot") -> None:
-    db.add(TelegramIntegration(id=1, bot_username=username, team_status="absent"))
+    db.add(TelegramBot(id=1, bot_username=username))
     db.commit()
 
 
@@ -63,8 +63,8 @@ def test_group_link_replaces_previous_chat(db_session):
 
 
 def test_personal_link_greeting_and_one_account(db_session):
-    ivan = User(email="ivan@invoice.local", full_name="Иван", password_hash="x", role="user", is_active=True)
-    maria = User(email="maria@invoice.local", full_name="Мария", password_hash="x", role="user", is_active=True)
+    ivan = User(email="ivan@invoice.local", full_name="Иван", password_hash="x", is_active=True)
+    maria = User(email="maria@invoice.local", full_name="Мария", password_hash="x", is_active=True)
     db_session.add_all([ivan, maria])
     db_session.commit()
     bot = FakeBot()
@@ -175,7 +175,6 @@ def test_private_button_uses_linked_user(db_session):
         email="ivan@invoice.local",
         full_name="Иван",
         password_hash="x",
-        role="user",
         is_active=True,
         telegram_user_id=42,
     )
@@ -205,7 +204,11 @@ def test_api_permissions_and_env_fallback(client, db_session, monkeypatch):
     monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
     get_settings.cache_clear()
     try:
-        seed(demo=False)
+        from tests.support import add_person, bootstrap_owner
+
+        bootstrap_owner()
+        add_person(db_session, email="ivan@invoice.local", password="change-me-user", name="Иван")
+        db_session.commit()
         db_session.expire_all()
         admin_login = client.post(
             "/api/v1/auth/login",
@@ -213,17 +216,6 @@ def test_api_permissions_and_env_fallback(client, db_session, monkeypatch):
         )
         assert admin_login.status_code == 200, admin_login.text
         admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
-        created = client.post(
-            "/api/v1/users",
-            headers=admin_headers,
-            json={
-                "email": "ivan@invoice.local",
-                "full_name": "Иван",
-                "password": "change-me-user",
-                "role": "user",
-            },
-        )
-        assert created.status_code == 201, created.text
         ivan_login = client.post(
             "/api/v1/auth/login",
             json={"email": "ivan@invoice.local", "password": "change-me-user"},

@@ -6,6 +6,7 @@ interface ImportMetaEnv {
   readonly VITE_DEMO_USER_EMAIL?: string;
   readonly VITE_DEMO_USER_PASSWORD?: string;
   readonly VITE_DEMO_USER_TWO_EMAIL?: string;
+  readonly VITE_DEMO_USER_THREE_EMAIL?: string;
 }
 
 interface ImportMeta {

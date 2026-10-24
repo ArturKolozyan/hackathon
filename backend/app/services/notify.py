@@ -132,7 +132,7 @@ def _send(
 
     text = telegram_text(occurrence)
     if recipient == TEAM_RECIPIENT:
-        chat_id, _source = resolve_team_chat_id(db)
+        chat_id, _source = resolve_team_chat_id(db, occurrence.team_id)
         return _telegram(text, occurrence, event, chat_id=chat_id or "", slot="team")
     user = _personal_user(occurrence)
     if user is None or f"user:{user.id}" != recipient or user.telegram_user_id is None:

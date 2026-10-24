@@ -5,7 +5,7 @@ from datetime import timedelta
 
 import bcrypt
 from fastapi import Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -40,18 +40,17 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(material).hexdigest()
 
 
-def authenticate(db: Session, email: str, password: str) -> User:
-    from fastapi import HTTPException
+def waste_password_check(password: str) -> None:
+    """Тот же bcrypt, если почты нет: по времени ответа адрес не угадывается."""
+    verify_password(password, _dummy_hash())
 
-    user = db.scalar(select(User).where(User.email == email.strip().lower()))
-    if user is None:
-        verify_password(password, _dummy_hash())
-        raise HTTPException(status_code=401, detail="Неверная почта или пароль")
-    if not verify_password(password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Неверная почта или пароль")
-    if not user.is_active:
-        raise HTTPException(status_code=403, detail="Учётная запись отключена")
-    return user
+
+def revoke_user_sessions(db: Session, user_id) -> None:
+    db.execute(
+        update(AuthSession)
+        .where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=clock.now())
+    )
 
 
 def issue_session(db: Session, user: User) -> str:

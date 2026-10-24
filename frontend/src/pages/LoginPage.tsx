@@ -1,6 +1,6 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
-import { ApiError, api, type User } from "../api";
+import { Link, Navigate, useLocation } from "react-router-dom";
+import { ApiError, api, type Me } from "../api";
 import { useAuth } from "../auth";
 import { TeamMark, ThemeToggle, Wordmark } from "../components/Brand";
 
@@ -9,9 +9,12 @@ const adminPassword = import.meta.env.VITE_DEMO_ADMIN_PASSWORD || "change-me";
 const userEmail = import.meta.env.VITE_DEMO_USER_EMAIL || "ivan@invoice.local";
 const userPassword = import.meta.env.VITE_DEMO_USER_PASSWORD || "change-me-user";
 const secondEmail = import.meta.env.VITE_DEMO_USER_TWO_EMAIL || "maria@invoice.local";
+const thirdEmail = import.meta.env.VITE_DEMO_USER_THREE_EMAIL || "oleg@invoice.local";
 
 export function LoginPage() {
   const { user, ready, setUser } = useAuth();
+  const location = useLocation();
+  const notice = (location.state as { notice?: string } | null)?.notice;
   const [email, setEmail] = useState(adminEmail);
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +28,7 @@ export function LoginPage() {
     setBusy(true);
     setError(null);
     try {
-      const body = await api<{ user: User }>("/api/v1/auth/login", {
+      const body = await api<{ user: Me }>("/api/v1/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
@@ -73,6 +76,7 @@ export function LoginPage() {
               required
             />
           </label>
+          {notice && <p className="caption">{notice}</p>}
           {error && (
             <p className="error" role="alert">
               {error}
@@ -81,6 +85,10 @@ export function LoginPage() {
           <button type="submit" className="primary" disabled={busy}>
             {busy ? "Вхожу…" : "Войти"}
           </button>
+          <p className="auth-links">
+            <Link to="/register">Регистрация</Link>
+            <Link to="/forgot">Забыли пароль</Link>
+          </p>
           <dl className="demo">
             <div>
               <dt>Админ</dt>
@@ -100,6 +108,13 @@ export function LoginPage() {
               <dt>Мария</dt>
               <dd>
                 {secondEmail}
+                <span>тот же пароль</span>
+              </dd>
+            </div>
+            <div>
+              <dt>Олег</dt>
+              <dd>
+                {thirdEmail}
                 <span>тот же пароль</span>
               </dd>
             </div>

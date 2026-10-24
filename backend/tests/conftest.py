@@ -10,6 +10,8 @@ os.environ["DEMO_USER_EMAIL"] = "ivan@invoice.local"
 os.environ["DEMO_USER_NAME"] = "Иван Петров"
 os.environ["DEMO_USER_TWO_EMAIL"] = "maria@invoice.local"
 os.environ["DEMO_USER_TWO_NAME"] = "Мария Соколова"
+os.environ["DEMO_USER_THREE_EMAIL"] = "oleg@invoice.local"
+os.environ["DEMO_USER_THREE_NAME"] = "Олег Смирнов"
 os.environ["DEMO_USER_PASSWORD"] = "change-me-user"
 os.environ["SEED_DEMO"] = "false"
 os.environ["BCRYPT_ROUNDS"] = "4"
@@ -85,8 +87,9 @@ def db_session(migrated):
     db = SessionLocal()
     db.execute(
         text(
-            "TRUNCATE telegram_link_tokens, telegram_integration, notification_deliveries, audit_logs, "
-            "budgets, payment_occurrences, recurring_payments, auth_sessions, users "
+            "TRUNCATE email_codes, login_attempts, team_invites, telegram_link_tokens, telegram_integration, "
+            "telegram_bot, notification_deliveries, audit_logs, budgets, payment_occurrences, "
+            "recurring_payments, auth_sessions, memberships, users, teams "
             "RESTART IDENTITY CASCADE"
         )
     )

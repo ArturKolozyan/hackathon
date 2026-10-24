@@ -200,21 +200,20 @@ def _apply_callback(db: Session, bot: BotSender, callback: dict[str, Any]) -> tu
     chat_id = chat.get("id")
     message_id = message.get("message_id")
     private = is_private_chat(chat)
-    team_id, _source = resolve_team_chat_id(db)
     if chat_id is None:
         return "Чат не подключён к инбоксу", True
-    if not private:
-        if not team_id:
-            return "Чат не настроен", True
-        if str(chat_id) != team_id:
-            return "Чат не подключён к инбоксу", True
-
     occurrence_id = parse_paid_callback(str(callback.get("data") or ""))
     if occurrence_id is None:
         return "Некорректная кнопка", True
     row = _load_one(db, occurrence_id)
     if row is None:
         return "Период не найден", True
+    if not private:
+        team_chat, _source = resolve_team_chat_id(db, row.team_id)
+        if not team_chat:
+            return "Чат не настроен", True
+        if str(chat_id) != team_chat:
+            return "Чат не подключён к инбоксу", True
 
     sender = callback.get("from") if isinstance(callback.get("from"), dict) else {}
     payer = _linked_sender(db, sender)
@@ -312,6 +311,7 @@ def _mark_paid(db: Session, row: PaymentOccurrence, payer: User) -> None:
             "title": row.title,
             "source": "telegram",
         },
+        team_id=row.team_id,
     )
     notify_event(db, row, PAID)
     db.commit()

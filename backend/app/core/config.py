@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     demo_user_name: str = "Иван Петров"
     demo_user_two_email: str = "maria@invoice.local"
     demo_user_two_name: str = "Мария Соколова"
+    demo_user_three_email: str = "oleg@invoice.local"
+    demo_user_three_name: str = "Олег Смирнов"
     demo_user_password: str = "change-me-user"
     seed_demo: bool = True
     timezone: str = "Europe/Moscow"

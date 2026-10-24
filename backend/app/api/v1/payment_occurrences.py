@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import get_current_user
-from app.models import PaymentOccurrence, User
+from app.core.deps import get_team_context
+from app.models import PaymentOccurrence
+from app.services.access import TeamContext
 from app.schemas.occurrence import ConfirmIn, InboxOut, OccurrenceList, OccurrenceOut, OccurrencePatch
 from app.services import time as clock
 from app.services.audit import record
@@ -19,9 +20,9 @@ from app.services.templates import touch
 router = APIRouter(prefix="/payment-occurrences", tags=["payment-occurrences"])
 
 
-def _filters(user: User, mine: bool, responsible_id: UUID | None) -> UUID | None:
+def _filters(user_id: UUID, mine: bool, responsible_id: UUID | None) -> UUID | None:
     if mine:
-        return user.id
+        return user_id
     return responsible_id
 
 
@@ -30,13 +31,14 @@ def inbox(
     mine: bool = False,
     responsible_id: UUID | None = None,
     recurring_payment_id: UUID | None = None,
-    user: User = Depends(get_current_user),
+    ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> InboxOut:
     today, items = list_views(
         db,
         view="inbox",
-        responsible_id=_filters(user, mine, responsible_id),
+        team_id=ctx.team.id,
+        responsible_id=_filters(ctx.user.id, mine, responsible_id),
         recurring_payment_id=recurring_payment_id,
     )
     settings = get_settings()
@@ -57,13 +59,14 @@ def list_occurrences(
     responsible_id: UUID | None = None,
     recurring_payment_id: UUID | None = None,
     status: str | None = Query(default=None, pattern="^(overdue|due_soon|upcoming|paid)$"),
-    user: User = Depends(get_current_user),
+    ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> OccurrenceList:
     today, items = list_views(
         db,
         view=view,
-        responsible_id=_filters(user, mine, responsible_id),
+        team_id=ctx.team.id,
+        responsible_id=_filters(ctx.user.id, mine, responsible_id),
         recurring_payment_id=recurring_payment_id,
         status=status,
     )
@@ -74,24 +77,27 @@ def list_occurrences(
 @router.get("/{occurrence_id}", response_model=OccurrenceOut, summary="Карточка периода")
 def get_occurrence(
     occurrence_id: UUID,
-    _: User = Depends(get_current_user),
+    ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> OccurrenceOut:
-    return view_one(db, occurrence_id)
+    return view_one(db, occurrence_id, ctx.team.id)
 
 
 def _apply_paid_at(raw: str | None) -> datetime:
     try:
-        return parse_paid_at(raw, now=clock.now(), zone=clock.zone())
+        value = parse_paid_at(raw, now=clock.now(), zone=clock.zone())
     except ValueError:
         raise HTTPException(status_code=422, detail="Некорректная дата оплаты") from None
+    if value.astimezone(clock.zone()).date() > clock.today():
+        raise HTTPException(status_code=422, detail="Дата оплаты не может быть в будущем")
+    return value
 
 
 def _paid_on(value: datetime) -> str:
     return value.astimezone(clock.zone()).date().isoformat()
 
 
-def _audit_paid_change(db: Session, occurrence: PaymentOccurrence, actor: User, previous: datetime | None) -> None:
+def _audit_paid_change(db: Session, occurrence: PaymentOccurrence, actor, previous: datetime | None) -> None:
     current = occurrence.paid_at
     if previous is None and current is not None:
         record(
@@ -101,6 +107,7 @@ def _audit_paid_change(db: Session, occurrence: PaymentOccurrence, actor: User, 
             entity_type="payment_occurrence",
             entity_id=occurrence.id,
             meta={"paid_on": _paid_on(current), "title": occurrence.title},
+            team_id=occurrence.team_id,
         )
         notify_event(db, occurrence, PAID)
         return
@@ -112,6 +119,7 @@ def _audit_paid_change(db: Session, occurrence: PaymentOccurrence, actor: User, 
             entity_type="payment_occurrence",
             entity_id=occurrence.id,
             meta={"title": occurrence.title},
+            team_id=occurrence.team_id,
         )
         notify_event(db, occurrence, UNPAID)
         return
@@ -123,6 +131,7 @@ def _audit_paid_change(db: Session, occurrence: PaymentOccurrence, actor: User, 
             entity_type="payment_occurrence",
             entity_id=occurrence.id,
             meta={"paid_on": _paid_on(current), "title": occurrence.title},
+            team_id=occurrence.team_id,
         )
 
 
@@ -150,56 +159,57 @@ def _apply_receipt(occurrence: PaymentOccurrence, data: dict) -> list[str]:
 def confirm(
     occurrence_id: UUID,
     payload: ConfirmIn,
-    actor: User = Depends(get_current_user),
+    ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> OccurrenceOut:
-    occurrence = require_occurrence(db, occurrence_id)
+    occurrence = require_occurrence(db, occurrence_id, ctx.team.id)
     previous = occurrence.paid_at
     occurrence.paid_at = _apply_paid_at(payload.paid_at)
-    occurrence.paid_by_id = actor.id
+    occurrence.paid_by_id = ctx.user.id
     data = payload.model_dump(exclude_unset=True)
     if "note" in data and data["note"] is not None:
         occurrence.note = data["note"]
     receipt_fields = _apply_receipt(occurrence, data)
     touch(occurrence)
-    _audit_paid_change(db, occurrence, actor, previous)
+    _audit_paid_change(db, occurrence, ctx.user, previous)
     if receipt_fields:
         record(
             db,
             action="occurrence.receipt",
-            actor=actor,
+            actor=ctx.user,
             entity_type="payment_occurrence",
             entity_id=occurrence.id,
             meta={"fields": receipt_fields, "title": occurrence.title},
+            team_id=occurrence.team_id,
         )
     db.commit()
-    return view_one(db, occurrence_id)
+    return view_one(db, occurrence_id, ctx.team.id)
 
 
 @router.post("/{occurrence_id}/revoke", response_model=OccurrenceOut, summary="Вернуть период в инбокс")
 def revoke(
     occurrence_id: UUID,
-    actor: User = Depends(get_current_user),
+    ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> OccurrenceOut:
-    occurrence = require_occurrence(db, occurrence_id)
+    occurrence = require_occurrence(db, occurrence_id, ctx.team.id)
     previous = occurrence.paid_at
     occurrence.paid_at = None
     occurrence.paid_by_id = None
     touch(occurrence)
-    _audit_paid_change(db, occurrence, actor, previous)
+    _audit_paid_change(db, occurrence, ctx.user, previous)
     db.commit()
-    return view_one(db, occurrence_id)
+    return view_one(db, occurrence_id, ctx.team.id)
 
 
 @router.patch("/{occurrence_id}", response_model=OccurrenceOut, summary="Дата, заметка или чек периода")
 def patch_occurrence(
     occurrence_id: UUID,
     payload: OccurrencePatch,
-    actor: User = Depends(get_current_user),
+    ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),
 ) -> OccurrenceOut:
-    occurrence = require_occurrence(db, occurrence_id)
+    occurrence = require_occurrence(db, occurrence_id, ctx.team.id)
     data = payload.model_dump(exclude_unset=True)
     previous = occurrence.paid_at
     if "paid_at" in data:
@@ -211,21 +221,22 @@ def patch_occurrence(
             if not str(raw).strip():
                 raise HTTPException(status_code=422, detail="Некорректная дата оплаты")
             occurrence.paid_at = _apply_paid_at(str(raw))
-            occurrence.paid_by_id = actor.id
+            occurrence.paid_by_id = ctx.user.id
     if "note" in data:
         occurrence.note = data["note"]
     receipt_fields = _apply_receipt(occurrence, data)
     touch(occurrence)
     if "paid_at" in data:
-        _audit_paid_change(db, occurrence, actor, previous)
+        _audit_paid_change(db, occurrence, ctx.user, previous)
     if receipt_fields:
         record(
             db,
             action="occurrence.receipt",
-            actor=actor,
+            actor=ctx.user,
             entity_type="payment_occurrence",
             entity_id=occurrence.id,
             meta={"fields": receipt_fields, "title": occurrence.title},
+            team_id=occurrence.team_id,
         )
     db.commit()
-    return view_one(db, occurrence_id)
+    return view_one(db, occurrence_id, ctx.team.id)

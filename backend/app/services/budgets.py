@@ -1,8 +1,9 @@
+import uuid
 from datetime import date
 from decimal import Decimal
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.models import Budget, PaymentOccurrence
@@ -32,25 +33,37 @@ def ensure_period(db: Session, period_type: str, period_key: str) -> None:
     db.expire_all()
 
 
-def report(db: Session, period_type: str, period_key: str) -> BudgetReport:
+def add_budget(db: Session, team_id: uuid.UUID, period_type: str, period_key: str, currency: str, amount: Decimal) -> Budget:
+    row = Budget(team_id=team_id, period_type=period_type, period_key=period_key, currency=currency, amount=amount)
+    db.add(row)
+    db.flush()
+    return row
+
+
+def report(db: Session, period_type: str, period_key: str, team_id: uuid.UUID | None = None) -> BudgetReport:
     ensure_period(db, period_type, period_key)
     year, month = parse_period(period_type, period_key)
-    stmt = select(PaymentOccurrence).where(PaymentOccurrence.period_year == year)
+    stmt = select(PaymentOccurrence).options(joinedload(PaymentOccurrence.template)).where(PaymentOccurrence.period_year == year)
     if month is not None:
         stmt = stmt.where(PaymentOccurrence.period_month == month)
-    rows = db.scalars(stmt).all()
+    if team_id is not None:
+        stmt = stmt.where(PaymentOccurrence.team_id == team_id)
+    rows = db.scalars(stmt).unique().all()
     fact = {currency: Decimal("0.00") for currency in CURRENCIES}
     expected = {currency: Decimal("0.00") for currency in CURRENCIES}
     for row in rows:
         if row.currency not in fact:
             continue
         if row.paid_at is None:
+            if row.template is not None and row.template.is_archived:
+                continue
             expected[row.currency] += Decimal(row.amount)
         else:
             fact[row.currency] += Decimal(row.amount)
-    plans = db.scalars(
-        select(Budget).where(Budget.period_type == period_type, Budget.period_key == period_key)
-    ).all()
+    plan_stmt = select(Budget).where(Budget.period_type == period_type, Budget.period_key == period_key)
+    if team_id is not None:
+        plan_stmt = plan_stmt.where(Budget.team_id == team_id)
+    plans = db.scalars(plan_stmt).all()
     by_currency = {plan.currency: plan for plan in plans}
     lines = [
         BudgetLine(

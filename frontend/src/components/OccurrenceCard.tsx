@@ -56,7 +56,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
           <span className={`pill pill-${pill.tone}`}>{pill.label}</span>
         </div>
         <p className="meta">
-          <span>{item.responsible.full_name}</span>
+          <span>{item.responsible?.full_name ?? "без ответственного"}</span>
           {item.template_archived && <span className="pill pill-neutral">шаблон снят</span>}
           {item.telegram_reminded_at && <span className="pill pill-neutral count">в Telegram</span>}
           {item.note && <span>{item.note}</span>}
@@ -103,7 +103,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
           >
             <label>
               Фактическая дата
-              <input type="date" value={paidOn} onChange={(event) => setPaidOn(event.target.value)} required />
+              <input type="date" max={today} value={paidOn} onChange={(event) => setPaidOn(event.target.value)} required />
             </label>
             {mode === "inbox" && (
               <>

@@ -36,10 +36,12 @@ def record(
     entity_type: str | None = None,
     entity_id: uuid.UUID | None = None,
     meta: dict | None = None,
+    team_id: uuid.UUID | None = None,
 ) -> None:
     db.add(
         AuditLog(
             at=clock.now(),
+            team_id=team_id,
             actor_user_id=actor.id if actor is not None else None,
             action=action,
             entity_type=entity_type,

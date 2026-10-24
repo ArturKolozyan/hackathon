@@ -33,6 +33,7 @@ def ensure_template(db: Session, template: RecurringPayment, today: date) -> int
         current = existing.get((year, month))
         if current is None:
             current = PaymentOccurrence(
+                team_id=template.team_id,
                 recurring_payment_id=template.id,
                 period_year=year,
                 period_month=month,
@@ -53,6 +54,7 @@ def ensure_template(db: Session, template: RecurringPayment, today: date) -> int
             created += 1
             continue
         if current.paid_at is None:
+            current.team_id = template.team_id
             current.due_date = period_due
             current.amount = template.amount
             current.currency = template.currency
@@ -85,6 +87,7 @@ def list_views(
     db: Session,
     *,
     view: str = "all",
+    team_id: uuid.UUID | None = None,
     responsible_id: uuid.UUID | None = None,
     recurring_payment_id: uuid.UUID | None = None,
     status: str | None = None,
@@ -95,14 +98,16 @@ def list_views(
     # expire_on_commit выключен: без expire связь paid_by остаётся пустой в identity map.
     db.expire_all()
     stmt = _load_stmt()
+    if team_id is not None:
+        stmt = stmt.where(PaymentOccurrence.team_id == team_id)
     if recurring_payment_id is not None:
         stmt = stmt.where(PaymentOccurrence.recurring_payment_id == recurring_payment_id)
     rows = db.scalars(stmt).unique().all()
     items = [occurrence_out(row, row.template, current) for row in rows]
     if responsible_id is not None:
-        items = [item for item in items if item.responsible.id == responsible_id]
+        items = [item for item in items if item.responsible is not None and item.responsible.id == responsible_id]
     if view == "inbox":
-        items = [item for item in items if item.status != "paid"]
+        items = [item for item in items if item.status != "paid" and not item.template_archived]
     elif view == "history":
         items = [item for item in items if item.status == "paid"]
     if status is not None:
@@ -114,14 +119,14 @@ def list_views(
     return current, items
 
 
-def require_occurrence(db: Session, occurrence_id: uuid.UUID) -> PaymentOccurrence:
+def require_occurrence(db: Session, occurrence_id: uuid.UUID, team_id: uuid.UUID | None = None) -> PaymentOccurrence:
     row = load_occurrence(db, occurrence_id)
-    if row is None:
+    if row is None or (team_id is not None and row.team_id != team_id):
         raise HTTPException(status_code=404, detail="Период не найден")
     return row
 
 
-def view_one(db: Session, occurrence_id: uuid.UUID) -> OccurrenceOut:
+def view_one(db: Session, occurrence_id: uuid.UUID, team_id: uuid.UUID | None = None) -> OccurrenceOut:
     db.expire_all()
-    row = require_occurrence(db, occurrence_id)
+    row = require_occurrence(db, occurrence_id, team_id)
     return occurrence_out(row, row.template, clock.today())

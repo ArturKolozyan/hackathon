@@ -1,5 +1,5 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ApiError, api, type Template, type User } from "../api";
+import { ApiError, api, type Member, type Template } from "../api";
 import { formatMoney } from "../format";
 
 type Draft = {
@@ -24,7 +24,7 @@ const emptyDraft: Draft = {
 
 export function TemplatesPage() {
   const [items, setItems] = useState<Template[]>([]);
-  const [people, setPeople] = useState<User[]>([]);
+  const [people, setPeople] = useState<Member[]>([]);
   const [draft, setDraft] = useState<Draft>(emptyDraft);
   const [editing, setEditing] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
@@ -34,7 +34,7 @@ export function TemplatesPage() {
   const load = useCallback(async () => {
     const [templates, users] = await Promise.all([
       api<Template[]>(`/api/v1/recurring-payments?include_archived=${showArchived ? "true" : "false"}`),
-      api<User[]>("/api/v1/users"),
+      api<Member[]>("/api/v1/users"),
     ]);
     setItems(templates);
     setPeople(users.filter((person) => person.is_active));
@@ -59,7 +59,7 @@ export function TemplatesPage() {
       currency: draft.currency,
       day_of_month: Number(draft.day_of_month),
       starts_on: draft.starts_on,
-      responsible_user_id: draft.responsible_user_id,
+      responsible_user_id: draft.responsible_user_id || null,
     };
     try {
       if (editing) {
@@ -143,9 +143,8 @@ export function TemplatesPage() {
           <select
             value={draft.responsible_user_id}
             onChange={(event) => update("responsible_user_id", event.target.value)}
-            required
           >
-            <option value="">Выберите</option>
+            <option value="">Без ответственного</option>
             {people.map((person) => (
               <option key={person.id} value={person.id}>
                 {person.full_name}
@@ -186,7 +185,7 @@ export function TemplatesPage() {
               </div>
               <p className="phrase">
                 <span>{item.day_of_month}-е число</span>
-                <span>{item.responsible.full_name}</span>
+                <span>{item.responsible?.full_name ?? "без ответственного"}</span>
                 <span>
                   {item.open_count} открыто · {item.paid_count} закрыто
                 </span>
@@ -212,7 +211,7 @@ export function TemplatesPage() {
                     currency: item.currency,
                     day_of_month: String(item.day_of_month),
                     starts_on: item.starts_on,
-                    responsible_user_id: item.responsible.id,
+                    responsible_user_id: item.responsible?.id ?? "",
                   });
                 }}
               >

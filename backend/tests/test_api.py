@@ -1,6 +1,7 @@
 from datetime import date
 
 from app.seed import seed
+from tests.support import add_person, bootstrap_owner
 
 
 def _login(client, email: str, password: str) -> dict:
@@ -22,7 +23,7 @@ def test_health_and_docs(client):
 
 
 def test_login_me_logout_revokes_session(client):
-    seed(demo=False)
+    bootstrap_owner()
     response = client.post("/api/v1/auth/login", json={"email": "admin@invoice.local", "password": "change-me"})
     assert response.status_code == 200, response.text
     assert "httponly" in response.headers["set-cookie"].lower()
@@ -83,19 +84,14 @@ def test_user_cannot_admin_but_can_close_period(client):
     ivan = _login(client, "ivan@invoice.local", "change-me-user")
     user_headers = _auth(ivan["access_token"])
     admin_headers = _auth(admin["access_token"])
-    blocked_user = {
-        "email": "blocked@invoice.local",
-        "full_name": "Нельзя",
-        "password": "change-me-user",
-        "role": "user",
-    }
-    assert client.get("/api/v1/users", headers=user_headers).status_code == 403
-    assert client.post("/api/v1/users", headers=user_headers, json=blocked_user).status_code == 403
-    created = client.post("/api/v1/users", headers=admin_headers, json=blocked_user)
-    assert created.status_code == 201, created.text
-    user_id = created.json()["id"]
-    assert client.patch(f"/api/v1/users/{user_id}", headers=user_headers, json={"full_name": "Хак"}).status_code == 403
-    assert client.delete(f"/api/v1/users/{user_id}", headers=user_headers).status_code == 403
+    team_id = ivan["user"]["active_team_id"]
+    assert client.get("/api/v1/users", headers=user_headers).status_code == 200
+    denied = client.post(
+        f"/api/v1/teams/{team_id}/invites",
+        headers=user_headers,
+        json={"email": "blocked@invoice.local", "role": "member"},
+    )
+    assert denied.status_code == 403
     blocked_template = {
         "title": "Чужой",
         "amount": "10.00",
@@ -132,7 +128,7 @@ def test_user_cannot_admin_but_can_close_period(client):
 
 
 def test_fact_date_recalculates_and_short_month(client):
-    seed(demo=False)
+    bootstrap_owner()
     admin = _login(client, "admin@invoice.local", "change-me")
     headers = _auth(admin["access_token"])
     created = client.post(
@@ -194,7 +190,7 @@ def test_fact_date_recalculates_and_short_month(client):
 
 
 def test_paid_snapshot_and_archive(client, monkeypatch):
-    seed(demo=False)
+    bootstrap_owner()
     admin = _login(client, "admin@invoice.local", "change-me")
     headers = _auth(admin["access_token"])
 
@@ -231,8 +227,18 @@ def test_paid_snapshot_and_archive(client, monkeypatch):
     refreshed = {item["period"]: item for item in items_of(tracked["id"])}
     assert refreshed["2026-08"]["amount"] == "100.00"
     assert refreshed["2026-08"]["title"] == "Снимок"
+    assert refreshed["2026-08"]["due_date"] == "2026-08-12"
     assert refreshed["2026-10"]["amount"] == "180.00"
     assert refreshed["2026-10"]["title"] == "Снимок новый"
+    moved = client.patch(
+        f"/api/v1/recurring-payments/{tracked['id']}",
+        headers=headers,
+        json={"day_of_month": 3},
+    )
+    assert moved.status_code == 200, moved.text
+    after_day = {item["period"]: item for item in items_of(tracked["id"])}
+    assert after_day["2026-08"]["due_date"] == "2026-08-12"
+    assert after_day["2026-10"]["due_date"] == "2026-10-03"
 
     archived = create("Архив", 10, "50.00")
     alive = create("Живой", 11, "50.00")
@@ -247,22 +253,21 @@ def test_paid_snapshot_and_archive(client, monkeypatch):
     assert len(items_of(alive["id"])) > before_alive
 
 
-def test_cannot_drop_last_admin_and_inactive_cannot_login(client):
-    seed(demo=False)
+def test_owner_leaves_only_after_transfer(client, db_session):
+    bootstrap_owner()
+    temp = add_person(db_session, email="temp@invoice.local", password="change-me-user", name="Временный")
+    db_session.commit()
     admin = _login(client, "admin@invoice.local", "change-me")
     headers = _auth(admin["access_token"])
-    assert client.delete(f"/api/v1/users/{admin['user']['id']}", headers=headers).status_code == 409
-    created = client.post(
-        "/api/v1/users",
+    team_id = admin["user"]["active_team_id"]
+    assert client.post(f"/api/v1/teams/{team_id}/leave", headers=headers).status_code == 409
+    moved = client.post(
+        f"/api/v1/teams/{team_id}/transfer",
         headers=headers,
-        json={
-            "email": "temp@invoice.local",
-            "full_name": "Временный",
-            "password": "change-me-user",
-            "role": "user",
-        },
+        json={"user_id": str(temp.id)},
     )
-    assert created.status_code == 201
-    assert client.delete(f"/api/v1/users/{created.json()['id']}", headers=headers).status_code == 200
-    blocked = client.post("/api/v1/auth/login", json={"email": "temp@invoice.local", "password": "change-me-user"})
-    assert blocked.status_code == 403
+    assert moved.status_code == 204, moved.text
+    assert client.post(f"/api/v1/teams/{team_id}/leave", headers=headers).status_code == 204
+    again = _login(client, "admin@invoice.local", "change-me")
+    inbox = client.get("/api/v1/payment-occurrences/inbox", headers=_auth(again["access_token"]))
+    assert inbox.status_code == 409

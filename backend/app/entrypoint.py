@@ -16,6 +16,12 @@ def serve() -> None:
 
     wait_for_db()
     migrate()
+    from app.integrations.email import smtp_host_configured
+
+    if not smtp_host_configured():
+        logging.getLogger("invoice_keeper.mail").warning(
+            "SMTP не настроен: коды и приглашения пишутся в лог API (dev-режим)"
+        )
     seed()
     import uvicorn
 

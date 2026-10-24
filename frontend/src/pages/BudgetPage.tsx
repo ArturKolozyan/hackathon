@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type BudgetLine, type BudgetReport } from "../api";
-import { useAuth } from "../auth";
+import { canManage, useAuth } from "../auth";
 import { formatMoney } from "../format";
 
 type Kind = "month" | "year";
@@ -12,7 +12,7 @@ function currentMonth(): string {
 
 export function BudgetPage() {
   const { user } = useAuth();
-  const admin = user?.role === "admin";
+  const admin = canManage(user);
   const [kind, setKind] = useState<Kind>("month");
   const [monthKey, setMonthKey] = useState(currentMonth);
   const [yearKey, setYearKey] = useState(String(new Date().getFullYear()));

@@ -76,6 +76,7 @@ services:
         VITE_DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-ivan@invoice.local}
         VITE_DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-change-me-user}
         VITE_DEMO_USER_TWO_EMAIL: ${DEMO_USER_TWO_EMAIL:-maria@invoice.local}
+        VITE_DEMO_USER_THREE_EMAIL: ${DEMO_USER_THREE_EMAIL:-oleg@invoice.local}
     # Не в интернет. Аварийный вход — SSH-туннель на этот порт, health деплоя тоже.
     # Снаружи сайт отдаёт Caddy. На VPS оставить WEB_PORT=8080.
     ports:
