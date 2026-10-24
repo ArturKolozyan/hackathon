@@ -5271,6 +5271,45 @@
         ]
       }
     },
+    "/api/v1/public-config": {
+      "get": {
+        "description": "Без сессии. Пароли только при SHOW_DEMO_CREDENTIALS=true.",
+        "operationId": "public_config_api_v1_public_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "items": {
+                          "additionalProperties": {
+                            "type": "string"
+                          },
+                          "type": "object"
+                        },
+                        "type": "array"
+                      }
+                    ]
+                  },
+                  "title": "Response Public Config Api V1 Public Config Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Подсказки входа для демо",
+        "tags": [
+          "meta"
+        ]
+      }
+    },
     "/api/v1/recurring-payments": {
       "get": {
         "operationId": "list_payments_api_v1_recurring_payments_get",

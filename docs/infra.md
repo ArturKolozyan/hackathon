@@ -202,7 +202,7 @@ curl -fsS https://rekeeper.ru/api/v1/health
 docker compose ps
 ```
 
-`bot` в bridge, не в `host`. `backup` — `running`, в `backups/` лежит дамп. Перед первым таким запуском остановить хостовые Caddy и nginx, которые держат 80/443.
+`bot` в bridge, не в `host`. `backup` — `running`, в `backups/` лежит дамп. Если 80/443 уже держит сервис `caddy` этого compose, его не останавливать. Чужой процесс на этих портах — остановить до `up`.
 
 ### Что хрупко у Caddy на этом VPS
 
@@ -276,4 +276,4 @@ docker compose restart backup
 - [ ] `backup` running, в `/opt/invoice-keeper/backups` есть `invoice-keeper-*.dump`
 - [ ] BotFather → токен + chat_id, если ещё не стоят в `.env`
 
-Следующий шаг: в `/opt/invoice-keeper/.env` домен, порты 80/443, IPv6 и удаление `COMPOSE_FILE`; остановить хостовые Caddy и nginx; `ss` на 80/443; мерж. После зелёного Actions — `curl` на https, лог `bot` без токена, файл в `backups/`.
+Следующий шаг: в `/opt/invoice-keeper/.env` домен, порты 80/443, IPv6 и удаление `COMPOSE_FILE`; `ss` на 80/443 и остановить только чужой процесс, если порт занят не нашим `caddy`; мерж. После зелёного Actions — `curl` на https, лог `bot` без токена, файл в `backups/`.

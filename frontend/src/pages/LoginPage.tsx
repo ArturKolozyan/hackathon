@@ -1,24 +1,33 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
-import { ApiError, api, type Me } from "../api";
+import { ApiError, api, type DemoAccount, type Me } from "../api";
 import { useAuth } from "../auth";
 import { TeamMark, ThemeToggle, Wordmark } from "../components/Brand";
 import { LoadingBlock } from "../components/ui";
-
-const adminEmail = import.meta.env.VITE_DEMO_ADMIN_EMAIL || "admin@invoice.local";
-const adminPassword = import.meta.env.VITE_DEMO_ADMIN_PASSWORD || "change-me";
-const userEmail = import.meta.env.VITE_DEMO_USER_EMAIL || "ivan@invoice.local";
-const userPassword = import.meta.env.VITE_DEMO_USER_PASSWORD || "change-me-user";
-const secondEmail = import.meta.env.VITE_DEMO_USER_TWO_EMAIL || "maria@invoice.local";
 
 export function LoginPage() {
   const { user, ready, setUser } = useAuth();
   const location = useLocation();
   const notice = (location.state as { notice?: string } | null)?.notice;
-  const [email, setEmail] = useState(adminEmail);
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [demos, setDemos] = useState<DemoAccount[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<{ show_demo_credentials: boolean; accounts: DemoAccount[] }>("/api/v1/public-config")
+      .then((body) => {
+        if (!cancelled && body.show_demo_credentials) setDemos(body.accounts);
+      })
+      .catch(() => {
+        if (!cancelled) setDemos([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!ready) {
     return (
@@ -97,29 +106,26 @@ export function LoginPage() {
           <p className="auth-links">
             <Link to="/forgot">Забыли пароль</Link>
           </p>
-          <dl className="demo">
-            <div>
-              <dt>Владелец</dt>
-              <dd>
-                {adminEmail}
-                <span>{adminPassword}</span>
-              </dd>
+          {demos.length > 0 && (
+            <div className="demo">
+              {demos.map((account) => (
+                <button
+                  key={account.label}
+                  type="button"
+                  onClick={() => {
+                    setEmail(account.email);
+                    setPassword(account.password);
+                  }}
+                >
+                  <span className="demo-label">{account.label}</span>
+                  <span>
+                    {account.email}
+                    <span>{account.password}</span>
+                  </span>
+                </button>
+              ))}
             </div>
-            <div>
-              <dt>Пользователь</dt>
-              <dd>
-                {userEmail}
-                <span>{userPassword}</span>
-              </dd>
-            </div>
-            <div>
-              <dt>Админ отдела</dt>
-              <dd>
-                {secondEmail}
-                <span>тот же пароль</span>
-              </dd>
-            </div>
-          </dl>
+          )}
         </form>
       </div>
       <footer className="login-foot">

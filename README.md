@@ -78,6 +78,7 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 | `DOMAIN` | нет | пусто — HTTP. Задан — сертификат Let's Encrypt |
 | `HTTP_PORT`, `HTTPS_PORT` | нет | наружные порты Caddy. Локально 8080 и 8443 |
 | `SEED_DEMO` | нет | демо-отделы и платежи кейса на пустой базе |
+| `SHOW_DEMO_CREDENTIALS` | нет | блок с паролями на странице входа. В примере `true` для жюри, по умолчанию выключен |
 | `ENABLE_IPV6` | нет | `false` по умолчанию. `true` включает IPv6 у сети compose |
 | `TELEGRAM_BOT_TOKEN` | нет | бот. Пусто — бот жив, канал в интерфейсе «не настроен» |
 | `TELEGRAM_NETWORK` | нет | `auto`, `ipv4` или `ipv6`. `auto` пробует IPv6, затем IPv4 |
@@ -177,7 +178,7 @@ curl -s -b /tmp/cj -H 'Content-Type: application/json' \
 
 Раньше Caddy и Telegram жили отдельными файлами. Теперь всё в этом `docker-compose.yml`.
 
-1. Остановить хостовые Caddy и nginx, которые держат 80/443.
+1. Посмотреть, кто слушает 80 и 443. Если это уже сервис `caddy` из этого compose — ничего не останавливать. Останавливать процесс на хосте нужно только когда порты заняты другим Caddy или nginx, не нашим контейнером.
 2. В серверном `.env` выставить `DOMAIN=rekeeper.ru`, `HTTP_PORT=80`, `HTTPS_PORT=443`, `ENABLE_IPV6=true`, `TELEGRAM_NETWORK=ipv6`. Удалить `COMPOSE_FILE`, если он указывал на `compose.telegram-host.yml`.
 3. Том `caddy_data` не удалять: в нём сертификат.
 4. `git pull --ff-only origin main && docker compose up --build -d`.

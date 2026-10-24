@@ -22,6 +22,17 @@ export type Me = {
   telegram_onboarding_done: boolean;
 };
 
+export type DemoAccount = {
+  label: string;
+  email: string;
+  password: string;
+};
+
+export type PublicConfig = {
+  show_demo_credentials: boolean;
+  accounts: DemoAccount[];
+};
+
 export type Features = {
   assistant: boolean;
   assistant_available: boolean;

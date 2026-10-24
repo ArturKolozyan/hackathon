@@ -131,6 +131,45 @@ def test_features_hide_assistant_without_keys(client, db_session):
     assert "key" not in body.text.lower()
 
 
+def test_public_config_hides_passwords_until_asked(client, monkeypatch):
+    hidden = client.get("/api/v1/public-config")
+    assert hidden.status_code == 200
+    assert hidden.json() == {"show_demo_credentials": False, "accounts": []}
+    assert "change-me" not in hidden.text
+
+    monkeypatch.setenv("SHOW_DEMO_CREDENTIALS", "true")
+    monkeypatch.setenv("OWNER_EMAIL", "owner@invoice.local")
+    monkeypatch.setenv("OWNER_PASSWORD", "owner-secret")
+    monkeypatch.setenv("SEED_DEMO", "false")
+    get_settings.cache_clear()
+    try:
+        owner_only = client.get("/api/v1/public-config").json()
+    finally:
+        get_settings.cache_clear()
+    assert owner_only["show_demo_credentials"] is True
+    assert owner_only["accounts"] == [
+        {"label": "Владелец", "email": "owner@invoice.local", "password": "owner-secret"}
+    ]
+
+    monkeypatch.delenv("OWNER_EMAIL", raising=False)
+    monkeypatch.delenv("OWNER_PASSWORD", raising=False)
+    monkeypatch.setenv("SEED_DEMO", "true")
+    get_settings.cache_clear()
+    try:
+        aliased = client.get("/api/v1/public-config").json()
+    finally:
+        get_settings.cache_clear()
+    assert aliased["accounts"][0] == {
+        "label": "Владелец",
+        "email": "admin@invoice.local",
+        "password": "change-me",
+    }
+    assert aliased["accounts"][1:] == [
+        {"label": "Пользователь", "email": "ivan@invoice.local", "password": "change-me-user"},
+        {"label": "Админ отдела", "email": "maria@invoice.local", "password": "change-me-user"},
+    ]
+
+
 def test_features_report_assistant_down(client, db_session, monkeypatch):
     seed(demo=True)
     monkeypatch.setenv("GIGACHAT_AUTH_KEY", "present")

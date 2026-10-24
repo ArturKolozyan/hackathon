@@ -155,14 +155,7 @@ services:
     restart: unless-stopped
 
   web:
-    build:
-      context: ./frontend
-      args:
-        VITE_DEMO_ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@invoice.local}
-        VITE_DEMO_ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
-        VITE_DEMO_USER_EMAIL: ${DEMO_USER_EMAIL:-ivan@invoice.local}
-        VITE_DEMO_USER_PASSWORD: ${DEMO_USER_PASSWORD:-change-me-user}
-        VITE_DEMO_USER_TWO_EMAIL: ${DEMO_USER_TWO_EMAIL:-maria@invoice.local}
+    build: ./frontend
     depends_on:
       api:
         condition: service_healthy

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
     demo_user_three_name: str = "Олег Смирнов"
     demo_user_password: str = "change-me-user"
     seed_demo: bool = True
+    # Пароли на странице входа. По умолчанию выключено: ответ публичный.
+    show_demo_credentials: bool = False
     timezone: str = "Europe/Moscow"
     soon_days: int = 3
     horizon_months: int = 2

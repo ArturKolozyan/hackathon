@@ -31,6 +31,28 @@ def assistant_reachable(url: str) -> bool:
     return response.status_code == 200
 
 
+@router.get("/public-config", summary="Подсказки входа для демо")
+def public_config() -> dict[str, bool | list[dict[str, str]]]:
+    """Без сессии. Пароли только при SHOW_DEMO_CREDENTIALS=true."""
+    settings = get_settings()
+    if not settings.show_demo_credentials:
+        return {"show_demo_credentials": False, "accounts": []}
+    accounts: list[dict[str, str]] = []
+    email = settings.resolved_owner_email
+    password = settings.resolved_owner_password
+    if email and password:
+        accounts.append({"label": "Владелец", "email": email, "password": password})
+    if settings.seed_demo:
+        demo_password = settings.demo_user_password
+        user_email = settings.demo_user_email.strip().lower()
+        admin_email = settings.demo_user_two_email.strip().lower()
+        if user_email and demo_password:
+            accounts.append({"label": "Пользователь", "email": user_email, "password": demo_password})
+        if admin_email and demo_password:
+            accounts.append({"label": "Админ отдела", "email": admin_email, "password": demo_password})
+    return {"show_demo_credentials": True, "accounts": accounts}
+
+
 @router.get("/features", summary="Включённые возможности установки")
 def features(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict[str, bool]:
     del user
