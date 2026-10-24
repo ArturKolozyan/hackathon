@@ -30,7 +30,7 @@ VOICE_LONG = "Голосовое длиннее 30 секунд. Скажи ко
 VOICE_BIG = "Голосовое больше 1 МБ. Скажи короче или напиши текстом."
 EDIT_HINT = "Напиши, что поменять: сумму, день, название или ответственного. Карточка ждёт подтверждения."
 COMMAND_HINT = "Напиши обычной фразой. Например: что горит на этой неделе?"
-NO_TEAM = "Сначала создайте или вступите в команду в rekeeper."
+NO_TEAM = "Сначала создайте отдел в rekeeper."
 UNAVAILABLE = "Ассистент временно недоступен"
 OFF = "Это бот напоминаний. Ассистент на этом сервере не включён."
 
@@ -239,7 +239,7 @@ def handle_assistant_callback(db: Session, bot: Any, callback: dict[str, Any]) -
         return
     ctx = _context(db, user, action.team_id)
     if ctx is None:
-        answer("Вы не в этой команде", alert=True)
+        answer("Вы не в этом отделе", alert=True)
         return
     if kind == "ed":
         answer("Жду правку")

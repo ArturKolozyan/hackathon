@@ -13,7 +13,11 @@ log = logging.getLogger("invoice_keeper.worker")
 
 
 def tick() -> None:
+    from app.services.org_settings import load_org
+    from app.services.time import bind_zone, reset_zone
+
     db = SessionLocal()
+    token = bind_zone(load_org(db).timezone)
     try:
         created = ensure_all(db)
         db.commit()
@@ -21,6 +25,7 @@ def tick() -> None:
         db.commit()
         log.info("horizon ok, new_periods=%s reminders=%s", created, reminders)
     finally:
+        reset_zone(token)
         db.close()
 
 

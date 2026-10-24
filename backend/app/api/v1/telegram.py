@@ -85,25 +85,25 @@ def _require_bot(db: Session) -> str:
     return username
 
 
-@router.get("/telegram/status", response_model=TeamTelegram, summary="Чат команды в Telegram")
+@router.get("/telegram/status", response_model=TeamTelegram, summary="Чат отдела в Telegram")
 def team_status(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TeamTelegram:
     return _team_out(db, ctx.team.id)
 
 
-@router.post("/telegram/team-chat/link", response_model=TelegramLinkOut, summary="Ссылка для чата команды")
+@router.post("/telegram/team-chat/link", response_model=TelegramLinkOut, summary="Ссылка для чата отдела")
 def team_link(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TelegramLinkOut:
     username = _require_bot(db)
     token = issue_token(db, purpose="team", user=ctx.user, team_id=ctx.team.id)
     return TelegramLinkOut(url=deep_link(username, token.token, group=True), expires_at=token.expires_at)
 
 
-@router.delete("/telegram/team-chat", response_model=TeamTelegram, summary="Отключить чат команды")
+@router.delete("/telegram/team-chat", response_model=TeamTelegram, summary="Отключить чат отдела")
 def team_unlink(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TeamTelegram:
     disconnect_team(db, actor=ctx.user, team_id=ctx.team.id)
     return _team_out(db, ctx.team.id)
 
 
-@router.post("/telegram/team-chat/test", response_model=TeamTelegram, summary="Тестовое сообщение в чат команды")
+@router.post("/telegram/team-chat/test", response_model=TeamTelegram, summary="Тестовое сообщение в чат отдела")
 def team_test(ctx: TeamContext = Depends(require_manager), db: Session = Depends(get_db)) -> TeamTelegram:
     if not get_settings().telegram_bot_token.strip():
         raise HTTPException(status_code=409, detail="В .env нет TELEGRAM_BOT_TOKEN")

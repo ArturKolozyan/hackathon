@@ -55,11 +55,10 @@ def report(db: Session, period_type: str, period_key: str, team_id: uuid.UUID | 
         if row.currency not in fact:
             continue
         if row.paid_at is None:
-            if row.template is not None and row.template.is_archived:
-                continue
             expected[row.currency] += Decimal(row.amount)
         else:
-            fact[row.currency] += Decimal(row.amount)
+            fact_amount = row.paid_amount if row.paid_amount is not None else row.amount
+            fact[row.currency] += Decimal(fact_amount)
     plan_stmt = select(Budget).where(Budget.period_type == period_type, Budget.period_key == period_key)
     if team_id is not None:
         plan_stmt = plan_stmt.where(Budget.team_id == team_id)

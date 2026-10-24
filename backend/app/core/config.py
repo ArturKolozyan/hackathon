@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     owner_email: str = ""
     owner_password: str = ""
     owner_name: str = ""
+    # true на один запуск: записать OWNER_PASSWORD владельцу и залогировать. Потом вернуть false.
+    owner_reset_password: bool = False
     admin_email: str = "admin@invoice.local"
     admin_password: str = "change-me"
     admin_name: str = "Админ"
@@ -30,6 +32,10 @@ class Settings(BaseSettings):
     show_demo_credentials: bool = False
     timezone: str = "Europe/Moscow"
     soon_days: int = 3
+    # Каденция по умолчанию, пока организация не переопределила её в базе.
+    reminder_days: str = "7,3,0"
+    overdue_repeat_days: int = 3
+    owner_overdue_copy: bool = False
     horizon_months: int = 2
     session_days: int = 14
     cookie_secure: bool = False

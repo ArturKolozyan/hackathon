@@ -164,12 +164,15 @@ def test_remove_clears_responsible_and_archive_hides_open(client, db_session):
     assert client.delete(f"/api/v1/recurring-payments/{created.json()['id']}", headers=headers).status_code == 200
     inbox = client.get("/api/v1/payment-occurrences/inbox", headers=headers).json()
     open_ids = {item["id"] for name in ("overdue", "soon", "rest") for item in inbox[name]}
-    assert all(item["id"] not in open_ids or item["status"] == "paid" for item in periods)
+    unpaid = [item for item in periods if item["id"] != august["id"]]
+    assert unpaid
+    missing = [item["period"] for item in unpaid if item["id"] not in open_ids]
+    assert not missing, missing
     assert august["id"] not in open_ids
     history = client.get("/api/v1/payment-occurrences?view=history", headers=headers).json()["items"]
     assert any(item["id"] == august["id"] for item in history)
     summary = client.get("/api/v1/payments/summary", headers=headers).json()
-    assert summary["counts"]["overdue"] == 0
+    assert summary["counts"]["overdue"] >= 1
     assert summary["counts"]["paid"] >= 1
 
 

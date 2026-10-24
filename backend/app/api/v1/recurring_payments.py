@@ -1,6 +1,8 @@
+from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -17,6 +19,30 @@ from app.services.teams import require_participant
 from app.services.templates import load_template, to_out, touch
 
 router = APIRouter(prefix="/recurring-payments", tags=["recurring-payments"])
+
+
+def _shown(value) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, Decimal):
+        return f"{value:.2f}"
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
+
+
+def _changes(before: dict, template: RecurringPayment) -> dict:
+    changed: dict[str, dict[str, str]] = {}
+    for key, old in before.items():
+        if key == "next_payment_date":
+            continue
+        current = getattr(template, key, None)
+        if key == "responsible_user_id":
+            current = template.responsible_user_id
+        if _shown(old) == _shown(current):
+            continue
+        changed[key] = {"was": _shown(old), "became": _shown(current)}
+    return changed
 
 
 @router.get("", response_model=list[RecurringOut], summary="Шаблоны регулярных платежей")
@@ -55,6 +81,7 @@ def create_payment(
         day_of_month=int(payload.day_of_month or 1),
         starts_on=payload.starts_on or clock.today(),
         periodicity=payload.periodicity,
+        interval_months=payload.interval_months,
         responsible_user_id=responsible.id if responsible is not None else None,
         created_by_id=ctx.user.id,
         is_archived=False,
@@ -62,7 +89,7 @@ def create_payment(
     )
     db.add(template)
     db.flush()
-    ensure_template(db, template, clock.today())
+    ensure_template(db, template, clock.today(), sync_future=True)
     record(
         db,
         action="template.create",
@@ -96,10 +123,16 @@ def update_payment(
 ) -> RecurringOut:
     template = load_template(db, id, ctx.team.id)
     data = payload.model_dump(exclude_unset=True)
+    if "periodicity" in data or "interval_months" in data:
+        data["periodicity"] = payload.periodicity
+        data["interval_months"] = payload.interval_months
     if data.get("next_payment_date") is not None:
         data["day_of_month"] = data["next_payment_date"].day
         data["starts_on"] = data["next_payment_date"]
     data.pop("next_payment_date", None)
+    before = {key: getattr(template, key) for key in data if key != "responsible_user_id"}
+    if "responsible_user_id" in data:
+        before["responsible_user_id"] = template.responsible_user_id
     if "responsible_user_id" in data:
         raw = data["responsible_user_id"]
         if raw is None:
@@ -110,7 +143,7 @@ def update_payment(
         setattr(template, key, value)
     touch(template)
     db.flush()
-    ensure_template(db, template, clock.today())
+    ensure_template(db, template, clock.today(), sync_future=True)
     record(
         db,
         action="template.update",
@@ -118,7 +151,11 @@ def update_payment(
         entity_type="recurring_payment",
         entity_id=template.id,
         team_id=ctx.team.id,
-        meta={"title": template.title, "fields": sorted(data.keys())},
+        meta={
+            "title": template.title,
+            "fields": sorted(key for key in data if key != "next_payment_date"),
+            "changes": _changes(before, template),
+        },
     )
     db.commit()
     dispatch_due_reminders(db)
@@ -131,10 +168,15 @@ def archive_payment(
     id: UUID,
     ctx: TeamContext = Depends(require_manager),
     db: Session = Depends(get_db),
+    remind_overdue: bool | None = Query(default=None),
 ) -> RecurringOut:
     template = load_template(db, id, ctx.team.id)
+    if isinstance(remind_overdue, bool):
+        template.remind_archived_overdue = remind_overdue
     if template.is_archived:
-        return to_out(db, template)
+        touch(template)
+        db.commit()
+        return to_out(db, load_template(db, template.id, ctx.team.id))
     template.is_archived = True
     touch(template)
     record(

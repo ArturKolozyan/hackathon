@@ -11,25 +11,67 @@ from app.models import PaymentOccurrence, RecurringPayment, User
 from app.schemas.occurrence import OccurrenceOut
 from app.services import time as clock
 from app.services.present import occurrence_out
-from app.services.schedule import add_months, due_date, iter_months
+from app.services.schedule import iter_schedule
+
+
+def step_months(template: RecurringPayment) -> int | None:
+    kind = template.periodicity or "monthly"
+    if kind == "once":
+        return None
+    if kind == "quarterly":
+        return 3
+    if kind == "semiannual":
+        return 6
+    if kind == "yearly":
+        return 12
+    if kind == "every_n":
+        return template.interval_months or 1
+    return 1
+
+
+def scheduled_periods(template: RecurringPayment, today: date) -> list[tuple[int, int, date]]:
+    return iter_schedule(
+        template.starts_on,
+        template.day_of_month,
+        step_months(template),
+        today,
+        get_settings().horizon_months,
+    )
+
+
+def _write_snapshot(row: PaymentOccurrence, template: RecurringPayment, due: date) -> None:
+    row.team_id = template.team_id
+    row.due_date = due
+    row.amount = template.amount
+    row.currency = template.currency
+    row.title = template.title
+    row.description = template.description
 
 BUCKET_RANK = {"overdue": 0, "soon": 1, "rest": 2, "history": 3}
 
 
-def ensure_template(db: Session, template: RecurringPayment, today: date) -> int:
-    """Архивный шаблон не рожает новые периоды. Неоплаченные живые — обновляются из шаблона."""
+def ensure_template(db: Session, template: RecurringPayment, today: date, *, sync_future: bool = False) -> int:
+    """Архив не рожает периоды. Снимок прошлого и оплаченного не переписывается.
+
+    sync_future — только сохранение шаблона: будущие неоплаченные со сроком
+    от сегодня получают новые поля. Чужой период эта функция не трогает.
+    """
     if template.is_archived:
         return 0
-    end = add_months(today, get_settings().horizon_months)
     rows = db.scalars(
         select(PaymentOccurrence).where(PaymentOccurrence.recurring_payment_id == template.id)
     ).all()
     existing = {(row.period_year, row.period_month): row for row in rows}
+    wanted = {(year, month): due for year, month, due in scheduled_periods(template, today)}
+    if sync_future:
+        for key, row in list(existing.items()):
+            if row.paid_at is not None or row.due_date < today:
+                continue
+            if key not in wanted:
+                db.delete(row)
+                del existing[key]
     created = 0
-    for year, month in iter_months(template.starts_on, end):
-        period_due = due_date(year, month, template.day_of_month)
-        if period_due < template.starts_on:
-            continue
+    for (year, month), period_due in wanted.items():
         current = existing.get((year, month))
         if current is None:
             current = PaymentOccurrence(
@@ -53,13 +95,8 @@ def ensure_template(db: Session, template: RecurringPayment, today: date) -> int
             existing[(year, month)] = current
             created += 1
             continue
-        if current.paid_at is None:
-            current.team_id = template.team_id
-            current.due_date = period_due
-            current.amount = template.amount
-            current.currency = template.currency
-            current.title = template.title
-            current.description = template.description
+        if sync_future and current.paid_at is None and current.due_date >= today:
+            _write_snapshot(current, template, period_due)
     return created
 
 
@@ -91,6 +128,9 @@ def list_views(
     responsible_id: uuid.UUID | None = None,
     recurring_payment_id: uuid.UUID | None = None,
     status: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    currency: str | None = None,
 ) -> tuple[date, list[OccurrenceOut]]:
     current = clock.today()
     ensure_all(db, current)
@@ -107,11 +147,17 @@ def list_views(
     if responsible_id is not None:
         items = [item for item in items if item.responsible is not None and item.responsible.id == responsible_id]
     if view == "inbox":
-        items = [item for item in items if item.status != "paid" and not item.template_archived]
+        items = [item for item in items if item.status != "paid"]
     elif view == "history":
         items = [item for item in items if item.status == "paid"]
     if status is not None:
         items = [item for item in items if item.status == status]
+    if date_from is not None:
+        items = [item for item in items if item.due_date >= date_from]
+    if date_to is not None:
+        items = [item for item in items if item.due_date <= date_to]
+    if currency is not None:
+        items = [item for item in items if item.currency == currency]
     if view == "history":
         items.sort(key=lambda item: (item.paid_at is None, -(item.paid_at.timestamp() if item.paid_at else 0), item.title))
     else:

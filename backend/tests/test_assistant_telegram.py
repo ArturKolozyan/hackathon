@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.assistant.telegram_bridge import handle_assistant_callback, handle_private_message
-from app.models import RecurringPayment, User
+from app.models import RecurringPayment, Team, User
 from app.core.config import get_settings
 from app.seed import seed
 from app.services.telegram_updates import handle_update
@@ -75,6 +75,11 @@ def test_linked_text_and_voice_use_the_same_assistant(db_session, monkeypatch):
     handle_private_message(db_session, bot, _private("Что просрочено?", 42)["message"])
     assert "Просрочено" in bot.sent[-1]["text"]
     assert "Аренда офиса" in bot.sent[-1]["text"]
+
+    infra = db_session.scalar(select(Team).where(Team.name == "Инфраструктура"))
+    assert infra is not None
+    ivan.active_team_id = infra.id
+    db_session.commit()
 
     monkeypatch.setattr(
         "app.assistant.telegram_bridge.recognize",

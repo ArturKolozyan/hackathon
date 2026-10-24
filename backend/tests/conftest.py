@@ -93,9 +93,10 @@ def db_session(migrated):
     db = SessionLocal()
     db.execute(
         text(
-            "TRUNCATE assistant_messages, assistant_actions, email_codes, login_attempts, team_invites, "
+            "TRUNCATE assistant_messages, assistant_actions, email_codes, login_attempts, "
             "telegram_link_tokens, telegram_integration, telegram_bot, notification_deliveries, channel_subscriptions, "
-            "audit_logs, budgets, payment_occurrences, recurring_payments, auth_sessions, memberships, users, teams "
+            "audit_logs, budgets, payment_occurrences, recurring_payments, auth_sessions, memberships, users, teams, "
+            "organization_settings "
             "RESTART IDENTITY CASCADE"
         )
     )

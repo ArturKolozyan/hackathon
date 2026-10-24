@@ -187,7 +187,7 @@ export function StatsPage() {
           </section>
           <section className="group">
             <header>
-              <h2>По командам</h2>
+              <h2>По отделам</h2>
             </header>
             <div className="stat-grid">
               {stats.by_team.map((row) => (

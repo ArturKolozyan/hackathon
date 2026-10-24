@@ -76,7 +76,7 @@ def build_stats(
     allowed = {row.team_id: row for row in rows_m}
     if team_ids:
         if any(item not in allowed for item in team_ids):
-            raise HTTPException(status_code=403, detail="Вы не в этой команде")
+            raise HTTPException(status_code=403, detail="Вы не в этом отделе")
         scope = list(dict.fromkeys(team_ids))
     else:
         scope = list(allowed)
@@ -132,8 +132,6 @@ def build_stats(
     for row in occurrences:
         template = row.template
         if template is None:
-            continue
-        if template.is_archived and row.paid_at is None:
             continue
         if currency is not None and row.currency != currency:
             continue

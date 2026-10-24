@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import get_settings
 from app.models import NotificationDelivery, PaymentOccurrence, RecurringPayment
 from app.services import time as clock
-from app.services.reminders import REMINDER
+from app.services.reminders import DIGEST, is_reminder, is_overdue
 from app.services.telegram_links import TEAM_RECIPIENT, resolve_team_chat_id
 
 log = logging.getLogger("invoice_keeper.outbox")
@@ -78,13 +78,37 @@ def _chat_for(db: Session, row: NotificationDelivery, occurrence: PaymentOccurre
     return ""
 
 
+def _outgoing_text(db: Session, occurrence: PaymentOccurrence, event: str, today) -> str:
+    from app.services.telegram_cards import telegram_text
+
+    if event != DIGEST:
+        return telegram_text(occurrence)
+    siblings = list(
+        db.scalars(
+            select(PaymentOccurrence)
+            .where(
+                PaymentOccurrence.recurring_payment_id == occurrence.recurring_payment_id,
+                PaymentOccurrence.paid_at.is_(None),
+                PaymentOccurrence.due_date < today,
+            )
+            .order_by(PaymentOccurrence.due_date, PaymentOccurrence.id)
+        ).all()
+    )
+    lines = [f"Просрочено периодов: {len(siblings)}", occurrence.title]
+    for row in siblings:
+        lines.append(
+            f"{row.period_year:04d}-{row.period_month:02d} · {row.amount:.2f} {row.currency} · до {row.due_date.strftime('%d.%m.%Y')}"
+        )
+    lines.append("Отметьте каждый период в панели.")
+    return "\n".join(lines)
+
+
 def drain_telegram(db: Session, bot) -> int:
     """Отправить pending. Просроченный T-3 не шлём: просрочка — отдельное событие.
 
     Оплаченный или архивный период пропускаем. Сбой сети оставляет pending.
     """
     from app.integrations.telegram import deliver
-    from app.services.telegram_cards import telegram_text
 
     rows = list(
         db.scalars(
@@ -102,11 +126,16 @@ def drain_telegram(db: Session, bot) -> int:
             .options(joinedload(PaymentOccurrence.template).joinedload(RecurringPayment.responsible))
         )
         template = occurrence.template if occurrence is not None else None
-        if occurrence is None or template is None or template.is_archived or occurrence.paid_at is not None:
+        if occurrence is None or template is None or occurrence.paid_at is not None:
             row.status = "skipped"
             row.last_error = "closed"
             continue
-        if row.event == REMINDER and today > occurrence.due_date:
+        archived_overdue = template.is_archived and template.remind_archived_overdue and is_overdue(row.event)
+        if template.is_archived and not archived_overdue:
+            row.status = "skipped"
+            row.last_error = "closed"
+            continue
+        if is_reminder(row.event) and today > occurrence.due_date:
             row.status = "skipped"
             row.last_error = "stale reminder"
             continue
@@ -120,7 +149,7 @@ def drain_telegram(db: Session, bot) -> int:
         slot = "dm" if row.recipient.startswith("user:") else "team"
         try:
             deliver(
-                telegram_text(occurrence),
+                _outgoing_text(db, occurrence, row.event, today),
                 chat_id=chat_id,
                 occurrence_id=str(occurrence.id),
                 event=row.event,

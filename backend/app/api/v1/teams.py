@@ -25,7 +25,7 @@ router = APIRouter(prefix="/teams", tags=["teams"])
 def _team_or_404(db: Session, team_id: UUID) -> Team:
     team = db.get(Team, team_id)
     if team is None:
-        raise HTTPException(status_code=404, detail="Команда не найдена")
+        raise HTTPException(status_code=404, detail="Отдел не найден")
     return team
 
 
@@ -39,7 +39,7 @@ def my_teams(user: User = Depends(get_current_user), db: Session = Depends(get_d
     return [TeamOut(id=row.team_id, name=row.team.name, role=row.role) for row in department_access(db, user)]
 
 
-@router.post("", response_model=TeamOut, status_code=201, summary="Создать команду")
+@router.post("", response_model=TeamOut, status_code=201, summary="Создать отдел")
 def open_team(payload: TeamCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TeamOut:
     team = create_team(db, user, payload.name)
     db.commit()
@@ -59,7 +59,7 @@ def rename(
     return TeamOut(id=team.id, name=team.name, role="owner")
 
 
-@router.delete("/{team_id}", status_code=204, summary="Удалить команду")
+@router.delete("/{team_id}", status_code=204, summary="Удалить отдел")
 def remove_team(
     team_id: UUID,
     payload: TeamDelete,

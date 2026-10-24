@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   BarChart3,
   Bell,
+  Building2,
   CalendarDays,
   History,
   Inbox,
@@ -151,6 +152,7 @@ function ShellView() {
             {MAIN.map((item) => (
               <NavItem key={item.to} item={item} />
             ))}
+            {user?.is_owner && <NavItem item={{ to: "/organization", label: "Организация", icon: Building2 }} />}
             {manage && (
               <>
                 <span className="nav-label">Админ</span>

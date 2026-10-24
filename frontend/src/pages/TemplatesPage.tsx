@@ -10,7 +10,10 @@ type Draft = {
   amount: string;
   currency: string;
   next_payment_date: string;
+  periodicity: string;
+  interval_months: string;
   responsible_user_id: string;
+  applies_from: string;
 };
 
 const emptyDraft: Draft = {
@@ -19,8 +22,20 @@ const emptyDraft: Draft = {
   amount: "",
   currency: "RUB",
   next_payment_date: "",
+  periodicity: "monthly",
+  interval_months: "2",
   responsible_user_id: "",
+  applies_from: "",
 };
+
+function periodPhrase(item: Template): string {
+  if (item.periodicity === "once") return "разово";
+  if (item.periodicity === "yearly") return "ежегодно";
+  if (item.periodicity === "quarterly") return "раз в квартал";
+  if (item.periodicity === "semiannual") return "раз в полгода";
+  if (item.periodicity === "every_n" && item.interval_months) return `каждые ${item.interval_months} мес.`;
+  return "ежемесячно";
+}
 
 export function TemplatesPage() {
   const [items, setItems] = useState<Template[]>([]);
@@ -31,6 +46,7 @@ export function TemplatesPage() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
+  const [remindOverdue, setRemindOverdue] = useState(true);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -62,7 +78,8 @@ export function TemplatesPage() {
       amount: draft.amount.replace(",", "."),
       currency: draft.currency,
       next_payment_date: draft.next_payment_date,
-      periodicity: "monthly",
+      periodicity: draft.periodicity,
+      interval_months: draft.periodicity === "every_n" ? Number(draft.interval_months) : undefined,
       responsible_user_id: draft.responsible_user_id || null,
     };
     try {
@@ -81,12 +98,14 @@ export function TemplatesPage() {
     }
   }
 
-  async function archive(item: Template, archived: boolean) {
+  async function archive(item: Template, archived: boolean, remind = true) {
     setError(null);
     try {
       await api(`/api/v1/recurring-payments/${item.id}`, {
         method: "PATCH",
-        body: JSON.stringify({ is_archived: archived }),
+        body: JSON.stringify(
+          archived ? { is_archived: true, remind_archived_overdue: remind } : { is_archived: false },
+        ),
       });
       await load();
     } catch (err) {
@@ -133,8 +152,28 @@ export function TemplatesPage() {
         </label>
         <label>
           Периодичность
-          <input value="Ежемесячно" readOnly />
+          <select value={draft.periodicity} onChange={(event) => update("periodicity", event.target.value)}>
+            <option value="monthly">Ежемесячно</option>
+            <option value="quarterly">Раз в квартал</option>
+            <option value="semiannual">Раз в полгода</option>
+            <option value="yearly">Ежегодно</option>
+            <option value="once">Разово</option>
+            <option value="every_n">Каждые N месяцев</option>
+          </select>
         </label>
+        {draft.periodicity === "every_n" && (
+          <label>
+            Интервал, месяцев
+            <input
+              type="number"
+              min={1}
+              max={36}
+              value={draft.interval_months}
+              onChange={(event) => update("interval_months", event.target.value)}
+              required
+            />
+          </label>
+        )}
         <label className="span-2">
           Ответственный
           <SelectField
@@ -146,6 +185,9 @@ export function TemplatesPage() {
             ]}
           />
         </label>
+        {editing && draft.applies_from && (
+          <p className="caption span-2">Изменения применятся с периода {draft.applies_from}.</p>
+        )}
         {error && (
           <div className="span-2">
             <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />
@@ -185,7 +227,7 @@ export function TemplatesPage() {
               </div>
               <p className="phrase">
                 <span>{item.next_payment_date ? `ближайшая ${item.next_payment_date}` : `${item.day_of_month}-е число`}</span>
-                <span>ежемесячно</span>
+                <span>{periodPhrase(item)}</span>
                 <span>{item.responsible?.full_name ?? "без ответственного"}</span>
                 <span>
                   {item.open_count} открыто · {item.paid_count} закрыто
@@ -201,15 +243,31 @@ export function TemplatesPage() {
             </div>
             <div className="card-actions">
               {confirmArchive === item.id ? (
-                <InlineConfirm
-                  title="Новые периоды не появятся. История останется."
-                  confirmLabel="В архив"
-                  onConfirm={() => {
-                    setConfirmArchive(null);
-                    void archive(item, true);
-                  }}
-                  onCancel={() => setConfirmArchive(null)}
-                />
+                <div className="stack">
+                  {item.debt_count > 0 && (
+                    <p className="error" role="alert">
+                      Неоплаченных прошлых периодов: {item.debt_count}. Они останутся в инбоксе и итогах, их можно отметить
+                      оплаченными. Новые периоды не создаются.
+                    </p>
+                  )}
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={remindOverdue}
+                      onChange={(event) => setRemindOverdue(event.target.checked)}
+                    />
+                    Напоминать о просрочке архивного платежа
+                  </label>
+                  <InlineConfirm
+                    title="Новые периоды не появятся. История и долг останутся."
+                    confirmLabel="В архив"
+                    onConfirm={() => {
+                      setConfirmArchive(null);
+                      void archive(item, true, remindOverdue);
+                    }}
+                    onCancel={() => setConfirmArchive(null)}
+                  />
+                </div>
               ) : (
                 <>
                   <button
@@ -224,7 +282,10 @@ export function TemplatesPage() {
                         amount: item.amount,
                         currency: item.currency,
                         next_payment_date: item.next_payment_date ?? item.starts_on,
+                        periodicity: item.periodicity === "every_n" ? "every_n" : item.periodicity,
+                        interval_months: String(item.interval_months ?? 2),
                         responsible_user_id: item.responsible?.id ?? "",
+                        applies_from: item.applies_from ?? "",
                       });
                     }}
                   >
@@ -238,6 +299,7 @@ export function TemplatesPage() {
                         void archive(item, false);
                         return;
                       }
+                      setRemindOverdue(item.remind_archived_overdue);
                       setConfirmArchive(item.id);
                     }}
                   >

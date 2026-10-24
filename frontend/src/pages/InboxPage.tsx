@@ -58,7 +58,7 @@ export function InboxPage() {
           label="Чья очередь"
           value={mine ? "mine" : "all"}
           options={[
-            { value: "all", label: "Вся команда" },
+            { value: "all", label: "Весь отдел" },
             { value: "mine", label: "Только мои" },
           ]}
           onChange={(value) => setParams(value === "mine" ? { mine: "1" } : {})}
@@ -102,6 +102,20 @@ export function InboxPage() {
               );
             })}
           </div>
+          <p className="caption">
+            Суммы по валютам, без пересчёта
+            {mine ? ", по всему отделу" : ""}. Скоро — в пределах {summary.soon_days} дней, включая день срока.
+            {summary.as_of
+              ? ` Итоги на конец ${summary.as_of}: оплата позже этой даты ещё не засчитана. Очередь ниже — на сегодня.`
+              : ""}
+            {!mine && (
+              <>
+                {" "}
+                {summary.counts.overdue} просрочено · {summary.counts.due_soon} скоро · {summary.counts.upcoming} ещё не скоро ·{" "}
+                {summary.counts.paid} в истории
+              </>
+            )}
+          </p>
         </>
       )}
       {manage && teamTg && teamTg.status !== "connected" && (
@@ -128,7 +142,7 @@ export function InboxPage() {
           action={
             mine ? (
               <button type="button" className="ghost" onClick={() => setParams({})}>
-                Показать всю команду
+                Показать весь отдел
               </button>
             ) : undefined
           }
