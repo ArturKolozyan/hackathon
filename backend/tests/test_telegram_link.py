@@ -42,7 +42,8 @@ def test_group_link_replaces_previous_chat(db_session):
         _message(f"/start@rekeeper_bot {token.token}", chat_id=-100500, chat_type="group", title="404 mercy"),
     )
     # command with bot mention and payload
-    assert bot.sent[-1]["text"] == "Подключено. Сейчас открытых платежей нет."
+    assert bot.sent[-1]["text"].startswith("✅ <b>Чат подключён к rekeeper</b>")
+    assert bot.sent[-1]["text"].endswith("Открытых платежей сейчас нет.")
     row = db_session.get(TelegramIntegration, 1)
     assert row is not None
     assert row.team_status == "connected"
@@ -59,7 +60,8 @@ def test_group_link_replaces_previous_chat(db_session):
     db_session.refresh(row)
     assert row.team_chat_id == "-100777"
     assert row.team_chat_title == "Новый"
-    assert bot.sent[-1]["text"] == "Подключено. Сейчас открытых платежей нет."
+    assert bot.sent[-1]["text"].startswith("✅ <b>Чат подключён к rekeeper</b>")
+    assert bot.sent[-1]["text"].endswith("Открытых платежей сейчас нет.")
 
 
 def test_personal_link_greeting_and_one_account(db_session):
@@ -70,7 +72,7 @@ def test_personal_link_greeting_and_one_account(db_session):
     bot = FakeBot()
     token = issue_token(db_session, purpose="user", user=ivan)
     handle_update(db_session, bot, _message(f"/start {token.token}", chat_id=42, chat_type="private", sender=42))
-    assert bot.sent[-1]["text"].startswith("Здравствуйте, Иван! Telegram привязан")
+    assert bot.sent[-1]["text"].startswith("👋 <b>Здравствуйте, Иван!</b>\n\nTelegram привязан")
     db_session.refresh(ivan)
     assert ivan.telegram_user_id == 42
     assert ivan.telegram_username == "art"
@@ -275,7 +277,7 @@ def test_api_permissions_and_env_fallback(client, db_session, monkeypatch):
 
         flush_test_message(bot)
         assert bot.sent[-1]["chat_id"] == CHAT
-        assert "на связи" in bot.sent[-1]["text"]
+        assert bot.sent[-1]["text"].startswith("🔔 <b>Проверка связи</b>")
         after = client.get("/api/v1/telegram/status", headers=admin_headers).json()
         assert after["test_pending"] is False
         assert after["test_sent_at"]
@@ -328,4 +330,4 @@ def test_unlink_then_relink_right_away(db_session):
     handle_update(db_session, bot, _message(f"/start {second.token}", chat_id=7, chat_type="private", sender=7))
     db_session.refresh(admin)
     assert admin.telegram_user_id == 7
-    assert bot.sent[-1]["text"].startswith("Здравствуйте")
+    assert bot.sent[-1]["text"].startswith("👋 <b>Здравствуйте")

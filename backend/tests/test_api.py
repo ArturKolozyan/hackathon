@@ -261,14 +261,16 @@ def test_paid_snapshot_and_archive(client, monkeypatch):
 
     archived = create("Архив", 10, "50.00")
     alive = create("Живой", 11, "50.00")
-    before_archived = len(items_of(archived["id"]))
     before_alive = len(items_of(alive["id"]))
-    assert before_archived > 0
+    past = [item for item in items_of(archived["id"]) if item["due_date"] < "2026-10-23"]
+    assert past and len(items_of(archived["id"])) > len(past)
     removed = client.delete(f"/api/v1/recurring-payments/{archived['id']}", headers=headers)
     assert removed.status_code == 200
     assert removed.json()["is_archived"] is True
+    # Архив: прошлые долги остаются, будущие сроки уходят и не рождаются снова.
+    assert {item["id"] for item in items_of(archived["id"])} == {item["id"] for item in past}
     monkeypatch.setattr("app.services.time.today", lambda: date(2027, 6, 1))
-    assert len(items_of(archived["id"])) == before_archived
+    assert {item["id"] for item in items_of(archived["id"])} == {item["id"] for item in past}
     assert len(items_of(alive["id"])) > before_alive
 
 

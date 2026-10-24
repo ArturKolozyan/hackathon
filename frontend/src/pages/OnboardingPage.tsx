@@ -2,7 +2,8 @@ import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
-import { ThemeToggle, Wordmark } from "../components/Brand";
+import { HINTS } from "../hints";
+import { ThemeSwitch, Wordmark } from "../components/Brand";
 
 export function OnboardingPage() {
   const { refresh, user } = useAuth();
@@ -30,7 +31,7 @@ export function OnboardingPage() {
     <div className="login-page">
       <header className="topbar">
         <Wordmark />
-        <ThemeToggle />
+        <ThemeSwitch />
       </header>
       <div className="login-grid">
         <section className="login-copy">
@@ -54,7 +55,7 @@ export function OnboardingPage() {
                 {error}
               </p>
             )}
-            <button type="submit" className="primary" disabled={busy}>
+            <button type="submit" className="primary" disabled={busy} data-hint={HINTS.teamCreate}>
               {busy ? "Создаю…" : "Создать отдел"}
             </button>
           </form>

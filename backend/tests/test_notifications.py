@@ -13,7 +13,7 @@ from app.services.reminders import notification_events, should_remind
 from app.services.telegram_cards import handle_callback
 from app.services.telegram_links import issue_token
 from app.services.telegram_updates import handle_update
-from tests.support import add_person, bootstrap_owner
+from tests.support import add_person, bootstrap_owner, card_title
 from tests.test_telegram import CHAT, FakeBot, _admin, _bind, _callback, _october, _reload, _template
 from tests.test_telegram_link import _message
 
@@ -63,18 +63,10 @@ def test_events_split_reminder_and_overdue():
     assert notification_events(due=date(2026, 10, 24), paid_at=None, archived=False, today=today) == ["occurrence.reminder.d1"]
     assert notification_events(due=date(2026, 10, 24), **base, offsets=()) == []
     assert notification_events(due=date(2026, 10, 26), paid_at=object(), archived=False, today=today, soon_days=3) == []
-    assert (
-        notification_events(
-            due=date(2026, 10, 22),
-            paid_at=None,
-            archived=True,
-            today=today,
-            soon_days=3,
-            remind_archived_overdue=False,
-        )
-        == []
-    )
-    assert notification_events(due=date(2026, 10, 22), paid_at=None, archived=True, today=today, soon_days=3) == [OVERDUE]
+    # Архив молчит полностью: ни просрочки, ни напоминания до срока.
+    assert notification_events(due=date(2026, 10, 22), paid_at=None, archived=True, today=today, soon_days=3) == []
+    assert notification_events(due=date(2026, 10, 25), paid_at=None, archived=True, today=today, soon_days=3) == []
+    assert notification_events(due=date(2026, 10, 22), paid_at=None, archived=False, today=today, soon_days=3) == [OVERDUE]
     for due in (date(2026, 10, 26), date(2026, 10, 23), date(2026, 10, 22), date(2026, 10, 27)):
         args = {"due": due, "paid_at": None, "archived": False, "today": today, "soon_days": 3}
         assert bool(notification_events(**args)) is should_remind(**args)
@@ -179,21 +171,29 @@ def test_personal_scope_follows_responsibility_and_telegram_toggle(db_session, t
     db_session.commit()
 
     try:
-        # mine + Telegram выключен: письмо только за свой платёж, лички нет.
-        # Подписки на отделы больше не расширяют скоуп.
+        # Письма настраиваются по отделам. Во «Второй» письма выключены:
+        # даже свой платёж оттуда не приходит. В домашнем отделе охват «только мои».
+        assert dispatch_due_reminders(db_session) == 0
+        assert sent == []
+        assert tg_bot.sent == []
+
+        from app.services.channels import set_email_team
+
+        set_email_team(db_session, ivan, other.id, enabled=True, scope="mine")
         assert dispatch_due_reminders(db_session) == 1
         assert len(sent) == 1
         assert sent[0]["To"] == "ivan@invoice.local"
         assert "Чужая" in sent[0].get_content()
         assert "Своя" not in sent[0].get_content()
-        assert tg_bot.sent == []
 
+        # Весь домашний отдел на почту, Telegram включён и смотрит на весь отдел.
+        set_email_team(db_session, ivan, home.id, enabled=True, scope="department")
         ivan.notify_scope = "department"
         ivan.telegram_reminders = True
         db_session.commit()
         assert dispatch_due_reminders(db_session) == 3
         assert any("Своя" in item.get_content() for item in sent)
-        assert {item["text"].splitlines()[0] for item in tg_bot.sent} == {"Своя", "Чужая"}
+        assert {card_title(item["text"]) for item in tg_bot.sent} == {"Своя", "Чужая"}
         assert {item["chat_id"] for item in tg_bot.sent} == {"777"}
     finally:
         get_settings.cache_clear()
@@ -231,13 +231,14 @@ def test_connect_sends_summary_not_cards(db_session, tg_bot, monkeypatch):
     )
     assert len(bot.sent) == 1
     text = bot.sent[0]["text"]
-    assert text.startswith("Подключено. Сейчас открыто ")
-    assert "ближайшие:" in text
-    assert "Долг" in text
+    assert text.startswith("✅ <b>Чат подключён к rekeeper</b>")
+    assert "Отдел: Команда" in text
+    assert "Ближайшие:" in text
+    assert "<b>Долг</b>" in text
     open_count = db_session.scalar(
         select(func.count()).select_from(PaymentOccurrence).where(PaymentOccurrence.paid_at.is_(None))
     )
-    assert str(open_count) in text.split("ближайшие:", 1)[0]
+    assert f"Сейчас открыто {open_count} " in text.split("Ближайшие:", 1)[0]
     assert bot.sent[0]["reply_markup"]["inline_keyboard"] == []
 
     monkeypatch.setattr("app.integrations.telegram.make_bot", lambda settings=None: tg_bot)
@@ -255,7 +256,7 @@ def test_connect_sends_summary_not_cards(db_session, tg_bot, monkeypatch):
     assert len(group_cards) == 2
     later = [item for item in group_cards if "Потом" in item["text"]]
     assert len(later) == 1
-    assert "31.10.2026" in later[0]["text"]
+    assert "31 октября 2026" in later[0]["text"]
     assert any("Долг" in item["text"] for item in group_cards)
     assert dispatch_due_reminders(db_session) == 0
 
@@ -299,6 +300,7 @@ def test_member_reads_team_channels_but_cannot_change_them(client, db_session, m
     db_session.commit()
     owner = _headers(client, "admin@invoice.local", "change-me")
     person = _headers(client, "member@invoice.local", "change-me-user")
+    monkeypatch.setattr("app.integrations.webhook._addresses", lambda host, port: ["93.184.216.34"])
     viewed = client.get("/api/v1/notifications", headers=person)
     assert viewed.status_code == 200, viewed.text
     assert viewed.json()["team"]["can_manage"] is False
@@ -316,7 +318,8 @@ def test_member_reads_team_channels_but_cannot_change_them(client, db_session, m
     assert saved.status_code == 200, saved.text
     assert saved.json()["team"]["webhook_url"] == "https://hooks.example/in"
     again = client.get("/api/v1/notifications", headers=person)
-    assert again.json()["team"]["webhook_url"] == "https://hooks.example/in"
+    # В URL webhook может быть секрет: участник видит только, что канал есть у админа.
+    assert again.json()["team"]["webhook_url"] is None
     assert again.json()["team"]["can_manage"] is False
 
     foreign = str(uuid.uuid4())
@@ -436,3 +439,53 @@ def test_org_reminder_toggles_drive_dispatch(client, db_session, tg_bot):
     db_session.expire_all()
     assert dispatch_due_reminders(db_session) == 1  # просрочка, один раз за день
     assert dispatch_due_reminders(db_session) == 0
+
+
+@pytest.mark.parametrize(
+    ("url", "addresses", "reason"),
+    [
+        ("http://hooks.example/in", ["93.184.216.34"], "https"),
+        ("https://localhost/in", ["127.0.0.1"], "Внутренние"),
+        ("https://hooks.example/in", ["10.0.0.5"], "Внутренние"),
+        ("https://hooks.example/in", ["169.254.169.254"], "Внутренние"),
+        ("https://hooks.example/in", ["::ffff:192.168.1.1"], "Внутренние"),
+        ("https://hooks.example/in", ["fd00::1"], "Внутренние"),
+        ("https://user:pw@hooks.example/in", ["93.184.216.34"], "Логин"),
+    ],
+)
+def test_team_webhook_refuses_private_targets(client, db_session, monkeypatch, url, addresses, reason):
+    bootstrap_owner()
+    owner = _headers(client, "admin@invoice.local", "change-me")
+    monkeypatch.setattr("app.integrations.webhook._addresses", lambda host, port: addresses)
+    saved = client.put("/api/v1/notifications/team/webhook", headers=owner, json={"url": url})
+    assert saved.status_code == 422
+    assert reason in saved.json()["detail"]
+
+
+def test_team_webhook_rechecks_dns_and_hides_response_body(client, db_session, monkeypatch):
+    bootstrap_owner()
+    owner = _headers(client, "admin@invoice.local", "change-me")
+    resolved = {"value": ["93.184.216.34"]}
+    monkeypatch.setattr("app.integrations.webhook._addresses", lambda host, port: resolved["value"])
+    posted: list[str] = []
+
+    def fake_post(url, body, headers):
+        posted.append(url)
+        return 500
+
+    monkeypatch.setattr("app.integrations.webhook._post", fake_post)
+    assert client.put(
+        "/api/v1/notifications/team/webhook", headers=owner, json={"url": "https://hooks.example/in"}
+    ).status_code == 200
+    failed = client.post("/api/v1/notifications/team/webhook/test", headers=owner)
+    assert failed.status_code == 502
+    assert failed.json()["detail"] == "Ответ 500"
+    # DNS сменился на внутренний адрес после сохранения: запрос не уходит.
+    resolved["value"] = ["127.0.0.1"]
+    blocked = client.post("/api/v1/notifications/team/webhook/test", headers=owner)
+    assert blocked.status_code == 502
+    assert posted == ["https://hooks.example/in"]
+    from app.integrations.webhook import send_team_webhook
+
+    assert send_team_webhook("https://hooks.example/in", {"event": "occurrence.reminder"}) == "failed"
+    assert posted == ["https://hooks.example/in"]

@@ -1,5 +1,7 @@
 """Общая сборка аккаунта с командой. Сид пустой базы больше не создаёт админа сам."""
 
+import re
+
 from app.core.database import SessionLocal
 from app.models import Team, User
 from app.services.accounts import create_verified_user
@@ -47,3 +49,9 @@ def add_person(
     add_member(db, home, user, role, actor=actor)
     db.flush()
     return user
+
+
+def card_title(text: str) -> str:
+    """Название платежа в карточке Telegram: первая жирная строка после заголовка."""
+    found = re.search(r"\n\n<b>(.+?)</b>", text)
+    return found.group(1) if found else ""

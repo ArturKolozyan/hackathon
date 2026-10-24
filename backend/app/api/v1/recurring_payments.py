@@ -2,7 +2,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -14,7 +14,10 @@ from app.services import time as clock
 from app.services.access import TeamContext
 from app.services.audit import record
 from app.services.notify import dispatch_due_reminders
-from app.services.occurrences import ensure_template
+from app.services.occurrences import drop_archived_future, ensure_template, resume_from_today
+from app.services.schedule import due_date
+from app.services.present import next_due
+from app.services.templates import occurrences_for
 from app.services.teams import require_participant
 from app.services.templates import load_template, to_out, touch
 
@@ -126,10 +129,16 @@ def update_payment(
     if "periodicity" in data or "interval_months" in data:
         data["periodicity"] = payload.periodicity
         data["interval_months"] = payload.interval_months
-    if data.get("next_payment_date") is not None:
-        data["day_of_month"] = data["next_payment_date"].day
-        data["starts_on"] = data["next_payment_date"]
-    data.pop("next_payment_date", None)
+    today = clock.today()
+    nxt = data.pop("next_payment_date", None)
+    if nxt is not None and nxt != next_due(template, occurrences_for(db, template.id), today):
+        day = data.get("day_of_month") or nxt.day
+        # Платёж «31-го» в коротком месяце показывается 30-м или 28-м. Тот же конец месяца — якорь не теряем.
+        if nxt == due_date(nxt.year, nxt.month, 31) and template.day_of_month > nxt.day and "day_of_month" not in data:
+            day = template.day_of_month
+        data["day_of_month"] = day
+        data["starts_on"] = nxt
+    reopening = data.get("is_archived") is False and template.is_archived
     before = {key: getattr(template, key) for key in data if key != "responsible_user_id"}
     if "responsible_user_id" in data:
         before["responsible_user_id"] = template.responsible_user_id
@@ -141,9 +150,13 @@ def update_payment(
             template.responsible = require_participant(db, ctx.team.id, raw)
     for key, value in data.items():
         setattr(template, key, value)
+    if reopening:
+        resume_from_today(template, today)
     touch(template)
     db.flush()
-    ensure_template(db, template, clock.today(), sync_future=True)
+    if template.is_archived:
+        drop_archived_future(db, template, today)
+    ensure_template(db, template, today, sync_future=True)
     record(
         db,
         action="template.update",
@@ -168,17 +181,15 @@ def archive_payment(
     id: UUID,
     ctx: TeamContext = Depends(require_manager),
     db: Session = Depends(get_db),
-    remind_overdue: bool | None = Query(default=None),
 ) -> RecurringOut:
     template = load_template(db, id, ctx.team.id)
-    if isinstance(remind_overdue, bool):
-        template.remind_archived_overdue = remind_overdue
     if template.is_archived:
         touch(template)
         db.commit()
         return to_out(db, load_template(db, template.id, ctx.team.id))
     template.is_archived = True
     touch(template)
+    drop_archived_future(db, template, clock.today())
     record(
         db,
         action="template.delete",

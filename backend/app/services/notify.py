@@ -6,6 +6,7 @@ Telegram worker не вызывает: строка notification_deliveries со
 
 import logging
 import uuid
+from datetime import timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -51,17 +52,72 @@ def occurrence_payload(occurrence: PaymentOccurrence, event: str) -> dict:
     }
 
 
-def _already(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recipient: str) -> bool:
-    stmt = select(NotificationDelivery.id).where(
-        NotificationDelivery.occurrence_id == occurrence_id,
-        NotificationDelivery.event == event,
-        NotificationDelivery.channel == channel,
-        NotificationDelivery.recipient == recipient,
+# Вебхук отдела: одно событие пробуем не больше стольких раз, паузы между заходами растут.
+WEBHOOK_TRIES = 5
+WEBHOOK_PAUSE = timedelta(minutes=1)
+WEBHOOK_PAUSE_MAX = timedelta(hours=6)
+
+
+def _delivery(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recipient: str):
+    return db.scalar(
+        select(NotificationDelivery).where(
+            NotificationDelivery.occurrence_id == occurrence_id,
+            NotificationDelivery.event == event,
+            NotificationDelivery.channel == channel,
+            NotificationDelivery.recipient == recipient,
+        )
     )
-    return db.scalar(stmt) is not None
+
+
+def _already(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recipient: str) -> bool:
+    row = _delivery(db, occurrence_id, event, channel, recipient)
+    if row is None:
+        return False
+    # Неудачный вебхук ждёт следующей попытки. Telegram pending — это очередь бота, он уже «в работе».
+    return not (row.channel == "webhook" and row.status == "pending")
+
+
+def _webhook_failed(db: Session, occurrence: PaymentOccurrence, event: str, recipient: str) -> None:
+    """Неудача вебхука отдела: счётчик события и пауза для всего адреса отдела."""
+    now = clock.now()
+    row = _delivery(db, occurrence.id, event, "webhook", recipient)
+    if row is None:
+        row = NotificationDelivery(
+            occurrence_id=occurrence.id, event=event, channel="webhook", recipient=recipient, status="pending", created_at=now
+        )
+        db.add(row)
+    row.attempts = (row.attempts or 0) + 1
+    row.last_error = "webhook failed"
+    if row.attempts >= WEBHOOK_TRIES:
+        row.status = "skipped"
+        log.warning("team webhook gave up on %s after %s tries", event, row.attempts)
+    team = db.get(Team, occurrence.team_id)
+    if team is not None:
+        team.webhook_failures = (team.webhook_failures or 0) + 1
+        pause = min(WEBHOOK_PAUSE * (2 ** (team.webhook_failures - 1)), WEBHOOK_PAUSE_MAX)
+        team.webhook_retry_at = now + pause
+    db.flush()
+
+
+def _webhook_ok(db: Session, team_id: uuid.UUID) -> None:
+    team = db.get(Team, team_id)
+    if team is not None and (team.webhook_failures or team.webhook_retry_at is not None):
+        team.webhook_failures = 0
+        team.webhook_retry_at = None
+
+
+def _webhook_paused(db: Session, team_id: uuid.UUID) -> bool:
+    team = db.get(Team, team_id)
+    return team is not None and team.webhook_retry_at is not None and clock.now() < team.webhook_retry_at
 
 
 def _mark(db: Session, occurrence_id: uuid.UUID, event: str, channel: str, recipient: str) -> None:
+    waiting = _delivery(db, occurrence_id, event, channel, recipient)
+    if waiting is not None:
+        waiting.status = "sent"
+        waiting.last_error = None
+        db.flush()
+        return
     try:
         with db.begin_nested():
             db.add(
@@ -144,8 +200,14 @@ def _personal_plan(db: Session, occurrence: PaymentOccurrence, event: str) -> li
             _push(plan, seen, ("email", f"user:{user.id}"))
         if wants_telegram(db, user, occurrence.team_id, responsible=responsible, event=event):
             _push(plan, seen, ("telegram", f"user:{user.id}"))
+    seat_ids = {seat.user_id for seat in seats}
+    owner = db.scalar(select(User).where(User.is_owner.is_(True)))
+    if owner is not None and owner.id not in seat_ids:
+        # Владелец не в отделе: письма идут, только если он сам включил этот отдел в «Почте».
+        if wants_email(db, owner, occurrence.team_id, responsible=owner.id == responsible_id, event=event):
+            _push(plan, seen, ("email", f"user:{owner.id}"))
     responsible = template.responsible if template is not None else None
-    if responsible is not None and responsible.id == responsible_id and responsible.id not in {seat.user_id for seat in seats}:
+    if responsible is not None and responsible.id == responsible_id and responsible.id not in seat_ids:
         if wants_email(db, responsible, occurrence.team_id, responsible=True, event=event):
             _push(plan, seen, ("email", f"user:{responsible.id}"))
         if wants_telegram(db, responsible, occurrence.team_id, responsible=True, event=event):
@@ -200,7 +262,15 @@ def _send(
     if channel == "webhook":
         if recipient == "":
             return send_webhook(payload)
-        return send_team_webhook(_team_webhook(db, occurrence.team_id), payload)
+        if _webhook_paused(db, occurrence.team_id):
+            # Адрес отдела недавно не ответил: не держим тик воркера, ждём конца паузы.
+            return "deferred"
+        result = send_team_webhook(_team_webhook(db, occurrence.team_id), payload)
+        if result == "sent":
+            _webhook_ok(db, occurrence.team_id)
+        elif result == "failed":
+            _webhook_failed(db, occurrence, event, recipient)
+        return result
     if channel != "telegram":
         return "skipped"
     if recipient == TEAM_RECIPIENT:
@@ -301,7 +371,6 @@ def dispatch_due_reminders(db: Session) -> int:
     for row in rows:
         template = row.template
         archived = template is None or template.is_archived
-        remind_archived = bool(template.remind_archived_overdue) if template is not None else False
         events = notification_events(
             due=row.due_date,
             paid_at=row.paid_at,
@@ -309,7 +378,6 @@ def dispatch_due_reminders(db: Session) -> int:
             today=today,
             offsets=org.reminder_days,
             overdue=org.overdue_reminders,
-            remind_archived_overdue=remind_archived,
         )
         for event in events:
             if is_overdue(event):
@@ -355,16 +423,33 @@ def payments_phrase(count: int) -> str:
     return f"{count} {word}"
 
 
-def connect_digest(rows: list[PaymentOccurrence]) -> str:
+def connect_digest(rows: list[PaymentOccurrence], team_name: str | None = None) -> str:
+    """Первое сообщение в чате отдела: что сюда будет приходить и что уже открыто."""
+    from app.services import humanize
+    from app.services import telegram_html as tg
+
+    about = [tg.field("Отдел", team_name)] if team_name else []
+    about.append(
+        tg.esc(
+            "Сюда будут приходить напоминания о сроках и просрочках. "
+            "Кнопка «Оплачено» под карточкой отмечает оплату от вашего имени, если ваш Telegram привязан к rekeeper."
+        )
+    )
     if not rows:
-        return "Подключено. Сейчас открытых платежей нет."
+        return tg.compose("✅", "Чат подключён к rekeeper", about, tg.esc("Открытых платежей сейчас нет."))
+    today = clock.today()
     nearest = rows[:5]
-    parts = [
-        f"{row.title}: {row.amount:.2f} {row.currency}, до {row.due_date.strftime('%d.%m.%Y')}"
-        for row in nearest
-    ]
-    tail = f"; и ещё {len(rows) - len(nearest)}" if len(rows) > len(nearest) else ""
-    return f"Подключено. Сейчас открыто {payments_phrase(len(rows))}, ближайшие: " + "; ".join(parts) + tail
+    lines = [tg.esc(f"Сейчас открыто {payments_phrase(len(rows))}. Ближайшие:")]
+    for row in nearest:
+        lines.append(
+            tg.bullet(
+                f"{tg.bold(row.title)}: {tg.esc(humanize.money(row.amount, row.currency))}, "
+                f"до {tg.esc(humanize.ru_date(row.due_date))} ({tg.esc(humanize.due_phrase(row.due_date, today))})"
+            )
+        )
+    if len(rows) > len(nearest):
+        lines.append(tg.esc(f"И ещё {len(rows) - len(nearest)} в rekeeper."))
+    return tg.compose("✅", "Чат подключён к rekeeper", about, lines)
 
 
 def acknowledge_team_backlog(db: Session, team_id: uuid.UUID, rows: list[PaymentOccurrence]) -> None:

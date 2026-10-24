@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import get_current_user, require_manager
+from app.core.deps import get_active_user, require_manager
 from app.models import User
 from app.schemas.telegram import NotificationsIn, TeamTelegram, TelegramLinkOut, TelegramSelf
 from app.services import time as clock
@@ -116,19 +116,19 @@ def team_test(ctx: TeamContext = Depends(require_manager), db: Session = Depends
 
 
 @router.get("/me/telegram", response_model=TelegramSelf, summary="Личный Telegram")
-def my_telegram(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramSelf:
+def my_telegram(user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> TelegramSelf:
     return _self_out(db, user)
 
 
 @router.post("/me/telegram/link", response_model=TelegramLinkOut, summary="Ссылка для привязки Telegram")
-def my_link(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramLinkOut:
+def my_link(user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> TelegramLinkOut:
     username = _require_bot(db)
     token = current_user_token(db, user)
     return TelegramLinkOut(url=deep_link(username, token.token, group=False), expires_at=token.expires_at)
 
 
 @router.post("/me/telegram/skip", response_model=TelegramSelf, summary="Пропустить привязку Telegram")
-def my_skip(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramSelf:
+def my_skip(user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> TelegramSelf:
     user.telegram_onboarding_done = True
     user.updated_at = clock.now()
     db.commit()
@@ -137,7 +137,7 @@ def my_skip(user: User = Depends(get_current_user), db: Session = Depends(get_db
 
 
 @router.delete("/me/telegram", response_model=TelegramSelf, summary="Отвязать Telegram")
-def my_unlink(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TelegramSelf:
+def my_unlink(user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> TelegramSelf:
     unlink_user(db, user)
     db.refresh(user)
     return _self_out(db, user)
@@ -146,7 +146,7 @@ def my_unlink(user: User = Depends(get_current_user), db: Session = Depends(get_
 @router.patch("/me/notifications", response_model=TelegramSelf, summary="Личные напоминания")
 def my_notifications(
     payload: NotificationsIn,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_active_user),
     db: Session = Depends(get_db),
 ) -> TelegramSelf:
     user.telegram_reminders = payload.telegram_reminders

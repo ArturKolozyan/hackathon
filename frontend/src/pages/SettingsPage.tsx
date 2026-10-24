@@ -1,12 +1,11 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ApiError, api, type Me, type Sent } from "../api";
-import { useAuth } from "../auth";
+import { canManage, useAuth } from "../auth";
 import { PageControls } from "../components/PageControls";
-import { RowInput, SettingGroup, SettingRow, SwitchRow } from "../components/SettingRow";
+import { RowInput, SettingGroup, SettingRow } from "../components/SettingRow";
 import { SaveStatus, useDebounced, useSaveState } from "../components/ui";
 import { HINTS } from "../hints";
-import { useTheme } from "../theme";
 import { NotificationsSection } from "./settings/NotificationsSection";
 import { OrganizationSection } from "./settings/OrganizationSection";
 
@@ -21,8 +20,7 @@ export function SettingsPage() {
     { id: "profile", label: "Профиль" },
     ...(user?.is_owner ? [{ id: "organization", label: "Организация" }] : []),
     { id: "notifications", label: "Уведомления" },
-    { id: "integrations", label: "Вебхук" },
-    { id: "appearance", label: "Внешний вид" },
+    ...(canManage(user) ? [{ id: "integrations", label: "Вебхук" }] : []),
   ];
 
   useEffect(() => {
@@ -64,23 +62,8 @@ export function SettingsPage() {
         )}
         {user?.is_owner && <OrganizationSection />}
         <NotificationsSection />
-        <Appearance />
       </div>
     </div>
-  );
-}
-
-function Appearance() {
-  const { theme, toggle } = useTheme();
-  return (
-    <SettingGroup id="appearance" title="Внешний вид">
-      <SwitchRow
-        title="Светлая тема"
-        description="Тёмная — по умолчанию. Выбор запоминается на этом устройстве"
-        checked={theme === "light"}
-        onChange={toggle}
-      />
-    </SettingGroup>
   );
 }
 
@@ -244,6 +227,7 @@ function Profile({ onPasswordChanged }: { onPasswordChanged: () => void }) {
                 <button
                   type="button"
                   className="ghost"
+                  data-hint={HINTS.emailOther}
                   onClick={() => {
                     setMailSent(null);
                     setCode("");

@@ -6,9 +6,10 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.models import Membership, RecurringPayment, Team, User
+from app.models import Membership, PaymentOccurrence, RecurringPayment, Team, User
 from app.services import time as clock
 from app.services.audit import record
+from app.services.receipts import discard_after_commit
 
 
 def create_team(db: Session, owner: User, name: str) -> Team:
@@ -96,6 +97,13 @@ def delete_team(db: Session, team: Team, actor: User, confirm_name: str) -> None
         raise HTTPException(status_code=409, detail="Введите название отдела без изменений")
     member_ids = list(db.scalars(select(Membership.user_id).where(Membership.team_id == team.id)).all())
     record(db, action="team.delete", actor=actor, entity_type="team", entity_id=team.id, meta={"name": team.name}, team_id=team.id)
+    # Периоды уходят каскадом в базе, файлы чеков — после commit.
+    for key in db.scalars(
+        select(PaymentOccurrence.receipt_file).where(
+            PaymentOccurrence.team_id == team.id, PaymentOccurrence.receipt_file.is_not(None)
+        )
+    ):
+        discard_after_commit(db, key)
     db.delete(team)
     db.flush()
     for user_id in member_ids:

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, ScrollText, SearchX, X } from "lucide-react";
 import { ApiError, api, type AuditItem, type AuditList, type DirectoryUser } from "../api";
 import { ACTION_GROUPS, actionLabel, metaPhrase } from "../auditCopy";
@@ -6,26 +6,54 @@ import { DateField, SelectField } from "../components/fields";
 import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, LoadingBlock } from "../components/ui";
 import { HINTS } from "../hints";
+import { useFresh } from "../fresh";
 
-const formatter = new Intl.DateTimeFormat("ru-RU", {
-  timeZone: "Europe/Moscow",
-  day: "2-digit",
-  month: "2-digit",
-  year: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+function timeFormat(timeZone: string): Intl.DateTimeFormat {
+  return new Intl.DateTimeFormat("ru-RU", { timeZone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
-const LIMIT = 50;
+const LIMIT = 20;
 
-function Row({ item }: { item: AuditItem }) {
+/** Одна строка на запись. Обрезаются только детали; если они не влезли, «…» раскрывает строку вниз. */
+function Row({ item, format }: { item: AuditItem; format: Intl.DateTimeFormat }) {
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [open, setOpen] = useState(false);
+  const [overflow, setOverflow] = useState(false);
+  const details = metaPhrase(item.meta);
+
+  useLayoutEffect(() => {
+    const node = textRef.current;
+    if (!node) return;
+    const measure = () => setOverflow(node.scrollWidth > node.clientWidth + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [details]);
+
   return (
-    <tr>
-      <td data-label="Когда">{formatter.format(new Date(item.at))}</td>
-      <td data-label="Кто">{item.actor_name ?? "—"}</td>
-      <td data-label="Действие">{actionLabel(item.action)}</td>
-      <td className="audit-detail" data-label="Детали">
-        {metaPhrase(item.meta)}
+    <tr className={open ? "audit-row is-open" : "audit-row"}>
+      <td className="audit-when">{format.format(new Date(item.at))}</td>
+      <td className="audit-who">{item.actor_name ?? "—"}</td>
+      <td className="audit-action">{actionLabel(item.action)}</td>
+      <td className="audit-detail">
+        <span className="audit-detail-line">
+          <span ref={textRef} className="audit-detail-text">
+            {details}
+          </span>
+          {(overflow || open) && (
+            <button
+              type="button"
+              className="audit-more"
+              aria-expanded={open}
+              aria-label={open ? "Свернуть детали" : "Показать детали полностью"}
+              data-hint={open ? HINTS.auditLess : HINTS.auditMore}
+              onClick={() => setOpen((value) => !value)}
+            >
+              {open ? "Свернуть" : "…"}
+            </button>
+          )}
+        </span>
       </td>
     </tr>
   );
@@ -42,6 +70,7 @@ export function AuditPage() {
   const [actor, setActor] = useState("");
   const [kind, setKind] = useState("");
   const [people, setPeople] = useState<DirectoryUser[]>([]);
+  const fresh = useFresh();
 
   useEffect(() => {
     api<DirectoryUser[]>("/api/v1/users")
@@ -73,7 +102,9 @@ export function AuditPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, fresh]);
+
+  const format = useMemo(() => timeFormat(data?.timezone ?? "Europe/Moscow"), [data?.timezone]);
 
   const filtered = Boolean(from || to || actor || kind);
   const shown = data ? offset + data.items.length : 0;
@@ -106,7 +137,7 @@ export function AuditPage() {
       <PageControls
         left={
           <div className="tb-group log-filters" role="group" aria-label="Фильтры логов">
-            <div className="date-range" data-hint={HINTS.logsDates}>
+            <div className="date-range">
               <DateField value={from} onChange={filter(setFrom)} max={to || undefined} ariaLabel="С даты" placeholder="с" />
               <span className="muted" aria-hidden>
                 —
@@ -118,10 +149,9 @@ export function AuditPage() {
               onChange={filter(setActor)}
               options={peopleOptions}
               ariaLabel="Участник"
-              hint={HINTS.logsActor}
               searchable
             />
-            <SelectField value={kind} onChange={filter(setKind)} options={kindOptions} ariaLabel="Тип действия" hint={HINTS.logsKind} />
+            <SelectField value={kind} onChange={filter(setKind)} options={kindOptions} ariaLabel="Тип действия" />
             {filtered && (
               <button type="button" className="ghost reset-btn" data-hint={HINTS.filtersReset} onClick={reset}>
                 <X size={16} strokeWidth={1.75} aria-hidden />
@@ -169,7 +199,7 @@ export function AuditPage() {
             icon={SearchX}
             title="Ничего не нашлось"
             action={
-              <button type="button" className="ghost" onClick={reset}>
+              <button type="button" className="ghost" data-hint={HINTS.filtersReset} onClick={reset}>
                 Сбросить фильтры
               </button>
             }
@@ -184,7 +214,7 @@ export function AuditPage() {
       )}
       {data && data.items.length > 0 && (
         <div className={loading ? "table-wrap panel is-stale" : "table-wrap panel"} aria-busy={loading}>
-          <table className="table">
+          <table className="table audit-table">
             <thead>
               <tr>
                 <th>Когда</th>
@@ -195,7 +225,7 @@ export function AuditPage() {
             </thead>
             <tbody>
               {data.items.map((item) => (
-                <Row key={item.id} item={item} />
+                <Row key={item.id} item={item} format={format} />
               ))}
             </tbody>
           </table>

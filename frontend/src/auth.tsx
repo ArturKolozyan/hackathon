@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
-import { api, setStoredTeamId, type Me, type TeamRole } from "./api";
+import { ApiError, api, setStoredTeamId, type Me, type TeamRole } from "./api";
 import { LoadingBlock } from "./components/ui";
+import { useFresh } from "./fresh";
 
 type AuthState = {
   user: Me | null;
@@ -61,6 +62,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch(() => setUser(null))
       .finally(() => setReady(true));
   }, []);
+
+  // Роль, отделы и сама сессия могли поменяться, пока вкладка была в фоне.
+  const fresh = useFresh();
+  useEffect(() => {
+    if (fresh === 0) return;
+    api<Me>("/api/v1/auth/me")
+      .then(setUser)
+      .catch((err: unknown) => {
+        if (err instanceof ApiError && err.status === 401) setUser(null);
+      });
+  }, [fresh]);
 
   const value = useMemo(() => ({ user, ready, setUser, refresh, switchTeam }), [user, ready]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

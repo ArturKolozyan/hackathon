@@ -6,6 +6,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.v1 import assistant as assistant_routes
 from app.core.config import get_settings
+from app.core.database import OrgZoneMiddleware
+from app.core.headers import NoStoreMiddleware
 
 app = FastAPI(title="Invoice Keeper Assistant", docs_url=None, redoc_url=None, openapi_url=None)
 settings = get_settings()
@@ -16,6 +18,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(OrgZoneMiddleware)
+app.add_middleware(NoStoreMiddleware)
 app.include_router(assistant_routes.router, prefix="/api/v1")
 
 

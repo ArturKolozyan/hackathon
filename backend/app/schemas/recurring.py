@@ -112,6 +112,9 @@ class RecurringCreate(BaseModel):
         return normalized
 
 
+_REQUIRED_ON_UPDATE = ("title", "amount", "currency", "day_of_month", "starts_on", "next_payment_date", "is_archived")
+
+
 class RecurringUpdate(BaseModel):
     title: str | None = Field(default=None, max_length=200)
     description: str | None = None
@@ -122,12 +125,17 @@ class RecurringUpdate(BaseModel):
     next_payment_date: date | None = None
     periodicity: str | None = None
     interval_months: int | None = Field(default=None, ge=1, le=36)
-    remind_archived_overdue: bool | None = None
     responsible_user_id: UUID | None = None
     is_archived: bool | None = None
 
     @model_validator(mode="after")
     def fill_periodicity(self) -> "RecurringUpdate":
+        # null в обязательном поле — ошибка ввода (422), а не попытка стереть значение.
+        nulls = [name for name in _REQUIRED_ON_UPDATE if name in self.model_fields_set and getattr(self, name) is None]
+        if "periodicity" in self.model_fields_set and self.periodicity is None and self.interval_months is None:
+            nulls.append("periodicity")
+        if nulls:
+            raise ValueError(f"Поле нельзя очистить: {', '.join(nulls)}")
         if self.periodicity is None and self.interval_months is None:
             return self
         kind, interval = normalize_periodicity(self.periodicity or "every_n", self.interval_months)
@@ -181,7 +189,6 @@ class RecurringOut(BaseModel):
     next_payment_date: date | None = None
     periodicity: str = "monthly"
     interval_months: int | None = None
-    remind_archived_overdue: bool = True
     applies_from: date | None = None
     debt_count: int = 0
     is_archived: bool

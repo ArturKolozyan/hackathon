@@ -84,8 +84,9 @@ def test_openapi_contains_must_paths():
     patch = paths["/api/v1/payment-occurrences/{id}"]["patch"]
     ref = patch["requestBody"]["content"]["application/json"]["schema"]["$ref"]
     name = ref.rsplit("/", 1)[-1]
-    assert "receipt_url" in schema["components"]["schemas"][name]["properties"]
     assert "receipt_note" in schema["components"]["schemas"][name]["properties"]
+    assert "receipt" in schema["components"]["schemas"]["OccurrenceOut"]["properties"]
+    assert "post" in paths["/api/v1/payment-occurrences/{occurrence_id}/receipt"]
 
 
 def _artifact():

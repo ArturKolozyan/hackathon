@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { MessageCircle, Mic, SendHorizontal, Settings, Trash2, X } from "lucide-react";
-import { useAuth } from "../auth";
+import { Mic, SendHorizontal, Settings, Trash2, X } from "lucide-react";
+import { canManage, useAuth } from "../auth";
 import { useFeatures } from "../features";
 import {
   ApiError,
@@ -15,9 +15,13 @@ import {
 import { DateField, SelectField } from "./fields";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { HINTS } from "../hints";
+import { notifyChanged } from "../fresh";
+import { RubHint } from "../rates";
+import { Kip, type KipState } from "./Kip";
 
 const MAX_SECONDS = 25;
-const SUGGESTIONS = ["Что горит на этой неделе?", "Что просрочено?", "Сколько потратили за месяц?"];
+const SUGGESTIONS = ["Что просрочено?", "Итоги за месяц", "Как приложить чек?"];
+const MANAGER_SUGGESTIONS = [...SUGGESTIONS, "Кто в отделе?"];
 
 type Draft = {
   title: string;
@@ -75,6 +79,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
   const { user } = useAuth();
   const features = useFeatures();
   const teamId = user?.active_team_id ?? "";
+  const manager = canManage(user);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +94,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
   const [menu, setMenu] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [happy, setHappy] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -120,7 +126,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
         if (!cancelled) setMessages(rows);
       })
       .catch(() => {
-        if (!cancelled) setError("Ассистент временно недоступен");
+        if (!cancelled) setError("Кип временно недоступен");
       })
       .finally(() => {
         if (!cancelled) setReady(true);
@@ -240,7 +246,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
     } catch (err: unknown) {
       setMessages((current) => current.filter((item) => item.id !== optimistic.id));
       setDraft(cleaned);
-      setError(err instanceof ApiError && err.status < 500 ? err.message : "Ассистент временно недоступен");
+      setError(err instanceof ApiError && err.status < 500 ? err.message : "Кип временно недоступен");
       setLive("");
     } finally {
       setPending(false);
@@ -258,6 +264,12 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
           .concat(reply.message),
       );
       setEditing(null);
+      // Ассистент поменял данные: открытая страница перечитает своё.
+      if (reply.action.status === "confirmed") {
+        notifyChanged();
+        setHappy(true);
+        window.setTimeout(() => setHappy(false), 1300);
+      }
     } catch (err: unknown) {
       setError(err instanceof ApiError ? err.message : "Не получилось подтвердить");
     } finally {
@@ -424,6 +436,8 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
   }
 
   const available = features.assistant && features.assistant_available;
+  const kipState: KipState = pending && !live ? "thinking" : live ? "talking" : happy ? "happy" : "idle";
+  const suggestions = manager ? MANAGER_SUGGESTIONS : SUGGESTIONS;
   const canSend = Boolean(draft.trim()) && !pending && !transcribing;
 
   return (
@@ -438,8 +452,8 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
           data-hint={HINTS.assistant}
           onClick={() => onOpenChange(true)}
         >
-          <MessageCircle size={22} strokeWidth={1.75} aria-hidden />
-          <span className="sr-only">Открыть ассистента</span>
+          <Kip state={kipState} size={46} />
+          <span className="sr-only">Открыть Кипа, помощника</span>
         </button>
       )}
       {open && (
@@ -453,7 +467,10 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
           tabIndex={-1}
         >
           <header className="chat-head">
-            <h2 id="assistant-title">Ассистент</h2>
+            <h2 id="assistant-title" className="chat-title">
+              <Kip state={kipState} size={28} quiet={kipState === "idle"} />
+              Кип
+            </h2>
             <div className="chat-tools" ref={menuRef}>
               {available && (
                 <button
@@ -480,11 +497,11 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                     <div className="chat-menu-confirm">
                       <p>Очистить историю этого отдела? Висящая карточка тоже скроется.</p>
                       <div className="row-actions">
-                        <button type="button" className="chat-danger" disabled={clearing} onClick={() => void clearChat()}>
+                        <button type="button" className="chat-danger" disabled={clearing} data-hint={HINTS.chatClearConfirm} onClick={() => void clearChat()}>
                           <Trash2 size={16} strokeWidth={1.75} aria-hidden />
                           {clearing ? "Очищаю…" : "Очистить"}
                         </button>
-                        <button type="button" className="ghost" disabled={clearing} onClick={() => setConfirmClear(false)}>
+                        <button type="button" className="ghost" disabled={clearing} data-hint={HINTS.cancel} onClick={() => setConfirmClear(false)}>
                           Отмена
                         </button>
                       </div>
@@ -501,14 +518,14 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
           </header>
           {!features.loaded || !ready ? (
             <div className="chat-log">
-              <p className="sr-only">Загрузка ассистента</p>
+              <p className="sr-only">Кип загружается</p>
               <span className="skeleton skeleton-line" />
               <span className="skeleton skeleton-card short" />
             </div>
           ) : !available ? (
             <div className="chat-log">
               <div className="panel empty-state">
-                <h3>Ассистент временно недоступен</h3>
+                <h3>Кип временно недоступен</h3>
                 <p>Платежи, люди и остальные разделы работают.</p>
               </div>
             </div>
@@ -517,9 +534,14 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
               <div className="chat-log" ref={logRef} aria-live="polite">
                 {messages.length === 0 && !live && !pending && (
                   <div className="chat-empty">
-                    <p>Спросите про очередь или надиктуйте платёж. В базу попадёт только после «Подтвердить».</p>
+                    <Kip state={kipState} size={104} />
+                    <p className="chat-greet">Привет! Я Кип, помогу разобраться в продукте</p>
+                    <p>
+                      Подскажу, что просрочено и сколько платим, отмечу оплату или заведу платёж. В базу всё попадёт только после
+                      вашего «Подтвердить».
+                    </p>
                     <div className="chat-suggest">
-                      {SUGGESTIONS.map((prompt) => (
+                      {suggestions.map((prompt) => (
                         <button key={prompt} type="button" data-hint={HINTS.chatSuggest} onClick={() => void send(prompt)}>
                           {prompt}
                         </button>
@@ -551,6 +573,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                 ))}
                 {live && (
                   <div className="msg msg-assistant">
+                    <Kip state="talking" size={28} className="msg-avatar" />
                     <div className="bubble assistant-bubble">
                       <MarkdownMessage text={live} />
                       <span className="caret" aria-hidden="true" />
@@ -559,7 +582,8 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                 )}
                 {pending && !live && (
                   <div className="msg msg-assistant">
-                    <div className="typing" role="status" aria-label="Ассистент печатает">
+                    <Kip state="thinking" size={28} className="msg-avatar" />
+                    <div className="typing" role="status" aria-label="Кип думает">
                       <span />
                       <span />
                       <span />
@@ -587,14 +611,14 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                 }}
               >
                 <label className="sr-only" htmlFor="assistant-input">
-                  Сообщение ассистенту
+                  Сообщение Кипу
                 </label>
                 <textarea
                   id="assistant-input"
                   ref={inputRef}
                   rows={1}
                   value={draft}
-                  placeholder="Что горит на этой неделе?"
+                  placeholder="Спросите Кипа"
                   onChange={(event) => setDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -668,6 +692,7 @@ function MessageView({
   if (!action || action.status === "cancelled") {
     return (
       <div className="msg msg-assistant">
+<Kip quiet size={28} className="msg-avatar" />
         <div className="bubble assistant-bubble">
           <MarkdownMessage text={message.content} />
         </div>
@@ -679,6 +704,7 @@ function MessageView({
   const body = action.status === "pending" ? action.summary : message.content;
   return (
     <div className="msg msg-assistant">
+<Kip quiet size={28} className="msg-avatar" />
       <article className="card assistant-card">
         <MarkdownMessage text={body} />
         {pendingCard && editing && form && <EditForm action={action} form={form} onForm={onForm} />}
@@ -686,10 +712,10 @@ function MessageView({
           <div className="card-actions">
             {editing ? (
               <>
-                <button type="button" className="primary" disabled={busy} onClick={onSave}>
+                <button type="button" className="primary" disabled={busy} data-hint={HINTS.chatEditDone} onClick={onSave}>
                   Готово
                 </button>
-                <button type="button" className="ghost" disabled={busy} onClick={onCancelEdit}>
+                <button type="button" className="ghost" disabled={busy} data-hint={HINTS.chatEditBack} onClick={onCancelEdit}>
                   Назад
                 </button>
               </>
@@ -753,6 +779,7 @@ function EditForm({
       <label>
         Сумма
         <input value={form.amount} inputMode="decimal" onChange={(event) => onForm({ ...form, amount: event.target.value })} />
+        <RubHint amount={form.amount} currency={form.currency} />
       </label>
       <label>
         Валюта

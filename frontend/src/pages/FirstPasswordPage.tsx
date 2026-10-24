@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api";
+import { HINTS } from "../hints";
 import { useAuth } from "../auth";
 
 export function FirstPasswordPage() {
@@ -47,7 +48,7 @@ export function FirstPasswordPage() {
             {error}
           </p>
         )}
-        <button type="submit" className="primary" disabled={busy}>
+        <button type="submit" className="primary" disabled={busy} data-hint={HINTS.firstPassword}>
           {busy ? "Сохраняю…" : "Продолжить"}
         </button>
       </form>

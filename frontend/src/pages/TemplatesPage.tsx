@@ -3,9 +3,10 @@ import { Plus, Repeat, Search, SearchX } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, type Template } from "../api";
 import { PageControls } from "../components/PageControls";
-import { EmptyState, ErrorState, InlineConfirm, LoadingBlock, SwitchCard } from "../components/ui";
+import { EmptyState, ErrorState, InlineConfirm, LoadingBlock } from "../components/ui";
 import { formatMoney, shortDue } from "../format";
 import { HINTS } from "../hints";
+import { useFresh } from "../fresh";
 
 export function periodPhrase(item: Pick<Template, "periodicity" | "interval_months">): string {
   if (item.periodicity === "once") return "разово";
@@ -23,7 +24,7 @@ export function TemplatesPage() {
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
-  const [remindOverdue, setRemindOverdue] = useState(true);
+  const fresh = useFresh();
 
   const load = useCallback(async () => {
     setItems(await api<Template[]>("/api/v1/recurring-payments?include_archived=true"));
@@ -33,14 +34,14 @@ export function TemplatesPage() {
     load()
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"))
       .finally(() => setReady(true));
-  }, [load]);
+  }, [load, fresh]);
 
-  async function archive(item: Template, archived: boolean, remind = true) {
+  async function archive(item: Template, archived: boolean) {
     setError(null);
     try {
       await api(`/api/v1/recurring-payments/${item.id}`, {
         method: "PATCH",
-        body: JSON.stringify(archived ? { is_archived: true, remind_archived_overdue: remind } : { is_archived: false }),
+        body: JSON.stringify({ is_archived: archived }),
       });
       await load();
     } catch (err) {
@@ -75,7 +76,6 @@ export function TemplatesPage() {
               item.next_payment_date ? `ближайшая ${shortDue(item.next_payment_date)}` : `${item.day_of_month}-е число`,
               periodPhrase(item),
               item.responsible?.full_name ?? "без ответственного",
-              `открыто ${item.open_count}, закрыто ${item.paid_count}`,
             ].join(", ")}
           </p>
           {item.description && <p className="row-meta">{item.description}</p>}
@@ -86,22 +86,16 @@ export function TemplatesPage() {
             <div className="stack row-confirm">
               {item.debt_count > 0 && (
                 <p className="error" role="alert">
-                  Неоплаченных прошлых периодов: {item.debt_count}. Они останутся в инбоксе и итогах. Новые периоды не
-                  создаются.
+                  Неоплаченных прошлых периодов: {item.debt_count}. Они останутся в инбоксе и итогах, напоминаний по ним не
+                  будет.
                 </p>
               )}
-              <SwitchCard
-                title="Напоминать о просрочке"
-                description="Старые долги этого шаблона продолжат приходить в напоминаниях"
-                checked={remindOverdue}
-                onChange={setRemindOverdue}
-              />
               <InlineConfirm
-                title="Новые периоды не появятся. История и долг останутся."
+                title="Будущие периоды уберутся, новые не появятся. История останется."
                 confirmLabel="В архив"
                 onConfirm={() => {
                   setConfirmArchive(null);
-                  void archive(item, true, remindOverdue);
+                  void archive(item, true);
                 }}
                 onCancel={() => setConfirmArchive(null)}
               />
@@ -120,7 +114,6 @@ export function TemplatesPage() {
                     void archive(item, false);
                     return;
                   }
-                  setRemindOverdue(item.remind_archived_overdue);
                   setConfirmArchive(item.id);
                 }}
               >
@@ -175,7 +168,7 @@ export function TemplatesPage() {
           icon={SearchX}
           title="Ничего не нашлось"
           action={
-            <button type="button" className="ghost" onClick={() => setQuery("")}>
+            <button type="button" className="ghost" data-hint={HINTS.searchClear} onClick={() => setQuery("")}>
               Очистить поиск
             </button>
           }

@@ -22,6 +22,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.integrations.telegram import TelegramError
 from app.models import PaymentOccurrence, Team, TelegramBot, TelegramIntegration, TelegramLinkToken, User
+from app.services import telegram_html as tg
 from app.services import time as clock
 from app.services.audit import record
 from app.services.teams import membership
@@ -30,6 +31,7 @@ log = logging.getLogger("invoice_keeper.telegram")
 
 TEAM_RECIPIENT = "team"
 UNLINKED_ALERT = "Сначала привяжите Telegram в rekeeper: Настройки → Уведомления."
+SETTINGS_PATH = "Настройки → Уведомления"
 BUSY_TELEGRAM = (
     "Этот Telegram уже привязан к другому аккаунту rekeeper. "
     "Отвяжите его там (Настройки → Уведомления) или откройте ссылку из другого Telegram."
@@ -256,11 +258,7 @@ def flush_test_message(bot: Any) -> None:
                 db.commit()
                 continue
             try:
-                bot.send_message(
-                    chat_id,
-                    "rekeeper на связи. Напоминания отдела будут приходить сюда.",
-                    {"inline_keyboard": []},
-                )
+                bot.send_message(chat_id, _team_test_text(db, row.team_id), {"inline_keyboard": []})
             except TelegramError as exc:
                 row.test_error = exc.description[:200]
                 row.updated_at = clock.now()
@@ -276,6 +274,13 @@ def flush_test_message(bot: Any) -> None:
         log.exception("telegram test flush failed")
     finally:
         db.close()
+
+
+def _team_test_text(db: Session, team_id: uuid.UUID) -> str:
+    team = db.get(Team, team_id)
+    lines = [tg.field("Отдел", team.name)] if team is not None else []
+    lines.append(tg.esc("Всё работает: напоминания и просрочки отдела будут приходить в этот чат."))
+    return tg.compose("🔔", "Проверка связи", lines)
 
 
 def request_personal_test(db: Session, user: User) -> None:
@@ -307,7 +312,11 @@ def _flush_personal_tests(db: Session, bot: Any) -> None:
         try:
             bot.send_message(
                 str(user.telegram_user_id),
-                "rekeeper: тестовое уведомление. Личные напоминания будут приходить сюда.",
+                tg.notice(
+                    "🔔",
+                    "Тестовое уведомление",
+                    "Всё работает: личные напоминания rekeeper будут приходить в этот чат.",
+                ),
                 {"inline_keyboard": []},
             )
         except TelegramError as exc:
@@ -419,30 +428,60 @@ def move_chat(db: Session, old_key: str, new_key: str) -> None:
     log.info("telegram chat migrated %s -> %s", old_key, new_key)
 
 
+def _link_help(private: bool) -> str:
+    if private:
+        return tg.compose(
+            "👋",
+            "Это бот напоминаний rekeeper",
+            [
+                tg.esc("Здесь приходят личные напоминания о платежах, а кнопка «Оплачено» отмечает оплату."),
+                tg.esc("Чтобы привязать Telegram:"),
+                tg.bullet(tg.esc("откройте rekeeper")),
+                tg.bullet(tg.esc(f"{SETTINGS_PATH} → Привязать Telegram")),
+                tg.bullet(tg.esc("нажмите на ссылку и вернитесь сюда")),
+            ],
+        )
+    return tg.notice(
+        "👋",
+        "Это бот напоминаний rekeeper",
+        f"Чат отдела подключается из rekeeper: {SETTINGS_PATH} → Подключить чат отдела.",
+    )
+
+
 def _consume_start(db: Session, payload: str, chat: dict[str, Any], sender: dict[str, Any]) -> str:
     private = is_private_chat(chat)
     if payload == "":
-        if private:
-            return "Привязка в rekeeper: Настройки → Уведомления → Привязать Telegram."
-        return "Чат отдела подключается из rekeeper: Настройки → Уведомления → Подключить чат отдела."
+        return _link_help(private)
     token = db.scalar(select(TelegramLinkToken).where(TelegramLinkToken.token == payload))
     expired = token is not None and token.expires_at is not None and token.expires_at <= clock.now()
     if token is not None and token.used_at is not None and token.purpose == "user" and private:
         # Telegram повторяет /start, когда ссылку открывают ещё раз. Уже привязан — так и скажем.
         holder = token.user
         if holder is not None and holder.telegram_user_id is not None and holder.telegram_user_id == _sender_id(sender):
-            return f"Telegram уже привязан к {holder.full_name}. Ничего делать не нужно."
+            return tg.notice("✅", "Telegram уже привязан", f"Аккаунт: {holder.full_name}. Ничего делать не нужно.")
     if token is None or token.used_at is not None or expired:
-        return "Ссылка уже использована или заменена новой. Получите новую в rekeeper: Настройки → Уведомления."
+        return tg.notice(
+            "⚠️",
+            "Ссылка не работает",
+            f"Ссылка уже использована или заменена новой. Получите новую в rekeeper: {SETTINGS_PATH}.",
+        )
     if token.purpose == "team":
         if private:
-            return "Эту ссылку откройте как добавление бота в группу, не в личном чате."
+            return tg.notice(
+                "⚠️",
+                "Это ссылка для группы",
+                "Откройте её как добавление бота в группу отдела, а не в личном чате.",
+            )
         return _connect_team(db, token, chat)
     if token.purpose == "user":
         if not private:
-            return "Привязка человека — в личном чате с ботом. Откройте ссылку ещё раз."
+            return tg.notice(
+                "⚠️",
+                "Привязка — в личном чате",
+                "Личный Telegram привязывается в личном чате с ботом. Откройте ссылку ещё раз.",
+            )
         return _connect_user(db, token, sender)
-    return "Ссылка недействительна. Получите новую в rekeeper: Настройки → Уведомления."
+    return tg.notice("⚠️", "Ссылка недействительна", f"Получите новую в rekeeper: {SETTINGS_PATH}.")
 
 
 def _sender_id(sender: dict[str, Any]) -> int | None:
@@ -454,11 +493,12 @@ def _sender_id(sender: dict[str, Any]) -> int | None:
 
 def _connect_team(db: Session, token: TelegramLinkToken, chat: dict[str, Any]) -> str:
     creator = token.user
+    denied = tg.notice("⚠️", "Нет прав на подключение", "Ссылку выдаёт администратор отдела. Создайте новую в rekeeper.")
     if creator is None or not creator.is_active or token.team_id is None:
-        return "Ссылку может выдать только администратор. Создайте новую в rekeeper."
+        return denied
     seat = membership(db, token.team_id, creator.id)
     if not creator.is_owner and (seat is None or seat.role not in _MANAGERS):
-        return "Ссылку может выдать только администратор. Создайте новую в rekeeper."
+        return denied
     row = team_row(db, token.team_id, create=True)
     assert row is not None
     title = str(chat.get("title") or "").strip() or "Группа"
@@ -483,19 +523,20 @@ def _connect_team(db: Session, token: TelegramLinkToken, chat: dict[str, Any]) -
     open_rows = list_open_occurrences(db, token.team_id)
     acknowledge_team_backlog(db, token.team_id, open_rows)
     db.commit()
-    return connect_digest(open_rows)
+    team = db.get(Team, token.team_id)
+    return connect_digest(open_rows, team.name if team is not None else None)
 
 
 def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any]) -> str:
     owner = token.user
     if owner is None or not owner.is_active:
-        return "Пользователь rekeeper не найден или отключён."
+        return tg.notice("⚠️", "Аккаунт не найден", "Пользователь rekeeper не найден или отключён.")
     tg_id = _sender_id(sender)
     if tg_id is None:
-        return "Не вижу аккаунт Telegram. Откройте ссылку ещё раз."
+        return tg.notice("⚠️", "Не получилось привязать", "Не вижу аккаунт Telegram. Откройте ссылку ещё раз.")
     other = db.scalar(select(User).where(User.telegram_user_id == tg_id, User.id != owner.id))
     if other is not None:
-        return BUSY_TELEGRAM
+        return tg.notice("⚠️", "Telegram уже занят", BUSY_TELEGRAM)
     username = sender.get("username")
     owner.telegram_user_id = tg_id
     owner.telegram_username = str(username).lstrip("@")[:32] if isinstance(username, str) and username else None
@@ -509,7 +550,7 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
         db.flush()
     except IntegrityError:
         db.rollback()
-        return BUSY_TELEGRAM
+        return tg.notice("⚠️", "Telegram уже занят", BUSY_TELEGRAM)
     record(
         db,
         action="telegram.user_link",
@@ -519,10 +560,14 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
         meta={"email": owner.email},
     )
     db.commit()
-    return (
-        f"Здравствуйте, {owner.full_name}! Telegram привязан: «Оплачено» в чате отдела записывается на вас, "
-        "личные напоминания приходят сюда."
-    )
+    lines = [
+        tg.esc("Telegram привязан к rekeeper."),
+        tg.bullet(tg.esc("личные напоминания о платежах будут приходить сюда")),
+        tg.bullet(tg.esc("кнопка «Оплачено» в чате отдела записывает оплату на вас")),
+    ]
+    if get_settings().assistant_configured:
+        lines.append(tg.bullet(tg.esc("сюда же можно писать Кипу, помощнику: «что горит на этой неделе?»")))
+    return tg.compose("👋", f"Здравствуйте, {owner.full_name}!", lines)
 
 
 def _display_name(sender: dict[str, Any]) -> str | None:

@@ -33,11 +33,11 @@ def _letter(title: str, intro: str, text_block: str, html_block: str) -> tuple[s
     if panel:
         lines.extend(["", panel])
     text = "\n".join(lines)
-    foot = f'<p style="margin-top:24px;"><a href="{html.escape(panel, quote=True)}" style="color:#FF6B1A;">{html.escape(panel)}</a></p>' if panel else ""
+    foot = f'<p style="margin-top:24px;"><a href="{html.escape(panel, quote=True)}" style="color:#E97C35;">{html.escape(panel)}</a></p>' if panel else ""
     html_body = f"""<!doctype html>
 <html lang="ru"><body style="margin:0;background:#0E0E0E;color:#ffffff;font-family:Inter,Arial,sans-serif;">
 <div style="max-width:520px;margin:0 auto;padding:32px 20px;">
-  <div style="font-weight:900;font-size:22px;letter-spacing:-0.04em;"><span style="color:#FF6B1A;">re</span>keeper</div>
+  <div style="font-weight:900;font-size:22px;letter-spacing:-0.04em;"><span style="color:#E97C35;">re</span>keeper</div>
   <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;margin:24px 0 8px;">{html.escape(title)}</h1>
   <p style="color:#A3A3A3;line-height:1.5;margin:0 0 20px;">{html.escape(intro)}</p>
   <div style="padding:18px;border:1px solid #2A2A2A;border-radius:16px;background:#1A1A1A;">{html_block}</div>

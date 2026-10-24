@@ -54,6 +54,24 @@ if has_dump_for_day 19990101; then
 fi
 
 rm -f "$dir"/invoice-keeper-*.dump
+
+# Архивы чеков: остаются последние KEEP.
+i=1
+while [ "$i" -le 9 ]; do
+  printf 'x\n' > "$dir/receipts-20261023T01000$i-1.tar.gz"
+  touch -d "@$((1700000000 + i))" "$dir/receipts-20261023T01000$i-1.tar.gz"
+  i=$((i + 1))
+done
+rotate_receipts "$dir" 7
+count=$(find "$dir" -name 'receipts-*.tar.gz' | wc -l | tr -d ' ')
+[ "$count" -eq 7 ] || fail "receipts rotate count $count"
+[ ! -e "$dir/receipts-20261023T010001-1.tar.gz" ] || fail "oldest receipts kept"
+[ -e "$dir/receipts-20261023T010009-1.tar.gz" ] || fail "newest receipts dropped"
+rm -f "$dir"/receipts-*.tar.gz
+
+receipts=$(mktemp -d)
+mkdir -p "$receipts/ab"
+printf 'PDF\n' > "$receipts/ab/receipt.pdf"
 bindir=$(mktemp -d)
 cat > "$bindir/pg_dump" << 'EOF'
 #!/bin/sh
@@ -82,7 +100,7 @@ done
 printf 'PGDMP-fake\n' > "$out"
 EOF
 chmod +x "$bindir/pg_dump"
-trap 'rm -rf "$dir" "$bindir"' EXIT INT TERM
+trap 'rm -rf "$dir" "$bindir" "$receipts"' EXIT INT TERM
 
 set +e
 run_out=$(
@@ -93,6 +111,7 @@ run_out=$(
     PGUSER=invoice \
     PGPASSWORD=change-me \
     PGDATABASE=invoice_keeper \
+    RECEIPTS_SRC="$receipts" \
     /bin/sh "$HERE/backup.sh" 2>&1
 )
 run_code=$?
@@ -108,6 +127,30 @@ esac
 [ -e "$dir"/.partial-*.dump ] && fail "partial left behind"
 count=$(find "$dir" -name 'invoice-keeper-*.dump' | wc -l | tr -d ' ')
 [ "$count" -eq 1 ] || fail "fake dump count $count"
+
+# Рядом с дампом — архив чеков с тем же штампом, читаемый tar.
+dump=$(basename "$(find "$dir" -name 'invoice-keeper-*.dump')")
+stamp=${dump#invoice-keeper-}
+stamp=${stamp%.dump}
+[ -e "$dir/receipts-$stamp.tar.gz" ] || fail "receipts archive missing for $stamp"
+tar -tzf "$dir/receipts-$stamp.tar.gz" | grep -q 'ab/receipt.pdf' || fail "receipts archive unreadable"
+[ -e "$dir"/.partial-receipts-*.tar.gz ] && fail "partial receipts left behind"
+
+# Архив не собрался — дамп остаётся, в stderr ERROR.
+cat > "$bindir/tar" << 'EOF'
+#!/bin/sh
+exit 2
+EOF
+chmod +x "$bindir/tar"
+fail_out=$(
+  PATH="$bindir:$PATH" BACKUP_DIR="$dir" PGUSER=invoice PGPASSWORD=change-me PGDATABASE=invoice_keeper \
+    RECEIPTS_SRC="$receipts" /bin/sh "$HERE/backup.sh" 2>&1 >/dev/null
+) || fail "backup.sh failed on archive error"
+case "$fail_out" in
+  *"ERROR: receipts archive failed"*) ;;
+  *) fail "archive error not reported: $fail_out" ;;
+esac
+rm -f "$bindir/tar"
 
 # Пустой пароль не должен зависнуть на приглашении.
 if PATH="$bindir:$PATH" BACKUP_DIR="$dir" PGUSER=invoice PGDATABASE=invoice_keeper PGPASSWORD= \

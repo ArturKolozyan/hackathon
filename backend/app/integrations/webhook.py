@@ -6,15 +6,52 @@
 
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
+import socket
 import time
+from urllib.parse import urlsplit
 
 import httpx
 
 from app.core.config import get_settings
 
 log = logging.getLogger("invoice_keeper.webhook")
+
+
+def _addresses(host: str, port: int) -> list[str]:
+    return [info[4][0] for info in socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)]
+
+
+def public_url_error(url: str) -> str | None:
+    """Webhook отдела: только https и только публичный адрес. None — можно слать.
+
+    Хост проверяется и при сохранении, и перед каждой отправкой: DNS мог смениться.
+    """
+    try:
+        parts = urlsplit(url)
+        port = parts.port or 443
+    except ValueError:
+        return "Некорректный URL"
+    if parts.scheme != "https" or not parts.hostname:
+        return "Нужен адрес https://"
+    if parts.username or parts.password:
+        return "Логин и пароль в адресе не поддерживаются"
+    try:
+        found = _addresses(parts.hostname, port)
+    except (OSError, UnicodeError):
+        return "Адрес не найден в DNS"
+    if not found:
+        return "Адрес не найден в DNS"
+    for raw in found:
+        address = ipaddress.ip_address(raw.split("%", 1)[0])
+        mapped = getattr(address, "ipv4_mapped", None)
+        if mapped is not None:
+            address = mapped
+        if not address.is_global or address.is_multicast:
+            return "Внутренние и локальные адреса запрещены"
+    return None
 
 
 def _post(url: str, body: bytes, headers: dict[str, str]) -> int:
@@ -66,6 +103,9 @@ def send_team_webhook(url: str, payload: dict) -> str:
     cleaned = url.strip()
     if not cleaned:
         return "skipped"
+    if public_url_error(cleaned) is not None:
+        log.warning("team webhook blocked: not a public https address")
+        return "failed"
     return _deliver(cleaned, payload, secret="", attempts=1)
 
 
@@ -73,6 +113,9 @@ def probe_webhook(url: str, payload: dict) -> tuple[str, str]:
     cleaned = url.strip()
     if not cleaned:
         return "skipped", "URL пустой"
+    blocked = public_url_error(cleaned)
+    if blocked is not None:
+        return "failed", blocked
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
     headers = {
         "Content-Type": "application/json",

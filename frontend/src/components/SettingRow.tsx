@@ -121,6 +121,7 @@ export function SwitchRow({
             disabled={disabled}
             labelledBy={`${id}-t`}
             describedBy={description ? `${id}-d` : undefined}
+            hint={title}
           />
         </div>
       </div>

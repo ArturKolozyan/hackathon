@@ -22,6 +22,8 @@ log = logging.getLogger("invoice_keeper.telegram")
 
 API_HOST = "api.telegram.org"
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
+# Все тексты бота собирает app.services.telegram_html: пользовательские строки уже экранированы.
+HTML_OPTIONS: dict[str, Any] = {"parse_mode": "HTML", "link_preview_options": {"is_disabled": True}}
 
 
 class TelegramError(Exception):
@@ -225,7 +227,7 @@ class TelegramClient:
     def send_message(self, chat_id: str, text: str, reply_markup: dict[str, Any]) -> int:
         result = self._call(
             "sendMessage",
-            {"chat_id": chat_id, "text": text, "reply_markup": reply_markup},
+            {"chat_id": chat_id, "text": text, "reply_markup": reply_markup, **HTML_OPTIONS},
             read_timeout=20,
         )
         if not isinstance(result, dict) or "message_id" not in result:
@@ -240,6 +242,7 @@ class TelegramClient:
                 "message_id": message_id,
                 "text": text,
                 "reply_markup": reply_markup,
+                **HTML_OPTIONS,
             },
             read_timeout=20,
         )

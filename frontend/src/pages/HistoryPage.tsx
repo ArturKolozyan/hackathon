@@ -6,19 +6,19 @@ import { DateField, SelectField } from "../components/fields";
 import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, LoadingBlock } from "../components/ui";
 import { HINTS } from "../hints";
+import { useFresh } from "../fresh";
 
 type Filters = {
-  status: string;
   currency: string;
   date_from: string;
   date_to: string;
 };
 
-const emptyFilters: Filters = { status: "", currency: "", date_from: "", date_to: "" };
+const emptyFilters: Filters = { currency: "", date_from: "", date_to: "" };
 
-function queryOf(filters: Filters, view: string): string {
-  const params = new URLSearchParams({ view });
-  if (filters.status) params.set("status", filters.status);
+/** История — только оплаченные периоды. Неоплаченные живут в инбоксе и календаре. */
+function queryOf(filters: Filters): string {
+  const params = new URLSearchParams({ view: "history" });
   if (filters.currency) params.set("currency", filters.currency);
   if (filters.date_from) params.set("date_from", filters.date_from);
   if (filters.date_to) params.set("date_to", filters.date_to);
@@ -30,13 +30,13 @@ export function HistoryPage() {
   const [data, setData] = useState<OccurrenceList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
-  const dirty = Boolean(filters.status || filters.currency || filters.date_from || filters.date_to);
+  const dirty = Boolean(filters.currency || filters.date_from || filters.date_to);
 
+  const fresh = useFresh();
   const load = useCallback(async () => {
     setError(null);
-    const view = filters.status ? "all" : "history";
     try {
-      setData(await api<OccurrenceList>(`/api/v1/payment-occurrences?${queryOf(filters, view)}`));
+      setData(await api<OccurrenceList>(`/api/v1/payment-occurrences?${queryOf(filters)}`));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "История не загрузилась");
     }
@@ -44,13 +44,12 @@ export function HistoryPage() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, fresh]);
 
   async function exportCsv() {
     setExportError(null);
-    const view = filters.status ? "all" : "history";
     try {
-      await downloadCsv(`/api/v1/payment-occurrences/export.csv?${queryOf(filters, view)}`);
+      await downloadCsv(`/api/v1/payment-occurrences/export.csv?${queryOf(filters)}`);
     } catch (err) {
       setExportError(err instanceof ApiError ? err.message : "CSV не выгрузился");
     }
@@ -61,19 +60,6 @@ export function HistoryPage() {
       <PageControls
         left={
         <>
-        <SelectField
-          className="tb-field"
-          ariaLabel="Статус"
-          value={filters.status}
-          onChange={(status) => setFilters({ ...filters, status })}
-          options={[
-            { value: "", label: "Оплаченные" },
-            { value: "paid", label: "Оплачен" },
-            { value: "overdue", label: "Просрочен" },
-            { value: "due_soon", label: "Скоро" },
-            { value: "upcoming", label: "Не наступил" },
-          ]}
-        />
         <SelectField
           className="tb-field"
           ariaLabel="Валюта"
@@ -137,13 +123,7 @@ export function HistoryPage() {
       {data && (
         <div className="cards">
           {data.items.map((item) => (
-            <OccurrenceCard
-              key={item.id}
-              item={item}
-              today={data.today}
-              mode={item.status === "paid" ? "history" : "inbox"}
-              onChanged={load}
-            />
+            <OccurrenceCard key={item.id} item={item} today={data.today} mode="history" onChanged={load} />
           ))}
         </div>
       )}

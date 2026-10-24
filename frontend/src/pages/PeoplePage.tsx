@@ -6,6 +6,7 @@ import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, InlineConfirm, LoadingBlock, Segmented, useToast } from "../components/ui";
 import { initials } from "../format";
 import { HINTS } from "../hints";
+import { useFresh } from "../fresh";
 
 export type ShownLink = { personId: string; kind: "invite" | "telegram"; url: string };
 
@@ -40,6 +41,7 @@ export function PeoplePage() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const fresh = useFresh();
   const load = useCallback(async () => {
     setPeople(await api<DirectoryUser[]>("/api/v1/users"));
   }, []);
@@ -48,7 +50,7 @@ export function PeoplePage() {
     load()
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"))
       .finally(() => setReady(true));
-  }, [load]);
+  }, [load, fresh]);
 
   async function run(action: () => Promise<void>, fallback: string) {
     setBusy(true);
@@ -154,7 +156,7 @@ export function PeoplePage() {
           title={query ? "Никого не нашли" : "Людей пока нет"}
           action={
             query ? (
-              <button type="button" className="ghost" onClick={() => setQuery("")}>
+              <button type="button" className="ghost" data-hint={HINTS.searchClear} onClick={() => setQuery("")}>
                 Очистить поиск
               </button>
             ) : (
@@ -256,7 +258,7 @@ export function PeoplePage() {
                     <button type="button" className="ghost" data-hint={HINTS.copyLink} onClick={() => void copy(shown.url)}>
                       Скопировать
                     </button>
-                    <button type="button" className="ghost" onClick={() => setShown(null)}>
+                    <button type="button" className="ghost" data-hint={HINTS.hide} onClick={() => setShown(null)}>
                       Скрыть
                     </button>
                   </div>

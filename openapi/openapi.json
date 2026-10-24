@@ -24,6 +24,12 @@
             "title": "Items",
             "type": "array"
           },
+          "timezone": {
+            "default": "Europe/Moscow",
+            "description": "Часовой пояс организации для показа времени",
+            "title": "Timezone",
+            "type": "string"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
@@ -126,6 +132,32 @@
           "meta"
         ],
         "title": "AuditOut",
+        "type": "object"
+      },
+      "Body_upload_receipt_api_v1_payment_occurrences__occurrence_id__receipt_post": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_receipt_api_v1_payment_occurrences__occurrence_id__receipt_post",
         "type": "object"
       },
       "BudgetCreate": {
@@ -339,6 +371,14 @@
             "title": "Month",
             "type": "integer"
           },
+          "teams": {
+            "description": "Отделы в выдаче. scope=all — все доступные человеку, иначе текущий.",
+            "items": {
+              "$ref": "#/components/schemas/CalendarTeam"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
           "timezone": {
             "title": "Timezone",
             "type": "string"
@@ -361,6 +401,25 @@
           "days"
         ],
         "title": "CalendarOut",
+        "type": "object"
+      },
+      "CalendarTeam": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CalendarTeam",
         "type": "object"
       },
       "CodeIn": {
@@ -426,18 +485,6 @@
               }
             ],
             "title": "Receipt Note"
-          },
-          "receipt_url": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Receipt Url"
           }
         },
         "title": "ConfirmIn",
@@ -518,6 +565,58 @@
           "email"
         ],
         "title": "EmailChangeIn",
+        "type": "object"
+      },
+      "EmailTeamIn": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "scope": {
+            "default": "mine",
+            "enum": [
+              "mine",
+              "department"
+            ],
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "EmailTeamIn",
+        "type": "object"
+      },
+      "EmailTeamOut": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scope": {
+            "description": "mine — только платежи, где человек ответственный; department — весь отдел.",
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "enabled",
+          "scope"
+        ],
+        "title": "EmailTeamOut",
         "type": "object"
       },
       "ForgotIn": {
@@ -1064,6 +1163,22 @@
             "title": "Period Label",
             "type": "string"
           },
+          "planned": {
+            "default": false,
+            "description": "Будущий срок по расписанию, которого ещё нет в базе. Только для просмотра: оплатить и править нельзя.",
+            "title": "Planned",
+            "type": "boolean"
+          },
+          "receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReceiptOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "receipt_note": {
             "anyOf": [
               {
@@ -1074,17 +1189,6 @@
               }
             ],
             "title": "Receipt Note"
-          },
-          "receipt_url": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Receipt Url"
           },
           "recurring_payment_id": {
             "format": "uuid",
@@ -1103,6 +1207,11 @@
           },
           "status": {
             "title": "Status",
+            "type": "string"
+          },
+          "team_id": {
+            "format": "uuid",
+            "title": "Team Id",
             "type": "string"
           },
           "telegram_reminded_at": {
@@ -1129,6 +1238,7 @@
         },
         "required": [
           "id",
+          "team_id",
           "recurring_payment_id",
           "title",
           "description",
@@ -1239,18 +1349,6 @@
               }
             ],
             "title": "Receipt Note"
-          },
-          "receipt_url": {
-            "anyOf": [
-              {
-                "maxLength": 2000,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Receipt Url"
           },
           "title": {
             "anyOf": [
@@ -1477,6 +1575,14 @@
             "title": "Team Ids",
             "type": "array"
           },
+          "teams": {
+            "description": "Только у почты: настройки писем по отделам.",
+            "items": {
+              "$ref": "#/components/schemas/EmailTeamOut"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
           "test_error": {
             "anyOf": [
               {
@@ -1531,12 +1637,20 @@
             "type": "boolean"
           },
           "email_team_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Email Team Ids",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Не передан — отделы писем не меняются.",
+            "title": "Email Team Ids"
           },
           "notify_overdue": {
             "anyOf": [
@@ -1565,12 +1679,20 @@
             "type": "boolean"
           },
           "telegram_team_ids": {
-            "items": {
-              "format": "uuid",
-              "type": "string"
-            },
-            "title": "Telegram Team Ids",
-            "type": "array"
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Не передан — не меняется.",
+            "title": "Telegram Team Ids"
           }
         },
         "required": [
@@ -1601,6 +1723,74 @@
           "detail"
         ],
         "title": "ProbeOut",
+        "type": "object"
+      },
+      "RatesOut": {
+        "properties": {
+          "on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Дата курса ЦБ РФ; null — курс сейчас недоступен",
+            "title": "On"
+          },
+          "rates": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Рублей за единицу валюты: USD, EUR",
+            "title": "Rates",
+            "type": "object"
+          }
+        },
+        "title": "RatesOut",
+        "type": "object"
+      },
+      "ReceiptOut": {
+        "properties": {
+          "content_type": {
+            "title": "Content Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "uploaded_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploaded At"
+          },
+          "url": {
+            "description": "Скачать или открыть чек. Доступ — как к периоду.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "content_type",
+          "size",
+          "url"
+        ],
+        "title": "ReceiptOut",
         "type": "object"
       },
       "RecurringCreate": {
@@ -1805,11 +1995,6 @@
             "title": "Periodicity",
             "type": "string"
           },
-          "remind_archived_overdue": {
-            "default": true,
-            "title": "Remind Archived Overdue",
-            "type": "boolean"
-          },
           "responsible": {
             "anyOf": [
               {
@@ -1944,17 +2129,6 @@
             ],
             "title": "Periodicity"
           },
-          "remind_archived_overdue": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Remind Archived Overdue"
-          },
           "responsible_user_id": {
             "anyOf": [
               {
@@ -2040,6 +2214,25 @@
         "title": "SentOut",
         "type": "object"
       },
+      "StatsDepartment": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "StatsDepartment",
+        "type": "object"
+      },
       "StatsItem": {
         "properties": {
           "amount": {
@@ -2101,6 +2294,185 @@
         "title": "StatsItem",
         "type": "object"
       },
+      "StatsMonth": {
+        "properties": {
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "month": {
+            "description": "ГГГГ-ММ",
+            "title": "Month",
+            "type": "string"
+          },
+          "overdue": {
+            "description": "Не оплачено, срок в этом месяце уже прошёл.",
+            "title": "Overdue",
+            "type": "string"
+          },
+          "paid": {
+            "description": "Оплачено по дате оплаты в этом месяце.",
+            "title": "Paid",
+            "type": "string"
+          },
+          "planned": {
+            "description": "Не оплачено, срок в этом месяце ещё впереди.",
+            "title": "Planned",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "currency",
+          "paid",
+          "overdue",
+          "planned"
+        ],
+        "title": "StatsMonth",
+        "type": "object"
+      },
+      "StatsOperation": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "string"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "due_date": {
+            "format": "date",
+            "title": "Due Date",
+            "type": "string"
+          },
+          "has_receipt": {
+            "default": false,
+            "title": "Has Receipt",
+            "type": "boolean"
+          },
+          "lateness_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lateness Days"
+          },
+          "occurrence_id": {
+            "format": "uuid",
+            "title": "Occurrence Id",
+            "type": "string"
+          },
+          "paid_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Amount"
+          },
+          "paid_on": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid On"
+          },
+          "period_label": {
+            "title": "Period Label",
+            "type": "string"
+          },
+          "planned": {
+            "default": false,
+            "description": "Будущий срок по расписанию, ещё не создан: открыть нельзя.",
+            "title": "Planned",
+            "type": "boolean"
+          },
+          "responsible": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UserBrief"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "team_id": {
+            "format": "uuid",
+            "title": "Team Id",
+            "type": "string"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "occurrence_id",
+          "team_id",
+          "team_name",
+          "title",
+          "period_label",
+          "due_date",
+          "amount",
+          "currency",
+          "status"
+        ],
+        "title": "StatsOperation",
+        "type": "object"
+      },
+      "StatsOperations": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/StatsOperation"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "StatsOperations",
+        "type": "object"
+      },
       "StatsOut": {
         "properties": {
           "by_team": {
@@ -2108,6 +2480,14 @@
               "$ref": "#/components/schemas/StatsTeam"
             },
             "title": "By Team",
+            "type": "array"
+          },
+          "departments": {
+            "description": "Все отделы, доступные для фильтра.",
+            "items": {
+              "$ref": "#/components/schemas/StatsDepartment"
+            },
+            "title": "Departments",
             "type": "array"
           },
           "due_from": {
@@ -2135,12 +2515,30 @@
             ],
             "title": "Due To"
           },
+          "monthly": {
+            "description": "12 месяцев: 6 прошедших, текущий и 5 следующих. Фильтры отделов, валюты и ответственного учитываются.",
+            "items": {
+              "$ref": "#/components/schemas/StatsMonth"
+            },
+            "title": "Monthly",
+            "type": "array"
+          },
           "nearest": {
             "items": {
               "$ref": "#/components/schemas/StatsItem"
             },
             "title": "Nearest",
             "type": "array"
+          },
+          "operations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StatsOperations"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "overdue": {
             "items": {
@@ -2156,11 +2554,22 @@
             "title": "Paid",
             "type": "array"
           },
+          "paid_count": {
+            "default": 0,
+            "title": "Paid Count",
+            "type": "integer"
+          },
           "paid_from": {
             "description": "Оплачено считаем по дате оплаты в этом окне.",
             "format": "date",
             "title": "Paid From",
             "type": "string"
+          },
+          "paid_on_time": {
+            "default": 0,
+            "description": "Сколько из оплаченных в окне закрыты не позже срока.",
+            "title": "Paid On Time",
+            "type": "integer"
           },
           "paid_to": {
             "format": "date",
@@ -2950,7 +3359,7 @@
     }
   },
   "info": {
-    "description": "Одна установка — одна организация. Владелец задаётся в .env, отделы ведёт он. Публичной регистрации нет. Вход — почта и пароль, сброс — код на почту. Шаблон регулярного платежа и период — разные сущности. Инбокс сортируется: просрочено, скоро, остальное. «Оплачено» — подтверждение человека, не банка. Суммы в итогах не конвертируются между валютами. Telegram-бот — отдельный процесс: long polling и отправка карточек из outbox. Напоминание уходит в чат отдела и ответственному, если личный канал включён. Кнопка «Оплачено» ставит paid_at = сейчас в TIMEZONE и paid_by = пользователя rekeeper, чей Telegram нажал и кто состоит в отделе. Непривязанный клик ничего не меняет. Заметка не меняется. Ассистент — отдельный процесс и пишет в базу только после подтверждения.",
+    "description": "Одна установка — одна организация. Владелец задаётся в .env, отделы ведёт он. Публичной регистрации нет. Вход — почта и пароль, сброс — код на почту. Шаблон регулярного платежа и период — разные сущности. Инбокс сортируется: просрочено, скоро, остальное. «Оплачено» — подтверждение человека, не банка. Суммы в итогах не конвертируются между валютами. Telegram-бот — отдельный процесс: long polling и отправка карточек из outbox. Напоминание уходит в чат отдела и ответственному, если личный канал включён. Кнопка «Оплачено» ставит paid_at = сейчас в TIMEZONE и paid_by = пользователя rekeeper, чей Telegram нажал и кто состоит в отделе. Непривязанный клик ничего не меняет. Заметка не меняется. Помощник Кип — отдельный процесс и пишет в базу только после подтверждения.",
     "summary": "Инбокс обязательств отдела",
     "title": "Invoice Keeper API",
     "version": "1.0.0"
@@ -2966,7 +3375,7 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 50,
+              "default": 20,
               "maximum": 200,
               "minimum": 1,
               "title": "Limit",
@@ -3077,6 +3486,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -3486,6 +3911,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -3556,6 +3997,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -3661,6 +4118,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -3742,6 +4215,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -3811,6 +4300,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -4569,6 +5074,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -4640,6 +5161,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -4699,6 +5236,114 @@
         ]
       }
     },
+    "/api/v1/notifications/personal/email/teams/{team_id}": {
+      "put": {
+        "description": "Включить или выключить письма по отделу и выбрать охват: только мои платежи или весь отдел.",
+        "operationId": "update_email_team_api_v1_notifications_personal_email_teams__team_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "team_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Team Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailTeamIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Письма по одному отделу",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
     "/api/v1/notifications/personal/email/test": {
       "post": {
         "operationId": "test_email_api_v1_notifications_personal_email_test_post",
@@ -4718,6 +5363,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -4792,6 +5453,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -4860,6 +5537,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -4941,6 +5634,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -5254,6 +5963,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -5448,6 +6173,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -5612,6 +6353,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -5693,6 +6450,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -5769,6 +6542,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -5864,6 +6653,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -5923,6 +6728,275 @@
         ]
       }
     },
+    "/api/v1/payment-occurrences/{occurrence_id}/receipt": {
+      "delete": {
+        "operationId": "delete_receipt_api_v1_payment_occurrences__occurrence_id__receipt_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "occurrence_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Occurrence Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccurrenceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Убрать файл чека",
+        "tags": [
+          "payment-occurrences"
+        ]
+      },
+      "get": {
+        "description": "Открыть или скачать чек (?download=1). Работает по cookie без X-Team-Id: доступ есть у тех, кто видит отдел периода, и у владельца.",
+        "operationId": "get_receipt_api_v1_payment_occurrences__occurrence_id__receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "occurrence_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Occurrence Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "download",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Download",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Файл чека",
+        "tags": [
+          "payment-occurrences"
+        ]
+      },
+      "post": {
+        "description": "multipart/form-data: file и необязательный note (комментарий к чеку). PDF, JPG/JPEG, PNG, HEIC/HEIF или WebP, проверка по расширению и по содержимому. Размер — до RECEIPT_MAX_MB (по умолчанию 10 МБ). Новый файл заменяет прежний.",
+        "operationId": "upload_receipt_api_v1_payment_occurrences__occurrence_id__receipt_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "occurrence_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Occurrence Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_receipt_api_v1_payment_occurrences__occurrence_id__receipt_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OccurrenceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Прикрепить файл чека",
+        "tags": [
+          "payment-occurrences"
+        ]
+      }
+    },
     "/api/v1/payment-occurrences/{occurrence_id}/revoke": {
       "post": {
         "operationId": "revoke_api_v1_payment_occurrences__occurrence_id__revoke_post",
@@ -5952,6 +7026,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -6006,6 +7096,7 @@
     },
     "/api/v1/payments/calendar": {
       "get": {
+        "description": "scope=team (по умолчанию) — текущий отдел. scope=all — все отделы, которые человек видит: владелец — все отделы организации, остальные — свои. У каждого периода есть team_id.",
         "operationId": "calendar_api_v1_payments_calendar_get",
         "parameters": [
           {
@@ -6045,6 +7136,17 @@
             }
           },
           {
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "team",
+              "pattern": "^(team|all)$",
+              "title": "Scope",
+              "type": "string"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Team-Id",
             "required": false,
@@ -6059,6 +7161,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -6152,6 +7270,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -6240,6 +7374,61 @@
         ]
       }
     },
+    "/api/v1/rates": {
+      "get": {
+        "description": "Только справка «≈ … ₽» рядом с суммой в USD и EUR. Если ЦБ недоступен — пустой ответ, не ошибка.",
+        "operationId": "get_rates_api_v1_rates_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RatesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Курсы ЦБ РФ для подсказки в рублях",
+        "tags": [
+          "rates"
+        ]
+      }
+    },
     "/api/v1/recurring-payments": {
       "get": {
         "operationId": "list_payments_api_v1_recurring_payments_get",
@@ -6269,6 +7458,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -6342,6 +7547,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -6419,22 +7640,6 @@
             }
           },
           {
-            "in": "query",
-            "name": "remind_overdue",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Remind Overdue"
-            }
-          },
-          {
             "in": "header",
             "name": "X-Team-Id",
             "required": false,
@@ -6449,6 +7654,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -6531,6 +7752,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -6607,6 +7844,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -6792,6 +8045,19 @@
                 }
               ],
               "title": "Responsible Id"
+            }
+          },
+          {
+            "description": "Страница списка операций, по 20 штук.",
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "description": "Страница списка операций, по 20 штук.",
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
             }
           },
           {
@@ -7399,6 +8665,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -7467,6 +8749,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {
@@ -7541,6 +8839,22 @@
             }
           },
           {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
+            }
+          },
+          {
             "in": "cookie",
             "name": "ik_session",
             "required": false,
@@ -7609,6 +8923,22 @@
                 }
               ],
               "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Once",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Once"
             }
           },
           {

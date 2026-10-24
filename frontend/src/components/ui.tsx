@@ -97,10 +97,10 @@ export function InlineConfirm({
     <div className="inline-confirm" role="group" aria-label={title}>
       <p>{title}</p>
       <div className="row-actions">
-        <button type="button" className="primary" disabled={busy} onClick={onConfirm}>
+        <button type="button" className="primary" disabled={busy} data-hint={HINTS.confirmAction} onClick={onConfirm}>
           {busy ? "Сохраняю…" : confirmLabel}
         </button>
-        <button type="button" className="ghost" onClick={onCancel}>
+        <button type="button" className="ghost" data-hint={HINTS.cancel} onClick={onCancel}>
           Отмена
         </button>
       </div>
@@ -145,6 +145,7 @@ export function Switch({
   label,
   labelledBy,
   describedBy,
+  hint,
 }: {
   checked: boolean;
   onChange: (next: boolean) => void;
@@ -152,12 +153,16 @@ export function Switch({
   label?: string;
   labelledBy?: string;
   describedBy?: string;
+  /** Text after «Включить/Выключить» in the hover hint, e.g. the setting name. */
+  hint?: string;
 }) {
+  const verb = checked ? HINTS.toggleOff : HINTS.toggleOn;
   return (
     <button
       type="button"
       role="switch"
       className="switch"
+      data-hint={hint ? `${verb}: ${hint.charAt(0).toLowerCase()}${hint.slice(1)}` : verb}
       aria-checked={checked}
       aria-label={label}
       aria-labelledby={labelledBy}
@@ -214,6 +219,7 @@ export function SwitchCard({
           disabled={disabled}
           labelledBy={`${id}-t`}
           describedBy={description ? `${id}-d` : undefined}
+          hint={title}
         />
       </div>
       {checked && children && <div className="switch-body">{children}</div>}

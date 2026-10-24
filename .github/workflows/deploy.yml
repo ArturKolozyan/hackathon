@@ -1,5 +1,5 @@
 # verify → deploy → healthcheck. Первый упавший шаг останавливает workflow.
-# pull_request гоняет только verify. Секреты приложения остаются в /opt/invoice-keeper/.env.
+# pull_request гоняет только verify. Секреты приложения в /opt/invoice-keeper/infra/.env.
 # Упало — в Summary запуска блок «упал шаг …»: хвост лога шага, для smoke и deploy ещё
 # docker compose ps и логи сервисов. Полные логи — артефакт <job>-logs.
 name: Deploy
@@ -47,7 +47,7 @@ jobs:
         name: Backup selftest
         run: |
           mkdir -p ci-logs
-          sh ops/backup/selftest.sh 2>&1 | tee ci-logs/backup-selftest.log
+          sh infra/ops/backup/selftest.sh 2>&1 | tee ci-logs/backup-selftest.log
       - id: setup-python
         uses: actions/setup-python@v5
         with:
@@ -83,12 +83,12 @@ jobs:
         run: npx vite build 2>&1 | tee ../ci-logs/web-build.log
       - id: smoke
         name: Jury smoke
-        run: bash ops/smoke.sh 2>&1 | tee ci-logs/smoke.log
+        run: bash infra/ops/smoke.sh 2>&1 | tee ci-logs/smoke.log
       - name: Failure report
         if: failure()
         env:
           STEPS: ${{ toJSON(steps) }}
-        run: bash ops/ci/report.sh
+        run: bash infra/ops/ci/report.sh
       - name: Upload logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -129,12 +129,12 @@ jobs:
         name: Deploy over SSH
         run: |
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=30 \
-            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < ops/deploy-remote.sh 2>&1 | tee ci-logs/deploy.log
+            "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < infra/ops/deploy-remote.sh 2>&1 | tee ci-logs/deploy.log
       - name: Failure report
         if: failure()
         env:
           STEPS: ${{ toJSON(steps) }}
-        run: bash ops/ci/report.sh
+        run: bash infra/ops/ci/report.sh
       - name: Upload logs
         if: failure()
         uses: actions/upload-artifact@v4
@@ -174,4 +174,4 @@ jobs:
         if: failure()
         env:
           STEPS: ${{ toJSON(steps) }}
-        run: bash ops/ci/report.sh
+        run: bash infra/ops/ci/report.sh

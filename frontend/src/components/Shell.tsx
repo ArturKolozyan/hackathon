@@ -22,25 +22,26 @@ import { initials } from "../format";
 import { HINTS, NAV_HINTS } from "../hints";
 import { useMediaQuery } from "../useMediaQuery";
 import { AssistantWidget } from "./AssistantWidget";
-import { TeamMark, ThemeToggle, Wordmark } from "./Brand";
+import { TeamMark, ThemeSwitch, Wordmark } from "./Brand";
 import { SelectField } from "./fields";
 import { PageControlsSlot } from "./PageControls";
 
-type Item = { to: string; label: string; icon: LucideIcon; end?: boolean };
+type Item = { to: string; label: string; icon: LucideIcon; end?: boolean; manage?: boolean };
 
-const MAIN: Item[] = [
+/** Разделы по смыслу, а не по роли. Недоступное роли скрыто, порядок тот же. */
+const WORK: Item[] = [
   { to: "/", label: "Инбокс", icon: Inbox, end: true },
   { to: "/calendar", label: "Календарь", icon: CalendarDays },
+  { to: "/templates", label: "Шаблоны", icon: Repeat, manage: true },
   { to: "/history", label: "История", icon: History },
   { to: "/budget", label: "Бюджет", icon: Wallet },
   { to: "/stats", label: "Статистика", icon: BarChart3 },
-  { to: "/settings", label: "Настройки", icon: Settings },
+  { to: "/people", label: "Люди", icon: Users, manage: true },
 ];
 
-const ADMIN: Item[] = [
-  { to: "/templates", label: "Шаблоны", icon: Repeat },
-  { to: "/people", label: "Люди", icon: Users },
-  { to: "/logs", label: "Логи", icon: ScrollText },
+const SERVICE: Item[] = [
+  { to: "/settings", label: "Настройки", icon: Settings },
+  { to: "/logs", label: "Логи", icon: ScrollText, manage: true },
 ];
 
 /** Sidebar collapses into a drawer when it would not fit: narrow or short viewports. */
@@ -48,12 +49,12 @@ const COLLAPSED = "(max-width: 1023px), (max-height: 639px)";
 
 function roleName(role: TeamRole | null, owner: boolean): string {
   if (owner || role === "owner") return "Владелец";
-  if (role === "admin") return "Админ";
+  if (role === "admin") return "Администратор";
   return "Участник";
 }
 
 function sectionOf(pathname: string): string | null {
-  const all = [...MAIN, ...ADMIN];
+  const all = [...WORK, ...SERVICE];
   const hit = all.find((item) => (item.end ? pathname === item.to : pathname.startsWith(item.to)));
   return hit?.label ?? null;
 }
@@ -148,55 +149,59 @@ function ShellView() {
       >
         <div className="sidebar-head">
           <Wordmark to="/" />
-          <div className="sidebar-head-tools">
-            <ThemeToggle />
-            {collapsed && (
-              <button type="button" className="icon-btn sidebar-close" aria-label="Закрыть меню" data-hint={HINTS.menuClose} onClick={() => setMenuOpen(false)}>
-                <X size={18} strokeWidth={1.75} aria-hidden />
-              </button>
-            )}
+          {collapsed && (
+            <button type="button" className="icon-btn sidebar-close" aria-label="Закрыть меню" data-hint={HINTS.menuClose} onClick={() => setMenuOpen(false)}>
+              <X size={18} strokeWidth={1.75} aria-hidden />
+            </button>
+          )}
+        </div>
+        <div className="profile">
+          <span className="avatar" aria-hidden="true">
+            {initials(user?.full_name)}
+          </span>
+          <div className="profile-text">
+            <span className="profile-name">{user?.full_name}</span>
+            <span className="profile-role">{roleName(role, Boolean(user?.is_owner))}</span>
           </div>
         </div>
-        {user && user.memberships.length > 1 && (
-          <SelectField
-            className="team-switch"
-            ariaLabel="Отдел"
-            hint={HINTS.teamSwitch}
-            value={user.active_team_id ?? ""}
-            onChange={(teamId) => void onTeam(teamId)}
-            options={user.memberships.map((row) => ({ value: row.team_id, label: row.team_name }))}
-          />
+        {user && user.memberships.length > 0 && (
+          <div className="team-block">
+            <span className="team-label" id="team-label">
+              Отдел:
+            </span>
+            {user.memberships.length > 1 ? (
+              <SelectField
+                className="team-switch"
+                ariaLabel="Отдел"
+                hint={HINTS.teamSwitch}
+                value={user.active_team_id ?? ""}
+                onChange={(teamId) => void onTeam(teamId)}
+                options={user.memberships.map((row) => ({ value: row.team_id, label: row.team_name }))}
+              />
+            ) : (
+              <p className="team-single" aria-labelledby="team-label">
+                {user.memberships[0].team_name}
+              </p>
+            )}
+          </div>
         )}
-        {user && user.memberships.length === 1 && <p className="team-single">{user.memberships[0].team_name}</p>}
         <nav className="nav" aria-label="Разделы">
-          {MAIN.map((item) => (
+          {WORK.filter((item) => manage || !item.manage).map((item) => (
             <NavItem key={item.to} item={item} />
           ))}
-          {manage && (
-            <>
-              <span className="nav-label">Админ</span>
-              {ADMIN.map((item) => (
-                <NavItem key={item.to} item={item} />
-              ))}
-            </>
-          )}
+          <hr className="nav-divider" />
+          {SERVICE.filter((item) => manage || !item.manage).map((item) => (
+            <NavItem key={item.to} item={item} />
+          ))}
         </nav>
         <div className="sidebar-foot">
-          <div className="profile" data-hint={HINTS.profile}>
-            <span className="avatar" aria-hidden="true">
-              {initials(user?.full_name)}
-            </span>
-            <div className="profile-text">
-              <span className="profile-name">
-                {user?.full_name}
-              </span>
-              <span className="pill pill-neutral profile-role">{roleName(role, Boolean(user?.is_owner))}</span>
-            </div>
+          <div className="sidebar-actions">
+            <ThemeSwitch />
+            <button type="button" className="nav-logout" data-hint={HINTS.logout} onClick={() => void logout()}>
+              <LogOut size={18} strokeWidth={1.75} aria-hidden />
+              <span>Выйти</span>
+            </button>
           </div>
-          <button type="button" className="nav-logout" data-hint={HINTS.logout} onClick={() => void logout()}>
-            <LogOut size={18} strokeWidth={1.75} aria-hidden />
-            <span>Выйти</span>
-          </button>
           <TeamMark />
         </div>
       </aside>

@@ -1,6 +1,5 @@
 from datetime import date, datetime
 from decimal import Decimal
-from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -26,18 +25,17 @@ def clean_text(value: str | None) -> str | None:
     return cleaned or None
 
 
-def clean_receipt_url(value: str | None) -> str | None:
-    cleaned = clean_text(value)
-    if cleaned is None:
-        return None
-    parsed = urlparse(cleaned)
-    if parsed.scheme != "https" or not parsed.netloc or any(char in cleaned for char in " \r\n"):
-        raise ValueError("Нужна ссылка https://")
-    return cleaned
+class ReceiptOut(BaseModel):
+    name: str
+    content_type: str
+    size: int
+    uploaded_at: datetime | None = None
+    url: str = Field(description="Скачать или открыть чек. Доступ — как к периоду.")
 
 
 class OccurrenceOut(BaseModel):
     id: UUID
+    team_id: UUID
     recurring_payment_id: UUID
     title: str
     description: str | None
@@ -55,9 +53,13 @@ class OccurrenceOut(BaseModel):
     days_delta: int
     lateness_days: int | None
     note: str | None
-    receipt_url: str | None = None
+    receipt: ReceiptOut | None = None
     receipt_note: str | None = None
     template_archived: bool
+    planned: bool = Field(
+        default=False,
+        description="Будущий срок по расписанию, которого ещё нет в базе. Только для просмотра: оплатить и править нельзя.",
+    )
     responsible: UserBrief | None = None
     paid_by: UserBrief | None = Field(
         description=(
@@ -94,18 +96,12 @@ class ConfirmIn(BaseModel):
     paid_at: str | None = None
     paid_amount: Decimal | None = None
     note: str | None = Field(default=None, max_length=2000)
-    receipt_url: str | None = Field(default=None, max_length=2000)
     receipt_note: str | None = Field(default=None, max_length=2000)
 
     @field_validator("note", "receipt_note")
     @classmethod
     def clean_note(cls, value: str | None) -> str | None:
         return clean_text(value)
-
-    @field_validator("receipt_url")
-    @classmethod
-    def clean_url(cls, value: str | None) -> str | None:
-        return clean_receipt_url(value)
 
     @field_validator("paid_amount")
     @classmethod
@@ -121,18 +117,12 @@ class OccurrencePatch(BaseModel):
     currency: str | None = None
     due_date: date | None = None
     note: str | None = Field(default=None, max_length=2000)
-    receipt_url: str | None = Field(default=None, max_length=2000)
     receipt_note: str | None = Field(default=None, max_length=2000)
 
     @field_validator("note", "receipt_note")
     @classmethod
     def clean_note(cls, value: str | None) -> str | None:
         return clean_text(value)
-
-    @field_validator("receipt_url")
-    @classmethod
-    def clean_url(cls, value: str | None) -> str | None:
-        return clean_receipt_url(value)
 
     @field_validator("title")
     @classmethod

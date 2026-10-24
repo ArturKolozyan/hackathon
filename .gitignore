@@ -11,7 +11,9 @@ dist/
 *.log
 .coverage
 htmlcov/
-/backups/
+/infra/backups/
+# Чеки при локальном запуске api без Docker.
+backend/data/
 
 # impeccable-ignore-start
 # Ephemeral output, runtime state, and per-dev overrides.

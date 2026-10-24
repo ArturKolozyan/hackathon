@@ -15,24 +15,28 @@ from app.assistant.actions import load_for_user, perform
 from app.assistant.chat import remember_telegram, run_turn
 from app.assistant.speech import SpeechError, recognize
 from app.core.config import get_settings
-from app.core.security import issue_session
+from app.core.security import issue_session, revoke_token
 from app.integrations.telegram import TelegramError
 from app.models import User
 from app.schemas.assistant import MessageOut
+from app.services import telegram_html as tg
 from app.services.access import resolve_team
 from app.services.telegram_links import UNLINKED_ALERT
 
 log = logging.getLogger("invoice_keeper.assistant")
 
 EMPTY: dict[str, Any] = {"inline_keyboard": []}
-LINK_HINT = "Привязка в rekeeper: Настройки → Уведомления → Привязать Telegram."
-VOICE_LONG = "Голосовое длиннее 30 секунд. Скажи короче или напиши текстом."
-VOICE_BIG = "Голосовое больше 1 МБ. Скажи короче или напиши текстом."
-EDIT_HINT = "Напиши, что поменять: сумму, день, название или ответственного. Карточка ждёт подтверждения."
-COMMAND_HINT = "Напиши обычной фразой. Например: что горит на этой неделе?"
-NO_TEAM = "Сначала создайте отдел в rekeeper."
-UNAVAILABLE = "Ассистент временно недоступен"
-OFF = "Это бот напоминаний. Ассистент на этом сервере не включён."
+LINK_HINT = "Привяжите Telegram в rekeeper: Настройки → Уведомления → Привязать Telegram. После этого можно писать сюда вопросы о платежах."
+VOICE_LONG = "Голосовое длиннее 30 секунд. Скажите короче или напишите текстом."
+VOICE_BIG = "Голосовое больше 1 МБ. Скажите короче или напишите текстом."
+VOICE_FAILED = "Не получилось распознать голосовое. Напишите текстом."
+VOICE_DOWNLOAD = "Не получилось скачать голосовое. Напишите текстом."
+EDIT_HINT = "Напишите, что поменять: сумму, день, название или ответственного. Карточка ждёт подтверждения."
+COMMAND_HINT = "Напишите обычной фразой. Например: «что горит на этой неделе?» или «сколько потратили в октябре?»"
+NO_TEAM = "Вас ещё не добавили в отдел rekeeper."
+UNAVAILABLE = "Кип временно недоступен. Попробуйте чуть позже."
+OFF = "Это бот напоминаний rekeeper. Помощник Кип на этом сервере не включён."
+TELEGRAM_LIMIT = 4000
 
 
 def assistant_keyboard(action_id: uuid.UUID) -> dict[str, Any]:
@@ -65,12 +69,26 @@ def _linked_user(db: Session, sender: dict[str, Any]) -> User | None:
     return db.scalar(select(User).where(User.telegram_user_id == tg_id, User.is_active.is_(True)))
 
 
-def _send(bot: Any, chat_id: str, text: str, markup: dict[str, Any]) -> int | None:
+def reply_html(markdown: str) -> str:
+    """Ответ ассистента в HTML Telegram. Длинный режем по строкам, чтобы не порвать теги."""
+    lines = markdown.split("\n")
+    html = tg.markdown_to_html(markdown)
+    while len(html) > TELEGRAM_LIMIT and len(lines) > 1:
+        lines.pop()
+        html = tg.markdown_to_html("\n".join(lines)) + "\n…"
+    return html[:TELEGRAM_LIMIT]
+
+
+def _send(bot: Any, chat_id: str, html: str, markup: dict[str, Any]) -> int | None:
     try:
-        return int(bot.send_message(chat_id, text[:4000], markup))
+        return int(bot.send_message(chat_id, html, markup))
     except TelegramError as exc:
         log.warning("assistant reply failed (%s)", exc.description)
         return None
+
+
+def _say(bot: Any, chat_id: str, text: str) -> None:
+    _send(bot, chat_id, tg.esc(text), EMPTY)
 
 
 def _context(db: Session, user: User, team_id: uuid.UUID | None = None):
@@ -88,46 +106,46 @@ def handle_private_message(db: Session, bot: Any, message: dict[str, Any]) -> No
     sender = message.get("from") if isinstance(message.get("from"), dict) else {}
     user = _linked_user(db, sender)
     if user is None:
-        _send(bot, str(chat_id), LINK_HINT, EMPTY)
+        _send(bot, str(chat_id), tg.notice("🔗", "Telegram не привязан", LINK_HINT), EMPTY)
         return
     ctx = _context(db, user)
     if ctx is None:
-        _send(bot, str(chat_id), NO_TEAM, EMPTY)
+        _say(bot, str(chat_id), NO_TEAM)
         return
     voice = message.get("voice") if isinstance(message.get("voice"), dict) else None
     text = message.get("text") if isinstance(message.get("text"), str) else ""
     if voice is not None:
         heard, error = _transcribe(db, user, bot, voice)
         if error:
-            _send(bot, str(chat_id), error, EMPTY)
+            _say(bot, str(chat_id), error)
             return
         text = heard or ""
     stripped = text.strip()
     if not stripped:
         return
     if stripped.startswith("/"):
-        _send(bot, str(chat_id), COMMAND_HINT, EMPTY)
+        _say(bot, str(chat_id), COMMAND_HINT)
         return
     settings = get_settings()
     if not settings.assistant_configured:
-        _send(bot, str(chat_id), OFF, EMPTY)
+        _say(bot, str(chat_id), OFF)
         return
     if settings.assistant_url.strip():
         reply = _remote_turn(db, user, stripped, settings.assistant_url.strip())
         if reply is None:
-            _send(bot, str(chat_id), UNAVAILABLE, EMPTY)
+            _say(bot, str(chat_id), UNAVAILABLE)
             return
     else:
         try:
             reply = run_turn(db, ctx, stripped)
         except Exception:
             log.exception("assistant turn failed")
-            _send(bot, str(chat_id), UNAVAILABLE, EMPTY)
+            _say(bot, str(chat_id), UNAVAILABLE)
             return
     markup = EMPTY
     if reply.action is not None and reply.action.status == "pending":
         markup = assistant_keyboard(reply.action.id)
-    message_id = _send(bot, str(chat_id), reply.content, markup)
+    message_id = _send(bot, str(chat_id), reply_html(reply.content), markup)
     if message_id is not None and reply.action is not None and reply.action.status == "pending":
         remember_telegram(db, reply.action.id, str(chat_id), message_id)
 
@@ -150,6 +168,18 @@ def _remote_turn(db: Session, user: User, text: str, url: str) -> MessageOut | N
     except Exception:
         log.warning("assistant http failed")
         return None
+    finally:
+        _drop_session(db, token)
+
+
+def _drop_session(db: Session, token: str) -> None:
+    """Сессия на один запрос к контейнеру ассистента. Висеть неделями ей незачем."""
+    try:
+        revoke_token(db, token)
+        db.commit()
+    except Exception:
+        db.rollback()
+        log.warning("assistant session was not revoked")
 
 
 def _transcribe(db: Session, user: User, bot: Any, voice: dict[str, Any]) -> tuple[str, str | None]:
@@ -161,11 +191,11 @@ def _transcribe(db: Session, user: User, bot: Any, voice: dict[str, Any]) -> tup
         return "", VOICE_BIG
     file_id = voice.get("file_id")
     if not isinstance(file_id, str) or not file_id:
-        return "", "Не получилось скачать голосовое. Напиши текстом."
+        return "", VOICE_DOWNLOAD
     try:
         audio = bot.download_voice(file_id)
     except TelegramError:
-        return "", "Не получилось скачать голосовое. Напиши текстом."
+        return "", VOICE_DOWNLOAD
     settings = get_settings()
     url = settings.assistant_url.strip()
     if url:
@@ -179,7 +209,7 @@ def _transcribe(db: Session, user: User, bot: Any, voice: dict[str, Any]) -> tup
         return "", exc.detail
     except Exception:
         log.exception("telegram voice failed")
-        return "", "Не получилось распознать голосовое. Напиши текстом."
+        return "", VOICE_FAILED
 
 
 def _remote_speech(db: Session, user: User, audio: bytes, url: str) -> str | None:
@@ -205,6 +235,8 @@ def _remote_speech(db: Session, user: User, audio: bytes, url: str) -> str | Non
     except Exception:
         log.warning("assistant speech unreachable")
         return None
+    finally:
+        _drop_session(db, token)
 
 
 def handle_assistant_callback(db: Session, bot: Any, callback: dict[str, Any]) -> None:
@@ -244,7 +276,7 @@ def handle_assistant_callback(db: Session, bot: Any, callback: dict[str, Any]) -
     if kind == "ed":
         answer("Жду правку")
         if chat_id is not None:
-            _send(bot, str(chat_id), EDIT_HINT, EMPTY)
+            _say(bot, str(chat_id), EDIT_HINT)
         return
     try:
         reply = perform(db, ctx, action)
@@ -258,8 +290,8 @@ def handle_assistant_callback(db: Session, bot: Any, callback: dict[str, Any]) -
     message_id = message.get("message_id")
     try:
         if message_id is not None:
-            bot.edit_message(str(chat_id), int(message_id), reply.content[:4000], EMPTY)
+            bot.edit_message(str(chat_id), int(message_id), reply_html(reply.content), EMPTY)
             return
     except TelegramError as exc:
         log.warning("assistant card edit failed (%s)", exc.description)
-    _send(bot, str(chat_id), reply.content, EMPTY)
+    _send(bot, str(chat_id), reply_html(reply.content), EMPTY)

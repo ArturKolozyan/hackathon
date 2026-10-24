@@ -25,6 +25,13 @@ def get_current_user(
     return user
 
 
+def get_active_user(user: User = Depends(get_current_user)) -> User:
+    """Временный пароль: пока его не сменили, доступны только вход, профиль и смена пароля."""
+    if user.must_change_password:
+        raise HTTPException(status_code=403, detail="Сначала смените пароль")
+    return user
+
+
 def read_token(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
     ik_session: Annotated[str | None, Cookie()] = None,
@@ -38,10 +45,12 @@ def get_team_context(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     x_team_id: Annotated[UUID | None, Header(alias="X-Team-Id")] = None,
+    x_team_once: Annotated[str | None, Header(alias="X-Team-Once")] = None,
 ) -> TeamContext:
     if user.must_change_password:
         raise HTTPException(status_code=403, detail="Сначала смените пароль")
-    ctx = resolve_team(db, user, x_team_id)
+    # X-Team-Once: 1 — запрос в отдел без переключения активного отдела.
+    ctx = resolve_team(db, user, x_team_id, remember=x_team_once != "1")
     if ctx is None:
         if user.is_owner:
             raise HTTPException(status_code=409, detail="Сначала создайте отдел")

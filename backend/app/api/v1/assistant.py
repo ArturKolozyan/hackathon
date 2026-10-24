@@ -27,7 +27,7 @@ def _sse(event: str, payload: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-@router.get("/messages", response_model=list[MessageOut], summary="История ассистента")
+@router.get("/messages", response_model=list[MessageOut], summary="История чата с Кипом")
 def history(
     limit: int = 50,
     ctx: TeamContext = Depends(get_team_context),
@@ -45,7 +45,7 @@ def clear_history(
     clear_messages(db, ctx)
 
 
-@router.post("/messages", summary="Сообщение ассистенту")
+@router.post("/messages", summary="Сообщение Кипу")
 def post_message(
     payload: MessageIn,
     stream: bool = True,

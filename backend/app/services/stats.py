@@ -10,14 +10,35 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.core.config import get_settings
 from app.models import Membership, PaymentOccurrence, RecurringPayment, User
-from app.schemas.stats import MoneyBucket, StatsItem, StatsOut, StatsTeam
+from app.schemas.stats import (
+    MoneyBucket,
+    StatsDepartment,
+    StatsItem,
+    StatsMonth,
+    StatsOperation,
+    StatsOperations,
+    StatsOut,
+    StatsTeam,
+)
 from app.services import time as clock
 from app.services.access import department_access
-from app.services.occurrences import ensure_all
+from app.services.occurrences import ensure_all, hidden, planned_rows
 from app.services.present import user_brief
-from app.services.schedule import classify
+from app.services.schedule import classify, period_label, shift_month
 
 CURRENCIES = ("RUB", "USD", "EUR")
+PAGE_SIZE = 20
+STATUS_RANK = {"overdue": 0, "due_soon": 1, "upcoming": 2, "paid": 3}
+MONTHS_BACK = 6
+MONTHS_AHEAD = 5
+
+
+def _month_keys(today: date) -> list[str]:
+    keys = []
+    for delta in range(-MONTHS_BACK, MONTHS_AHEAD + 1):
+        year, month = shift_month(today.year, today.month, delta)
+        keys.append(f"{year:04d}-{month:02d}")
+    return keys
 
 
 def _month_bounds(today: date) -> tuple[date, date]:
@@ -71,6 +92,7 @@ def build_stats(
     date_from: date | None,
     date_to: date | None,
     responsible_id: uuid.UUID | None,
+    page: int = 1,
 ) -> StatsOut:
     # Владелец видит все отделы без членства, остальные — свои.
     allowed = {row.team_id: row for row in department_access(db, user)}
@@ -102,7 +124,7 @@ def build_stats(
         db.commit()
         db.expire_all()
     settings = get_settings()
-    zone = settings.zone
+    zone = clock.zone()
     occurrences: list[PaymentOccurrence] = []
     if scope:
         occurrences = list(
@@ -117,6 +139,15 @@ def build_stats(
             .unique()
             .all()
         )
+    occurrences = [row for row in occurrences if not hidden(row, today)]
+    planned_ids: set[uuid.UUID] = set()
+    if scope:
+        # Будущие месяцы графика и выбранного периода: сроки по расписанию, в базу не пишутся.
+        last_key = _month_keys(today)[-1]
+        horizon_end = _parse_month(last_key)[1]
+        future = planned_rows(db, team_ids=scope, start=today, end=max(horizon_end, due_to or horizon_end), today=today)
+        planned_ids = {row.id for row in future}
+        occurrences += future
     teams = {row.team_id: row.team for row in allowed.values()}
     to_pay: dict[str, list] = {}
     overdue: dict[str, list] = {}
@@ -125,6 +156,18 @@ def build_stats(
         team_id: {"to_pay": {}, "overdue": {}, "paid": {}} for team_id in scope
     }
     nearest: list[tuple[date, StatsItem]] = []
+    operations: list[tuple[tuple, StatsOperation]] = []
+    month_keys = _month_keys(today)
+    zero = Decimal("0.00")
+    monthly: dict[tuple[str, str], dict[str, Decimal]] = {}
+    paid_count = 0
+    paid_on_time = 0
+
+    def bump(key: str, cur: str, field: str, value: Decimal) -> None:
+        if key not in month_keys:
+            return
+        slot = monthly.setdefault((key, cur), {"paid": zero, "overdue": zero, "planned": zero})
+        slot[field] += Decimal(value)
 
     def wanted(item_status: str) -> bool:
         return status is None or status == item_status
@@ -142,6 +185,43 @@ def build_stats(
         paid_on = row.paid_at.astimezone(zone).date() if row.paid_at is not None else None
         in_paid = paid_on is not None and paid_from <= paid_on <= paid_to
         team_name = teams[row.team_id].name if row.team_id in teams else ""
+        actual = row.paid_amount if row.paid_amount is not None else row.amount
+        if paid_on is not None:
+            bump(f"{paid_on:%Y-%m}", row.currency, "paid", actual)
+        elif row.due_date < today:
+            bump(f"{row.due_date:%Y-%m}", row.currency, "overdue", row.amount)
+        else:
+            bump(f"{row.due_date:%Y-%m}", row.currency, "planned", row.amount)
+        listed = (item_status != "paid" and in_due and wanted(item_status)) or (
+            item_status == "paid" and in_paid and wanted("paid")
+        )
+        if listed:
+            if item_status == "paid":
+                order = (STATUS_RANK["paid"], -paid_on.toordinal(), row.title)
+            else:
+                order = (STATUS_RANK.get(item_status, 9), row.due_date.toordinal(), row.title)
+            operations.append(
+                (
+                    order,
+                    StatsOperation(
+                        occurrence_id=row.id,
+                        team_id=row.team_id,
+                        team_name=team_name,
+                        title=row.title,
+                        period_label=period_label(row.period_year, row.period_month),
+                        due_date=row.due_date,
+                        amount=row.amount,
+                        paid_amount=row.paid_amount,
+                        currency=row.currency,
+                        status=item_status,
+                        paid_on=paid_on,
+                        lateness_days=(paid_on - row.due_date).days if paid_on is not None else None,
+                        has_receipt=bool(row.receipt_file),
+                        planned=row.id in planned_ids,
+                        responsible=user_brief(template.responsible) if template.responsible is not None else None,
+                    ),
+                )
+            )
         if item_status != "paid" and in_due and wanted(item_status):
             _add(to_pay, row.currency, row.amount)
             _add(per_team[row.team_id]["to_pay"], row.currency, row.amount)
@@ -166,10 +246,31 @@ def build_stats(
                 )
             )
         if item_status == "paid" and in_paid and wanted("paid"):
-            _add(paid, row.currency, row.amount)
-            _add(per_team[row.team_id]["paid"], row.currency, row.amount)
+            _add(paid, row.currency, actual)
+            _add(per_team[row.team_id]["paid"], row.currency, actual)
+            paid_count += 1
+            if paid_on <= row.due_date:
+                paid_on_time += 1
 
     nearest.sort(key=lambda item: (item[0], item[1].title))
+    operations.sort(key=lambda item: item[0])
+    total = len(operations)
+    pages = max(1, -(-total // PAGE_SIZE))
+    page = min(max(1, page), pages)
+    window = [item for _, item in operations[(page - 1) * PAGE_SIZE : page * PAGE_SIZE]]
+    month_rows = [
+        StatsMonth(month=key, currency=cur, **monthly[(key, cur)])
+        for cur in CURRENCIES
+        for key in month_keys
+        if (key, cur) in monthly
+    ]
+    used = {cur for _key, cur in monthly}
+    for cur in used:
+        present = {row.month for row in month_rows if row.currency == cur}
+        for key in month_keys:
+            if key not in present:
+                month_rows.append(StatsMonth(month=key, currency=cur, paid=zero, overdue=zero, planned=zero))
+    month_rows.sort(key=lambda row: (CURRENCIES.index(row.currency), row.month))
     people_rows = []
     if scope:
         people_rows = list(
@@ -201,7 +302,7 @@ def build_stats(
         for team_id in sorted(scope, key=lambda item: teams[item].name.lower())
     ]
     return StatsOut(
-        timezone=settings.timezone,
+        timezone=clock.zone().key,
         today=today,
         paid_from=paid_from,
         paid_to=paid_to,
@@ -213,4 +314,12 @@ def build_stats(
         nearest=[item for _, item in nearest[:8]],
         by_team=by_team,
         people=people,
+        departments=[
+            StatsDepartment(id=row.team_id, name=row.team.name)
+            for row in sorted(allowed.values(), key=lambda item: item.team.name.lower())
+        ],
+        paid_count=paid_count,
+        paid_on_time=paid_on_time,
+        monthly=month_rows,
+        operations=StatsOperations(items=window, total=total, page=page, page_size=PAGE_SIZE),
     )

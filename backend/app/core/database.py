@@ -11,18 +11,51 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 
 def get_db():
-    from app.services.org_settings import load_org
-    from app.services.time import bind_zone, reset_zone
-
     db = SessionLocal()
-    token = None
     try:
-        token = bind_zone(load_org(db).timezone)
         yield db
     finally:
         db.close()
-        if token is not None:
-            reset_zone(token)
+
+
+def _org_timezone() -> str | None:
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.services.org_settings import load_org
+
+    try:
+        with SessionLocal() as db:
+            return load_org(db).timezone
+    except SQLAlchemyError:
+        # База недоступна: health ответит сам, пояс берётся из .env.
+        return None
+
+
+class OrgZoneMiddleware:
+    """Часовой пояс организации на весь запрос.
+
+    Синхронные зависимости FastAPI работают в копии контекста, поэтому привязка внутри get_db
+    до обработчика не доходила. Здесь пояс ставится до роутинга и виден всем потокам запроса.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        from starlette.concurrency import run_in_threadpool
+
+        from app.services.time import bind_zone, reset_zone
+
+        name = await run_in_threadpool(_org_timezone)
+        token = bind_zone(name) if name else None
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            if token is not None:
+                reset_zone(token)
 
 
 def wait_for_db(timeout: int = 60) -> None:

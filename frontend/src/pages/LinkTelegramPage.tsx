@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
+import { HINTS } from "../hints";
 import { useTelegramLink } from "../useTelegramLink";
 
 export function LinkTelegramPage() {
@@ -52,11 +53,11 @@ export function LinkTelegramPage() {
               Открыть бота
             </a>
           ) : (
-            <button type="button" className="primary" disabled={busy} onClick={() => void binding.request()}>
+            <button type="button" className="primary" disabled={busy} data-hint={HINTS.tgGetLink} onClick={() => void binding.request()}>
               {binding.busy ? "Получаем ссылку…" : "Получить ссылку"}
             </button>
           )}
-          <button type="button" className="ghost" disabled={busy} onClick={() => void skip()}>
+          <button type="button" className="ghost" disabled={busy} data-hint={HINTS.tgSkip} onClick={() => void skip()}>
             Пропустить
           </button>
         </div>

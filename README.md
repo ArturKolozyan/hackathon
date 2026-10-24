@@ -8,16 +8,18 @@
 
 ```bash
 git clone https://github.com/ArturKolozyan/hackathon.git
-cd hackathon
+cd hackathon/infra
 cp .env.example .env
 docker compose up --build -d
 ```
+
+Всё про запуск лежит в `infra/`: `docker-compose.yml`, `.env.example`, `Caddyfile`, скрипты `ops/`. Команды `docker compose` выполняются оттуда.
 
 Панель: http://localhost:8080  
 API: http://localhost:8080/api/v1  
 Swagger: http://localhost:8080/api/v1/docs
 
-Порт берётся из `HTTP_PORT` в `.env`. По умолчанию 8080, права root и домен не нужны.
+Порт берётся из `HTTP_PORT` в `infra/.env`. По умолчанию 8080, права root и домен не нужны.
 
 Демо, если `SEED_DEMO=true` и база пустая:
 
@@ -31,7 +33,7 @@ Swagger: http://localhost:8080/api/v1/docs
 
 ### Демо-кабинет для показа
 
-Большой набор хостинг-компании: 5 отделов, 13 человек, 37 платежей, история за 8 месяцев, просрочки, сроки сегодня, через 3 и 7 дней. Запуск вручную, владелец из `.env` не трогается:
+Большой набор хостинг-компании: 6 отделов, 13 человек, 44 платежа, история за 8 месяцев, просрочки, сроки сегодня, через 3 и 7 дней. Запуск вручную, владелец из `.env` не трогается:
 
 ```bash
 docker compose exec api python -m app.demo_data
@@ -100,7 +102,7 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 | `TELEGRAM_CHAT_ID` | нет | запасной чат, только если отдел в базе один |
 | `SMTP_*`, `EMAIL_ENABLED` | нет | почта. Без `SMTP_HOST` коды сброса пишутся в лог API |
 | `WEBHOOK_*` | нет | webhook установки. Адрес отдела задаётся в панели |
-| `GIGACHAT_AUTH_KEY` и `COMPOSE_PROFILES=assistant` | нет | контейнер и пункт «Ассистент» в панели и в боте |
+| `GIGACHAT_AUTH_KEY` и `COMPOSE_PROFILES=assistant` | нет | контейнер и помощник Кип в панели и в боте |
 | `YANDEX_SPEECHKIT_API_KEY`, `YANDEX_FOLDER_ID` | нет | голос, только вместе с ассистентом |
 
 `COMPOSE_PROFILES` читает сам `docker compose` из `.env`. Отдельный флаг в команде запуска не нужен. Пустой профиль — контейнер `assistant` не создаётся и не крутится в рестартах.
@@ -125,13 +127,13 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 
 Привязка Telegram одна: на привязанного пишется «Оплачено» в чате отдела, и ему же идут личные напоминания (включаются при привязке). Повторная привязка с другого аккаунта заменяет прежнюю. Кнопка «Оплачено» пишет оплату на того, кто привязан и состоит в отделе. Чужому бот присылает ссылку привязки и оплату не ставит.
 
-## Ассистент
+## Ассистент Кип
 
 Код лежит в `backend/app/assistant`, процесс — контейнер `assistant`. Веб ходит в него тем же cookie/bearer через nginx. Бот ходит по HTTP с короткой сессией того же пользователя и таймаутом 10 секунд. Голос бот тоже отдаёт в `assistant`: ffmpeg есть только в его образе.
 
 Запись в базу — только после «Подтвердить» и теми же функциями, что обычные эндпоинты (`create_payment`, `update_payment`, `confirm`). Роль проверяется ещё раз в этот момент.
 
-`GET /api/v1/features` говорит интерфейсу, включён ли ассистент и отвечает ли он. Если процесс упал или GigaChat молчит, панель и API кейса работают, чат пишет «Ассистент временно недоступен», бот отвечает то же.
+`GET /api/v1/features` говорит интерфейсу, включён ли ассистент и отвечает ли он. Если процесс упал или GigaChat молчит, панель и API кейса работают, чат пишет «Кип временно недоступен», бот отвечает то же.
 
 ## Требование кейса → где сделано
 
@@ -192,11 +194,11 @@ curl -s -b /tmp/cj -H 'Content-Type: application/json' \
 
 ## Один раз на сервере rekeeper.ru
 
-Раньше Caddy и Telegram жили отдельными файлами. Теперь всё в этом `docker-compose.yml`.
+Раньше Caddy и Telegram жили отдельными файлами. Теперь всё в `infra/docker-compose.yml`.
 
 1. Посмотреть, кто слушает 80 и 443. Если это уже сервис `caddy` из этого compose — ничего не останавливать. Останавливать процесс на хосте нужно только когда порты заняты другим Caddy или nginx, не нашим контейнером.
-2. В серверном `.env` выставить `DOMAIN=rekeeper.ru`, `HTTP_PORT=80`, `HTTPS_PORT=443`, `ENABLE_IPV6=true`, `TELEGRAM_NETWORK=ipv6`. Удалить `COMPOSE_FILE`, если он указывал на `compose.telegram-host.yml`.
+2. В серверном `infra/.env` выставить `DOMAIN=rekeeper.ru`, `HTTP_PORT=80`, `HTTPS_PORT=443`, `ENABLE_IPV6=true`, `TELEGRAM_NETWORK=ipv6`. Удалить `COMPOSE_FILE`, если он указывал на `compose.telegram-host.yml`.
 3. Том `caddy_data` не удалять: в нём сертификат.
-4. `git pull --ff-only origin main && docker compose up --build -d`.
+4. `git pull --ff-only origin main && cd infra && docker compose up --build -d`.
 
 IPv6 у Docker bridge на части VPS не выходит в интернет, даже если у хоста он есть. `ENABLE_IPV6=true` просит compose включить IPv6 у сети. Если Telegram всё ещё недоступен из контейнера, `TELEGRAM_PROXY` на прокси хоста или проверка `ip6tables`. Отдельного host-network файла больше нет: без IPv6 на машине оставьте `ENABLE_IPV6=false`, бот уйдёт в IPv4 через `TELEGRAM_NETWORK=auto`.

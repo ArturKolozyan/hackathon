@@ -4,22 +4,24 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
-from sqlalchemy import select
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.database import get_db
-from app.core.deps import get_team_context
-from app.models import PaymentOccurrence
-from app.services.access import TeamContext, require_role
+from app.core.deps import get_active_user, get_team_context
+from app.models import PaymentOccurrence, User
+from app.services import receipts
+from app.services.access import TeamContext, department_access, require_role
 from app.schemas.occurrence import ConfirmIn, InboxOut, OccurrenceList, OccurrenceOut, OccurrencePatch
 from app.services import time as clock
 from app.services.audit import record
 from app.services.notify import PAID, UNPAID, notify_event
 from app.services.occurrences import list_views, require_occurrence, view_one
-from app.services.schedule import parse_paid_at
+from app.services.schedule import parse_paid_at, shift_month
 from app.services.templates import touch
 
 router = APIRouter(prefix="/payment-occurrences", tags=["payment-occurrences"])
@@ -54,7 +56,7 @@ def inbox(
     )
     settings = get_settings()
     return InboxOut(
-        timezone=settings.timezone,
+        timezone=clock.zone().key,
         today=today,
         soon_days=settings.soon_days,
         overdue=[item for item in items if item.bucket == "overdue"],
@@ -88,7 +90,7 @@ def list_occurrences(
         currency=currency,
     )
     settings = get_settings()
-    return OccurrenceList(timezone=settings.timezone, today=today, soon_days=settings.soon_days, items=items)
+    return OccurrenceList(timezone=clock.zone().key, today=today, soon_days=settings.soon_days, items=items)
 
 
 def _csv_money(value: Decimal | None) -> str:
@@ -103,6 +105,13 @@ def _csv_status(status: str) -> str:
     if status == "overdue":
         return "просрочен"
     return "не оплачен"
+
+
+def _csv_text(value: str) -> str:
+    """Текст из формы не должен стать формулой в Excel: =, +, -, @ в начале экранируем."""
+    if value and value[0] in "=+-@\t\r":
+        return "'" + value
+    return value
 
 
 def _overdue_days(item: OccurrenceOut, today: date) -> int:
@@ -152,7 +161,7 @@ def export_csv(
             "дата оплаты",
             "кто оплатил",
             "дней просрочки",
-            "ссылка на чек",
+            "чек",
             "комментарий",
         ]
     )
@@ -160,8 +169,8 @@ def export_csv(
         actual = item.paid_amount if item.paid_amount is not None else (item.amount if item.status == "paid" else None)
         writer.writerow(
             [
-                ctx.team.name,
-                item.title,
+                _csv_text(ctx.team.name),
+                _csv_text(item.title),
                 item.period_label,
                 item.due_date.isoformat(),
                 _csv_status(item.status),
@@ -169,10 +178,10 @@ def export_csv(
                 _csv_money(actual),
                 item.currency,
                 item.paid_on.isoformat() if item.paid_on else "",
-                item.paid_by.full_name if item.paid_by else "",
+                _csv_text(item.paid_by.full_name if item.paid_by else ""),
                 _overdue_days(item, today),
-                item.receipt_url or "",
-                item.note or item.receipt_note or "",
+                _csv_text(item.receipt.name if item.receipt else ""),
+                _csv_text(item.note or item.receipt_note or ""),
             ]
         )
     body = "\ufeff" + buffer.getvalue()
@@ -270,10 +279,7 @@ def _audit_paid_change(db: Session, occurrence: PaymentOccurrence, actor, previo
 
 def _apply_receipt(occurrence: PaymentOccurrence, data: dict) -> list[str]:
     changed: list[str] = []
-    if "receipt_url" in data:
-        occurrence.receipt_url = data["receipt_url"]
-        changed.append("receipt_url")
-    if "receipt_note" in data:
+    if "receipt_note" in data and data["receipt_note"] != occurrence.receipt_note:
         occurrence.receipt_note = data["receipt_note"]
         changed.append("receipt_note")
     return changed
@@ -322,6 +328,113 @@ def confirm(
         )
     db.commit()
     return view_one(db, occurrence_id, ctx.team.id)
+
+
+def _receipt_audit(db: Session, occurrence: PaymentOccurrence, actor, action: str, name: str | None) -> None:
+    record(
+        db,
+        action=action,
+        actor=actor,
+        entity_type="payment_occurrence",
+        entity_id=occurrence.id,
+        meta={"title": occurrence.title, "file": name or ""},
+        team_id=occurrence.team_id,
+    )
+
+
+@router.post(
+    "/{occurrence_id}/receipt",
+    response_model=OccurrenceOut,
+    summary="Прикрепить файл чека",
+    description=(
+        "multipart/form-data: file и необязательный note (комментарий к чеку). "
+        "PDF, JPG/JPEG, PNG, HEIC/HEIF или WebP, проверка по расширению и по содержимому. "
+        "Размер — до RECEIPT_MAX_MB (по умолчанию 10 МБ). Новый файл заменяет прежний."
+    ),
+)
+def upload_receipt(
+    occurrence_id: UUID,
+    file: UploadFile = File(...),
+    note: str | None = Form(default=None, max_length=2000),
+    ctx: TeamContext = Depends(get_team_context),
+    db: Session = Depends(get_db),
+) -> OccurrenceOut:
+    occurrence = require_occurrence(db, occurrence_id, ctx.team.id)
+    data, family, content_type, name = receipts.read_upload(file)
+    key = receipts.store(data, family)
+    try:
+        old_key = receipts.attach(occurrence, key, name, content_type, len(data), clock.now())
+        if note is not None:
+            occurrence.receipt_note = note.strip() or None
+        touch(occurrence)
+        _receipt_audit(db, occurrence, ctx.user, "occurrence.receipt_attach", name)
+        db.commit()
+    except Exception:
+        db.rollback()
+        receipts.discard(key)
+        raise
+    if old_key and old_key != key:
+        receipts.discard(old_key)
+    return view_one(db, occurrence_id, ctx.team.id)
+
+
+@router.delete("/{occurrence_id}/receipt", response_model=OccurrenceOut, summary="Убрать файл чека")
+def delete_receipt(
+    occurrence_id: UUID,
+    ctx: TeamContext = Depends(get_team_context),
+    db: Session = Depends(get_db),
+) -> OccurrenceOut:
+    occurrence = require_occurrence(db, occurrence_id, ctx.team.id)
+    if not occurrence.receipt_file:
+        return view_one(db, occurrence_id, ctx.team.id)
+    name = occurrence.receipt_name
+    old_key = receipts.detach(occurrence)
+    touch(occurrence)
+    _receipt_audit(db, occurrence, ctx.user, "occurrence.receipt_remove", name)
+    db.commit()
+    receipts.discard(old_key)
+    return view_one(db, occurrence_id, ctx.team.id)
+
+
+@router.get(
+    "/{occurrence_id}/receipt",
+    summary="Файл чека",
+    description=(
+        "Открыть или скачать чек (?download=1). Работает по cookie без X-Team-Id: "
+        "доступ есть у тех, кто видит отдел периода, и у владельца."
+    ),
+    response_class=FileResponse,
+)
+def get_receipt(
+    occurrence_id: UUID,
+    download: bool = False,
+    user: User = Depends(get_active_user),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    occurrence = db.get(PaymentOccurrence, occurrence_id)
+    allowed = {row.team_id for row in department_access(db, user)}
+    if occurrence is None or occurrence.team_id not in allowed:
+        raise HTTPException(status_code=404, detail="Период не найден")
+    path = receipts.path_of(occurrence.receipt_file or "")
+    if path is None:
+        raise HTTPException(status_code=404, detail="Чека нет")
+    name = occurrence.receipt_name or path.name
+    content_type = occurrence.receipt_type or "application/octet-stream"
+    # HEIC/HEIF браузеры не показывают: такой чек только скачивается.
+    inline = content_type == "application/pdf" or content_type in {"image/jpeg", "image/png", "image/webp"}
+    disposition = "inline" if inline and not download else "attachment"
+    ascii_name = name.encode("ascii", "ignore").decode() or path.name
+    ascii_name = ascii_name.replace('"', "")
+    return FileResponse(
+        path,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f"{disposition}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}",
+            # Чек могут заменить: браузер переспрашивает каждый раз.
+            "Cache-Control": "private, no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/{occurrence_id}/revoke", response_model=OccurrenceOut, summary="Вернуть период в инбокс")
@@ -386,25 +499,20 @@ def patch_occurrence(
         occurrence.currency = data["currency"]
     if "due_date" in data and data["due_date"] is not None and data["due_date"] != occurrence.due_date:
         new_due = data["due_date"]
-        if (new_due.year, new_due.month) != (occurrence.period_year, occurrence.period_month):
-            clash = db.scalar(
-                select(PaymentOccurrence.id).where(
-                    PaymentOccurrence.recurring_payment_id == occurrence.recurring_payment_id,
-                    PaymentOccurrence.period_year == new_due.year,
-                    PaymentOccurrence.period_month == new_due.month,
-                    PaymentOccurrence.id != occurrence.id,
-                )
-            )
-            if clash is not None:
-                raise HTTPException(status_code=409, detail="В этом месяце у платежа уже есть период")
-            occurrence.period_year = new_due.year
-            occurrence.period_month = new_due.month
+        # Перенос срока не меняет сам период (сентябрь остаётся сентябрём), иначе расписание
+        # создаст его заново и платёж задвоится. Двигать можно в пределах соседних месяцев.
+        lo = date(*shift_month(occurrence.period_year, occurrence.period_month, -1), 1)
+        hi_year, hi_month = shift_month(occurrence.period_year, occurrence.period_month, 2)
+        if not lo <= new_due < date(hi_year, hi_month, 1):
+            raise HTTPException(status_code=422, detail="Срок можно перенести только в соседний месяц")
         changes["due_date"] = _pair(occurrence.due_date, new_due)
         occurrence.due_date = new_due
     if "note" in data and data["note"] != occurrence.note:
         changes["note"] = _pair(occurrence.note, data["note"])
         occurrence.note = data["note"]
     receipt_fields = _apply_receipt(occurrence, data)
+    if occurrence.paid_at is None and occurrence.paid_amount is not None:
+        raise HTTPException(status_code=422, detail="Фактическая сумма бывает только у оплаченного периода")
     touch(occurrence)
     if "paid_at" in data:
         _audit_paid_change(db, occurrence, ctx.user, previous)

@@ -36,8 +36,13 @@ class PaymentOccurrence(Base):
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    receipt_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     receipt_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Файл чека на томе receipts. receipt_file — имя в хранилище, receipt_name — как назвал человек.
+    receipt_file: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    receipt_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    receipt_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    receipt_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    receipt_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     telegram_chat_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     telegram_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     telegram_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)

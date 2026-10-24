@@ -22,6 +22,7 @@ def stats(
     date_from: date | None = None,
     date_to: date | None = None,
     responsible_id: UUID | None = None,
+    page: int = Query(default=1, ge=1, description="Страница списка операций, по 20 штук."),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> StatsOut:
@@ -35,4 +36,5 @@ def stats(
         date_from=date_from,
         date_to=date_to,
         responsible_id=responsible_id,
+        page=page,
     )

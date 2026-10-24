@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.core.database import OrgZoneMiddleware
+from app.core.headers import NoStoreMiddleware
 
 settings = get_settings()
 
@@ -21,7 +23,7 @@ app = FastAPI(
         "Напоминание уходит в чат отдела и ответственному, если личный канал включён. "
         "Кнопка «Оплачено» ставит paid_at = сейчас в TIMEZONE и paid_by = пользователя rekeeper, "
         "чей Telegram нажал и кто состоит в отделе. Непривязанный клик ничего не меняет. "
-        "Заметка не меняется. Ассистент — отдельный процесс и пишет в базу только после подтверждения."
+        "Заметка не меняется. Помощник Кип — отдельный процесс и пишет в базу только после подтверждения."
     ),
     docs_url="/api/v1/docs",
     redoc_url="/api/v1/redoc",
@@ -36,6 +38,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(OrgZoneMiddleware)
+app.add_middleware(NoStoreMiddleware)
 app.include_router(api_router, prefix="/api/v1")
 
 

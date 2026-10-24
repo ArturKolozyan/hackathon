@@ -6,6 +6,7 @@ import { FormField, FormScreen, FormSection } from "../components/FormScreen";
 import { ErrorState, LoadingBlock, useToast } from "../components/ui";
 import { longDue } from "../format";
 import { HINTS } from "../hints";
+import { rubText, useRates } from "../rates";
 
 type Draft = {
   title: string;
@@ -30,6 +31,11 @@ const emptyDraft: Draft = {
   interval_months: "2",
   responsible_user_id: "",
 };
+
+function localToday(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
 
 const CURRENCY_SIGN: Record<string, string> = { RUB: "₽", USD: "$", EUR: "€" };
 
@@ -61,6 +67,9 @@ export function TemplateFormPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [ready, setReady] = useState(!editing);
   const [busy, setBusy] = useState(false);
+  const rates = useRates();
+  const rub = rubText(draft.amount, draft.currency, rates);
+  const past = Boolean(draft.next_payment_date) && draft.next_payment_date < localToday();
 
   useEffect(() => {
     api<DirectoryUser[]>("/api/v1/users")
@@ -166,7 +175,12 @@ export function TemplateFormPage() {
           )}
         </FormField>
         <div className="form-row">
-          <FormField label="Сколько платим?" error={errors.amount} suffix={CURRENCY_SIGN[draft.currency] ?? draft.currency}>
+          <FormField
+            label="Сколько платим?"
+            error={errors.amount}
+            hint={rub ?? undefined}
+            suffix={CURRENCY_SIGN[draft.currency] ?? draft.currency}
+          >
             {({ id: fieldId, describedBy, invalid }) => (
               <input
                 id={fieldId}
@@ -211,9 +225,17 @@ export function TemplateFormPage() {
           label="Когда ближайшая оплата?"
           error={errors.next_payment_date}
           hint={
-            editing && appliesFrom
-              ? `Изменения применятся с периода ${longDue(appliesFrom)}.`
-              : "От этой даты считаются следующие периоды."
+            <>
+              {editing && appliesFrom
+                ? `Изменения применятся с периода ${longDue(appliesFrom)}.`
+                : "От этой даты считаются следующие периоды."}
+              {past && (
+                <span className="field-warning" role="status">
+                  {" "}
+                  Дата уже прошла: этот период сразу окажется просроченным.
+                </span>
+              )}
+            </>
           }
         >
           {() => (

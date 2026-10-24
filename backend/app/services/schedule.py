@@ -63,6 +63,27 @@ def iter_schedule(
     return out
 
 
+def periods_between(
+    starts_on: date,
+    day_of_month: int,
+    step: int | None,
+    start: date,
+    end: date,
+) -> list[tuple[int, int, date]]:
+    """Все сроки расписания в [start, end] без горизонта. Только для расчёта, в базу не пишется."""
+    first = first_scheduled(starts_on, day_of_month, step)
+    if step is None:
+        return [(first.year, first.month, first)] if start <= first <= end else []
+    out: list[tuple[int, int, date]] = []
+    year, month = first.year, first.month
+    while (year, month) <= (end.year, end.month):
+        due = due_date(year, month, day_of_month)
+        if start <= due <= end:
+            out.append((year, month, due))
+        year, month = shift_month(year, month, step)
+    return out
+
+
 def add_months(value: date, months: int) -> date:
     month_index = value.month - 1 + months
     year = value.year + month_index // 12

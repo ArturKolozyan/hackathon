@@ -69,7 +69,7 @@ export function longDue(iso: string): string {
   return `${Number(day)} ${MONTHS_GENITIVE[index]} ${year}`;
 }
 
-function daysWord(count: number): string {
+export function daysWord(count: number): string {
   const abs = Math.abs(count);
   const tail = abs % 10;
   const hundred = abs % 100;
@@ -177,4 +177,12 @@ export function initials(name: string | undefined | null): string {
   if (words.length === 0) return "?";
   if (words.length === 1) return Array.from(words[0]).slice(0, 2).join("").toUpperCase();
   return (Array.from(words[0])[0] + Array.from(words[1])[0]).toUpperCase();
+}
+
+/** "2026-10" ± delta months → "2026-11". */
+export function shiftMonthKey(key: string, delta: number): string {
+  const [year, month] = key.split("-").map(Number);
+  if (!year || !month) return key;
+  const next = shiftMonth(year, month, delta);
+  return `${next.year}-${String(next.month).padStart(2, "0")}`;
 }

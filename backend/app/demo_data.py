@@ -30,6 +30,7 @@ from app.models import (
     Team,
     User,
 )
+from app.services import receipts
 from app.services import time as clock
 from app.services.accounts import create_verified_user
 from app.services.audit import record
@@ -76,7 +77,6 @@ class Item:
     unpaid: int = 0  # последних прошедших сроков без оплаты
     prepaid: int = 0  # будущих сроков, оплаченных заранее
     archived: int | None = None  # дней назад ушёл в архив
-    remind_archived: bool = True
 
 
 TEAMS: list[tuple[str, tuple[str, ...], tuple[str, ...], list[Item]]] = [
@@ -86,13 +86,17 @@ TEAMS: list[tuple[str, tuple[str, ...], tuple[str, ...], list[Item]]] = [
         ("kovalev", "belov", "kuznetsova"),
         [
             Item("Аренда стоек в ЦОД (Москва), 6 стоек", "540000", "RUB", "monthly", -19, "vorontsov",
-                 ("kuznetsova", "vorontsov"), "Стойки 42U, 5 кВт на стойку. Счёт до 5-го числа."),
+                 ("kuznetsova", "vorontsov"), "Стойки 42U, до 5 кВт на стойку. Электричество — отдельным счётом по счётчику."),
             Item("Электроэнергия стоек, ЦОД Москва", "186000", "RUB", "monthly", 3, "kovalev",
                  ("kuznetsova", "kovalev"), "Оплата по факту потребления, сумма меняется каждый месяц.", vary=0.12),
             Item("Аренда стоек в ЦОД (Санкт-Петербург), 2 стойки", "210000", "RUB", "monthly", -2, "belov",
                  ("kuznetsova", "belov"), unpaid=1),
             Item("IP-транзит 10 Гбит/с, апстрим", "145000", "RUB", "monthly", -9, "vorontsov",
                  ("kuznetsova", "vorontsov"), "Коммит 10 Гбит/с, сверх коммита — по 95-му перцентилю.", vary=0.08),
+            Item("Защита от DDoS на апстриме, 40 Гбит/с очистки", "160000", "RUB", "monthly", -5, "vorontsov",
+                 ("kuznetsova", "vorontsov"), "Фильтрация трафика клиентов у внешнего провайдера."),
+            Item("Резервные копии в S3 за пределами ЦОД", "52000", "RUB", "monthly", 1, "belov",
+                 ("belov", "kuznetsova"), "Холодное хранилище, оплата за объём — сумма растёт вместе с клиентами.", vary=0.1),
             Item("Выделенный сервер во Франкфурте (резервный биллинг)", "189", "USD", "monthly", 7, "kovalev",
                  ("kovalev", "vorontsov"), "Счёт в долларах, оплата картой."),
             Item("Аренда IPv4 /22 (1024 адреса)", "1536", "USD", "quarterly", -31, "vorontsov",
@@ -134,7 +138,7 @@ TEAMS: list[tuple[str, tuple[str, ...], tuple[str, ...], list[Item]]] = [
         ("kuznetsova",),
         [
             Item("Аренда офиса, Москва", "385000", "RUB", "monthly", -19, "morozova",
-                 ("kuznetsova", "morozova"), "Договор аренды в рублях, срок — 5-е число.", prepaid=1),
+                 ("kuznetsova", "morozova"), "Договор аренды на 3 года, 420 м², оплата помесячно вперёд.", prepaid=1),
             Item("Электроэнергия офиса", "18000", "RUB", "monthly", -4, "kuznetsova",
                  ("kuznetsova",), "Счёт от арендодателя по счётчику.", vary=0.2),
             Item("Интернет в офис, 1 Гбит/с", "9500", "RUB", "monthly", 0, "morozova", ("kuznetsova", "morozova")),
@@ -157,7 +161,22 @@ TEAMS: list[tuple[str, tuple[str, ...], tuple[str, ...], list[Item]]] = [
             Item("SEO-подрядчик", "90000", "RUB", "monthly", -8, "lebedeva", ("kuznetsova",)),
             Item("Стенд на конференции (разово)", "380000", "RUB", "once", 26, "lebedeva", ("kuznetsova",)),
             Item("Таргетированная реклама ВКонтакте", "60000", "RUB", "monthly", -10, "egorov", ("egorov",),
-                 "Канал отключили, остался неоплаченный счёт.", archived=25, unpaid=1, remind_archived=False),
+                 "Канал отключили, остался неоплаченный счёт.", archived=25, unpaid=1),
+        ],
+    ),
+    (
+        "Финансы",
+        ("kuznetsova",),
+        ("morozova",),
+        [
+            Item("Обслуживание расчётного счёта", "4900", "RUB", "monthly", -13, "kuznetsova", ("kuznetsova",)),
+            Item("1С:Бухгалтерия в облаке, 5 пользователей", "8900", "RUB", "monthly", -20, "kuznetsova", ("kuznetsova",)),
+            Item("ЭДО с контрагентами (Диадок)", "21600", "RUB", "yearly", 58, "kuznetsova", ("kuznetsova",),
+                 "Счета и акты от ЦОД и провайдеров приходят через ЭДО."),
+            Item("Юридическое сопровождение (абонентское)", "70000", "RUB", "monthly", -6, "morozova",
+                 ("kuznetsova",), "Договоры с клиентами, претензии, ответы на запросы."),
+            Item("Страхование оборудования в ЦОД", "310000", "RUB", "yearly", -45, "kuznetsova", ("kuznetsova",),
+                 "Полис на серверы и СХД в Москве и Санкт-Петербурге."),
         ],
     ),
     (
@@ -177,10 +196,11 @@ TEAMS: list[tuple[str, tuple[str, ...], tuple[str, ...], list[Item]]] = [
 TEAMS_ADMIN = {name: admins[0] for name, admins, _members, _items in TEAMS}
 
 BUDGETS = {
-    "Инфраструктура": [("RUB", "1500000"), ("USD", "2500")],
+    "Инфраструктура": [("RUB", "1750000"), ("USD", "2500")],
     "Разработка": [("RUB", "120000"), ("USD", "400")],
     "Офис": [("RUB", "520000"), ("EUR", "400")],
     "Маркетинг": [("RUB", "420000")],
+    "Финансы": [("RUB", "100000")],
     "Поддержка": [("RUB", "60000")],
 }
 
@@ -291,7 +311,6 @@ def _payment(db: Session, team: Team, item: Item, people: dict[str, User], origi
     for row in ahead:
         db.delete(row)
     template.is_archived = True
-    template.remind_archived_overdue = item.remind_archived
     archived_at = _at(cutoff, rng)
     template.updated_at = archived_at
     record(
@@ -319,7 +338,9 @@ def has_data(db: Session) -> bool:
 
 
 def wipe(db: Session) -> None:
-    """Всё, кроме владельца, его входов в журнале и настроек организации."""
+    """Всё, кроме владельца, его входов в журнале и настроек организации. Файлы чеков — после commit."""
+    for key in db.scalars(select(PaymentOccurrence.receipt_file).where(PaymentOccurrence.receipt_file.is_not(None))):
+        receipts.discard_after_commit(db, key)
     db.execute(delete(PaymentOccurrence))
     db.execute(delete(RecurringPayment))
     db.execute(delete(Team))
@@ -347,7 +368,6 @@ def silence(db: Session, today: date, *, keep_today: bool) -> None:
             today=today,
             offsets=org.reminder_days,
             overdue=org.overdue_reminders,
-            remind_archived_overdue=template.remind_archived_overdue,
         )
         days_until = (row.due_date - today).days
         for event in events:

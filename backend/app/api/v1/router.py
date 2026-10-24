@@ -10,6 +10,7 @@ from app.api.v1 import (
     organization,
     payment_occurrences,
     payments,
+    rates,
     recurring_payments,
     stats,
     teams,
@@ -28,6 +29,7 @@ api_router.include_router(recurring_payments.router)
 api_router.include_router(payment_occurrences.router)
 api_router.include_router(payments.router)
 api_router.include_router(budgets.router)
+api_router.include_router(rates.router)
 api_router.include_router(audit.router)
 api_router.include_router(stats.router)
 api_router.include_router(telegram.router)

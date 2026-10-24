@@ -145,7 +145,7 @@ def test_inline_confirm_creates_payment_for_linked_admin(db_session):
     assert row is not None
     assert f"{row.amount:.2f}" == "1200.00"
     assert bot.edits
-    assert "Создан платёж" in bot.edits[-1]["text"]
+    assert "Платёж «Почта» создан" in bot.edits[-1]["text"]
 
 
 def test_unlinked_callback_does_not_write(db_session):

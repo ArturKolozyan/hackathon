@@ -104,27 +104,50 @@ def test_sanitize_drops_secrets():
     assert clean == {"email": "a@b.c", "nested": {"ok": 1}}
 
 
+PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
+HEIC = b"\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic" + b"\x00" * 16
+
+
 def test_receipt_on_period(client):
     headers = _admin(client)
     payment_id = _template(client, headers)
     october = next(item for item in _periods(client, headers, payment_id) if item["period"] == "2026-10")
-    assert october["receipt_url"] is None
-    bad = client.patch(
-        f"/api/v1/payment-occurrences/{october['id']}",
+    assert october["receipt"] is None
+    url = f"/api/v1/payment-occurrences/{october['id']}/receipt"
+
+    wrong_ext = client.post(url, headers=headers, files={"file": ("чек.txt", b"hello", "text/plain")})
+    assert wrong_ext.status_code == 415
+    fake_pdf = client.post(url, headers=headers, files={"file": ("чек.pdf", PNG, "application/pdf")})
+    assert fake_pdf.status_code == 415
+    empty = client.post(url, headers=headers, files={"file": ("чек.pdf", b"", "application/pdf")})
+    assert empty.status_code == 422
+
+    saved = client.post(
+        url,
         headers=headers,
-        json={"receipt_url": "http://files.example/receipt"},
-    )
-    assert bad.status_code == 422
-    saved = client.patch(
-        f"/api/v1/payment-occurrences/{october['id']}",
-        headers=headers,
-        json={"receipt_url": "https://files.example/receipt", "receipt_note": "счёт №14"},
+        files={"file": ("Счёт №14.pdf", PDF, "application/pdf")},
+        data={"note": "счёт №14"},
     )
     assert saved.status_code == 200, saved.text
     body = saved.json()
-    assert body["receipt_url"] == "https://files.example/receipt"
+    assert body["receipt"]["name"] == "Счёт №14.pdf"
+    assert body["receipt"]["content_type"] == "application/pdf"
+    assert body["receipt"]["size"] == len(PDF)
+    assert body["receipt"]["url"] == url
     assert body["receipt_note"] == "счёт №14"
     assert body["status"] != "paid"
+
+    opened = client.get(url, headers=headers)
+    assert opened.status_code == 200
+    assert opened.content == PDF
+    assert opened.headers["content-type"] == "application/pdf"
+    assert opened.headers["content-disposition"].startswith("inline;")
+    assert opened.headers["x-content-type-options"] == "nosniff"
+    downloaded = client.get(f"{url}?download=1", headers=headers)
+    assert downloaded.headers["content-disposition"].startswith("attachment;")
+    assert "filename*=UTF-8''" in downloaded.headers["content-disposition"]
+
     paid = client.post(
         f"/api/v1/payment-occurrences/{october['id']}/confirm",
         headers=headers,
@@ -132,15 +155,48 @@ def test_receipt_on_period(client):
     )
     assert paid.status_code == 200, paid.text
     assert paid.json()["status"] == "paid"
-    assert paid.json()["receipt_url"] == "https://files.example/receipt"
+    assert paid.json()["receipt"]["name"] == "Счёт №14.pdf"
     assert paid.json()["receipt_note"] == "оплатили с чеком"
+
+    replaced = client.post(url, headers=headers, files={"file": ("IMG_0042.HEIC", HEIC, "image/heic")})
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["receipt"]["content_type"] == "image/heic"
+    assert replaced.json()["receipt_note"] == "оплатили с чеком"
+    assert client.get(url, headers=headers).content == HEIC
+
+    removed = client.delete(url, headers=headers)
+    assert removed.status_code == 200
+    assert removed.json()["receipt"] is None
+    assert client.get(url, headers=headers).status_code == 404
     cleared = client.patch(
         f"/api/v1/payment-occurrences/{october['id']}",
         headers=headers,
-        json={"receipt_url": None, "receipt_note": None},
+        json={"receipt_note": None},
     )
-    assert cleared.json()["receipt_url"] is None
     assert cleared.json()["receipt_note"] is None
+
+    logs = client.get("/api/v1/audit-logs", headers=headers).json()["items"]
+    actions = [item["action"] for item in logs]
+    assert "occurrence.receipt_attach" in actions
+    assert "occurrence.receipt_remove" in actions
+    attach = next(item for item in logs if item["action"] == "occurrence.receipt_attach")
+    assert attach["meta"]["file"] in {"Счёт №14.pdf", "IMG_0042.HEIC"}
+
+
+def test_receipt_size_limit_and_foreign_access(client, monkeypatch):
+    headers = _admin(client)
+    payment_id = _template(client, headers)
+    october = next(item for item in _periods(client, headers, payment_id) if item["period"] == "2026-10")
+    url = f"/api/v1/payment-occurrences/{october['id']}/receipt"
+    monkeypatch.setattr("app.services.receipts.max_bytes", lambda: 64)
+    big = client.post(url, headers=headers, files={"file": ("scan.png", PNG + b"\x00" * 100, "image/png")})
+    assert big.status_code == 413
+    monkeypatch.undo()
+    ok = client.post(url, headers=headers, files={"file": ("scan.png", PNG, "image/png")})
+    assert ok.status_code == 200, ok.text
+    client.cookies.clear()
+    anonymous = client.get(url)
+    assert anonymous.status_code == 401
 
 
 def test_calendar_groups_by_due_date(client):

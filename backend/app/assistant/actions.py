@@ -11,10 +11,10 @@ from pydantic import ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.api.v1.payment_occurrences import confirm
+from app.api.v1.payment_occurrences import confirm, revoke
 from app.api.v1.recurring_payments import archive_payment, create_payment, update_payment
 from app.assistant import match as names
-from app.assistant.answers import catalog
+from app.assistant.answers import cadence, catalog, clean, due_text, money
 from app.assistant.dates import first_due
 from app.assistant.permissions import AssistantDenied, assert_manage_templates, assert_mark_paid, can_manage_templates
 from app.models import AssistantAction, AssistantMessage, Team, User
@@ -25,24 +25,25 @@ from app.services.access import TeamContext
 from app.services.occurrences import list_views, view_one
 from app.services.teams import membership, require_participant
 
-READ_KINDS = {"week", "overdue", "spending", "paid_month", "open", "responsible", "person"}
+STATUS_RU = {"overdue": "просрочено", "due_soon": "скоро", "upcoming": "впереди", "paid": "оплачено"}
+PERIODICITY = {"monthly", "quarterly", "semiannual", "yearly", "once", "every_n"}
 
 
 def _validation_text(exc: ValidationError) -> str:
     messages: list[str] = []
     for error in exc.errors():
-        msg = str(error.get("msg") or "Проверь поля")
+        msg = str(error.get("msg") or "Проверьте поля")
         prefix = "Value error, "
         if msg.startswith(prefix):
             msg = msg[len(prefix) :]
         messages.append(msg)
-    return "Не получилось: " + "; ".join(messages) if messages else "Проверь поля."
+    return "Не получилось: " + "; ".join(messages) if messages else "Проверьте поля."
 
 
 def _detail(exc: HTTPException) -> str:
     if isinstance(exc.detail, str):
         return exc.detail
-    return "Не получилось выполнить. Проверь поля."
+    return "Не получилось выполнить. Проверьте поля."
 
 
 def _cancel_pending(db: Session, user_id: uuid.UUID, team_id: uuid.UUID) -> None:
@@ -93,7 +94,7 @@ def _one_template(db: Session, team_id: uuid.UUID, query: str):
         return None, f"Платежа «{query}» не нашёл. Сейчас есть: {catalog(db, team_id)}."
     if len(found) > 1:
         titles = ", ".join(f"«{row.title}»" for row in found)
-        return None, f"Нашёл несколько платежей: {titles}. Уточни название."
+        return None, f"Нашёл несколько платежей: {titles}. Уточните название."
     return found[0], None
 
 
@@ -105,39 +106,48 @@ def _one_person(db: Session, team_id: uuid.UUID, name: str, actor: User):
         people = ", ".join(user.full_name for user in names.active_users(db, team_id)) or "никого"
         return None, f"Не нашёл ответственного «{name}». Сейчас в отделе: {people}."
     if len(found) > 1:
-        return None, "Нашёл несколько людей: " + ", ".join(user.full_name for user in found) + ". Уточни имя."
+        return None, "Нашёл несколько людей: " + ", ".join(user.full_name for user in found) + ". Уточните имя."
     return found[0], None
 
 
 def _create_summary(fields: dict) -> str:
     due = date.fromisoformat(fields["first_due"])
+    schedule = cadence(fields.get("periodicity"), fields.get("interval_months"), fields["day_of_month"])
     return (
-        f"Создать платёж: {fields['title']}\n"
-        f"{fields['amount']} {fields['currency']}\n"
-        f"каждое {fields['day_of_month']}-е, первый срок {due.strftime('%d.%m.%Y')}\n"
-        f"ответственный: {fields['responsible_name']}"
+        "**Создать платёж**\n\n"
+        f"- Название: {clean(fields['title'])}\n"
+        f"- Сумма: {money(fields['amount'], fields['currency'])}\n"
+        f"- Повтор: {schedule}\n"
+        f"- Первый срок: {due_text(due)}\n"
+        f"- Ответственный: {clean(fields['responsible_name'])}"
     )
 
 
 def plan_create(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, AssistantAction | None]:
     if not can_manage_templates(ctx):
-        return "Создавать и менять платежи может владелец или админ. Отметить период оплаченным можно самому.", None
+        return "Создавать и менять платежи может админ отдела или владелец. Отметить период оплаченным можете вы сами.", None
     responsible, error = _one_person(db, ctx.team.id, str(slots.get("responsible_name") or ""), ctx.user)
     if error or responsible is None:
         return error or "Нужен ответственный.", None
     try:
+        starts_on = date.fromisoformat(str(slots["starts_on"]))
+        day = slots.get("day_of_month")
+        periodicity = str(slots.get("periodicity") or "monthly").strip().lower()
+        interval = slots.get("interval_months")
         payload = RecurringCreate(
             title=str(slots["title"]),
-            amount=Decimal(str(slots["amount"])),
+            amount=Decimal(str(slots["amount"]).replace(",", ".").replace(" ", "")),
             currency=str(slots["currency"]),
-            day_of_month=int(slots["day_of_month"]),
-            starts_on=date.fromisoformat(str(slots["starts_on"])),
+            day_of_month=int(day) if day not in (None, "") else starts_on.day,
+            starts_on=starts_on,
+            periodicity=periodicity if periodicity in PERIODICITY else "monthly",
+            interval_months=int(interval) if interval not in (None, "") else None,
             responsible_user_id=responsible.id,
         )
-    except (ValidationError, ValueError, KeyError) as exc:
+    except (ValidationError, ValueError, KeyError, ArithmeticError) as exc:
         if isinstance(exc, ValidationError):
             return _validation_text(exc), None
-        return "Не разобрал поля платежа. Напиши название, сумму, валюту, день и ответственного.", None
+        return "Не разобрал поля платежа. Назовите название, сумму, валюту, день и ответственного.", None
     due = first_due(payload.starts_on, payload.day_of_month)
     fields = {
         "title": payload.title,
@@ -145,6 +155,8 @@ def plan_create(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, Assist
         "currency": payload.currency,
         "day_of_month": payload.day_of_month,
         "starts_on": payload.starts_on.isoformat(),
+        "periodicity": payload.periodicity,
+        "interval_months": payload.interval_months,
         "responsible_user_id": str(responsible.id),
         "responsible_name": responsible.full_name,
         "first_due": due.isoformat(),
@@ -171,22 +183,25 @@ def _update_kwargs(changes: dict) -> dict:
 def _change_lines(before: dict, changes: dict) -> list[str]:
     lines: list[str] = []
     if "amount" in changes or "currency" in changes:
-        old = f"{before['amount']} {before['currency']}"
-        new_amount = changes.get("amount", before["amount"])
-        new_currency = changes.get("currency", before["currency"])
-        lines.append(f"сумма: {old} → {new_amount} {new_currency}")
+        old = money(before["amount"], before["currency"])
+        new = money(changes.get("amount", before["amount"]), changes.get("currency", before["currency"]))
+        lines.append(f"- Сумма: {old} → **{new}**")
     if "day_of_month" in changes:
-        lines.append(f"день: {before['day_of_month']} → {changes['day_of_month']}")
+        lines.append(f"- День: {before['day_of_month']} → **{changes['day_of_month']}**")
     if "responsible_name" in changes:
-        lines.append(f"ответственный: {before['responsible_name']} → {changes['responsible_name']}")
+        lines.append(f"- Ответственный: {clean(before['responsible_name']) or 'не назначен'} → **{clean(changes['responsible_name'])}**")
     if "title" in changes:
-        lines.append(f"название: {before['title']} → {changes['title']}")
+        lines.append(f"- Название: {clean(before['title'])} → **{clean(changes['title'])}**")
     return lines
+
+
+def _update_summary(title: str, before: dict, changes: dict) -> str:
+    return f"**Изменить платёж «{clean(title)}»**\n\n" + "\n".join(_change_lines(before, changes))
 
 
 def plan_update(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, AssistantAction | None]:
     if not can_manage_templates(ctx):
-        return "Менять платежи может владелец или админ.", None
+        return "Менять платежи может админ отдела или владелец.", None
     template, error = _one_template(db, ctx.team.id, str(slots.get("query") or ""))
     if error or template is None:
         return error or "Какой платёж изменить?", None
@@ -215,7 +230,7 @@ def plan_update(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, Assist
         changes["responsible_user_id"] = str(person.id)
         changes["responsible_name"] = person.full_name
     if not changes:
-        return "Что именно изменить: сумму, день или ответственного?", None
+        return "Что именно изменить: сумму, день, название или ответственного?", None
     try:
         validated = RecurringUpdate(**_update_kwargs(changes))
     except (ValidationError, ValueError) as exc:
@@ -226,21 +241,21 @@ def plan_update(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, Assist
         changes["amount"] = f"{validated.amount:.2f}"
     if validated.currency is not None:
         changes["currency"] = validated.currency
-    lines = _change_lines(before, changes)
-    summary = "Изменить платёж: " + template.title + "\n" + "\n".join(lines)
+    summary = _update_summary(template.title, before, changes)
     fields = {"payment_id": str(template.id), "title": template.title, "before": before, "changes": changes}
     return summary, _stage(db, ctx, "update_payment", fields, summary)
 
 
 def plan_archive(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, AssistantAction | None]:
     if not can_manage_templates(ctx):
-        return "Архивировать платежи может владелец или админ.", None
+        return "Архивировать платежи может админ отдела или владелец.", None
     template, error = _one_template(db, ctx.team.id, str(slots.get("query") or ""))
     if error or template is None:
         return error or "Какой платёж архивировать?", None
     summary = (
-        f"Архивировать платёж: {template.title}\n"
-        "Новые напоминания остановятся. История периодов останется."
+        f"**Архивировать платёж «{clean(template.title)}»**\n\n"
+        "- Новые периоды и напоминания остановятся\n"
+        "- История оплат останется, вернуть из архива можно в «Шаблонах»"
     )
     fields = {"payment_id": str(template.id), "title": template.title}
     return summary, _stage(db, ctx, "archive_payment", fields, summary, editable=False)
@@ -294,12 +309,7 @@ def plan_mark_paid(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, Ass
         "due_date": target.due_date.isoformat(),
         "status": target.status,
     }
-    summary = (
-        f"Отметить оплаченным: {target.title}\n"
-        f"{target.period_label}: {fields['amount']} {target.currency}, "
-        f"до {target.due_date.strftime('%d.%m.%Y')}, {fields['status']}"
-    )
-    summary = summary.replace(fields["status"], {"overdue": "просрочено", "due_soon": "скоро", "upcoming": "впереди"}.get(fields["status"], fields["status"]))
+    summary = _paid_summary(fields)
     return summary, _stage(
         db,
         ctx,
@@ -311,11 +321,61 @@ def plan_mark_paid(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, Ass
     )
 
 
+def _paid_summary(fields: dict) -> str:
+    due = date.fromisoformat(fields["due_date"])
+    return (
+        f"**Отметить оплаченным «{clean(fields['title'])}»**\n\n"
+        f"- Период: {fields['period_label']}\n"
+        f"- Сумма: {money(fields['amount'], fields['currency'])}\n"
+        f"- Срок: {due_text(due)}, {STATUS_RU.get(fields.get('status', ''), fields.get('status', ''))}\n"
+        "- Дата оплаты: сегодня, вы — тот, кто отметил"
+    )
+
+
+def plan_mark_unpaid(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, AssistantAction | None]:
+    """Вернуть оплаченный период в инбокс. Тот же revoke, что кнопка «В инбокс»."""
+    if not ctx.user.is_active:
+        return "Недостаточно прав.", None
+    template, error = _one_template(db, ctx.team.id, str(slots.get("query") or ""))
+    if error or template is None:
+        return error or "Какой платёж вернуть в неоплаченные?", None
+    _today, items = list_views(db, view="history", team_id=ctx.team.id, recurring_payment_id=template.id)
+    if slots.get("year") and slots.get("month"):
+        key = f"{int(slots['year']):04d}-{int(slots['month']):02d}"
+        items = [item for item in items if item.period == key]
+    if not items:
+        return f"У «{clean(template.title)}» нет оплаченного периода, который можно вернуть.", None
+    target = max(items, key=lambda item: item.due_date)
+    fields = {
+        "occurrence_id": str(target.id),
+        "payment_id": str(template.id),
+        "title": target.title,
+        "period_label": target.period_label,
+        "amount": f"{Decimal(target.amount):.2f}",
+        "currency": target.currency,
+        "due_date": target.due_date.isoformat(),
+    }
+    paid_by = clean(target.paid_by.full_name) if target.paid_by is not None else "неизвестно"
+    paid_on = due_text(target.paid_on) if target.paid_on else "—"
+    summary = (
+        f"**Вернуть в неоплаченные «{clean(target.title)}»**\n\n"
+        f"- Период: {target.period_label}\n"
+        f"- Сумма: {money(target.amount, target.currency)}\n"
+        f"- Сейчас отмечено: {paid_on}, {paid_by}\n"
+        "- Отметка оплаты, фактическая сумма и дата снимутся, период вернётся в инбокс"
+    )
+    return summary, _stage(db, ctx, "mark_unpaid", fields, summary, editable=False)
+
+
 def plan(db: Session, ctx: TeamContext, kind: str, slots: dict) -> tuple[str, AssistantAction | None]:
     if kind == "clarify":
-        return str(slots.get("text") or "Уточни запрос."), None
+        return str(slots.get("text") or "Уточните запрос."), None
     if kind == "unsupported_frequency":
-        return "Регулярные платежи сейчас только раз в месяц, по дню месяца. Назови день, например «каждое 12-е».", None
+        return (
+            "Повтор бывает ежемесячно, раз в квартал, раз в полгода, раз в год, раз в N месяцев или разово. "
+            "Недели и дни не поддерживаются. Назовите день месяца, например «каждое 12-е».",
+            None,
+        )
     if kind == "create":
         return plan_create(db, ctx, slots)
     if kind == "update":
@@ -324,6 +384,8 @@ def plan(db: Session, ctx: TeamContext, kind: str, slots: dict) -> tuple[str, As
         return plan_archive(db, ctx, slots)
     if kind == "mark_paid":
         return plan_mark_paid(db, ctx, slots)
+    if kind == "mark_unpaid":
+        return plan_mark_unpaid(db, ctx, slots)
     return "Не понял действие.", None
 
 
@@ -350,39 +412,35 @@ def _execute(db: Session, ctx: TeamContext, action: AssistantAction) -> str:
     fields = action.payload.get("fields") or {}
     if action.kind == "create_payment":
         assert_manage_templates(ctx)
-        created = create_payment(
-            RecurringCreate(
-                title=fields["title"],
-                amount=Decimal(str(fields["amount"])),
-                currency=fields["currency"],
-                day_of_month=int(fields["day_of_month"]),
-                starts_on=date.fromisoformat(fields["starts_on"]),
-                responsible_user_id=uuid.UUID(fields["responsible_user_id"]),
-            ),
-            ctx,
-            db,
-        )
+        created = create_payment(_create_payload(fields), ctx, db)
+        schedule = cadence(fields.get("periodicity"), fields.get("interval_months"), created.day_of_month)
         return (
-            f"Создан платёж «{created.title}»: {created.amount:.2f} {created.currency}, "
-            f"каждое {created.day_of_month}-е, ответственный {_who(created.responsible)}."
+            f"**Платёж «{clean(created.title)}» создан**\n\n"
+            f"- {money(created.amount, created.currency)}, {schedule}\n"
+            f"- Ответственный: {clean(_who(created.responsible))}"
         )
     if action.kind == "update_payment":
         assert_manage_templates(ctx)
         changes = fields.get("changes") or {}
         updated = update_payment(uuid.UUID(fields["payment_id"]), RecurringUpdate(**_update_kwargs(changes)), ctx, db)
         return (
-            f"Обновил «{updated.title}»: {updated.amount:.2f} {updated.currency}, "
-            f"каждое {updated.day_of_month}-е, ответственный {_who(updated.responsible)}."
+            f"**Платёж «{clean(updated.title)}» обновлён**\n\n"
+            f"- {money(updated.amount, updated.currency)}, каждое {updated.day_of_month}-е число\n"
+            f"- Ответственный: {clean(_who(updated.responsible))}"
         )
     if action.kind == "archive_payment":
         assert_manage_templates(ctx)
         archived = archive_payment(uuid.UUID(fields["payment_id"]), ctx, db)
-        return f"«{archived.title}» в архиве. Новые периоды не создаются, история на месте."
+        return f"**«{clean(archived.title)}» в архиве**\n\nНовые периоды не создаются, история оплат на месте."
     if action.kind == "mark_paid":
         assert_mark_paid(ctx)
         occurrence = confirm(uuid.UUID(fields["occurrence_id"]), ConfirmIn(), ctx, db)
-        paid = occurrence.paid_on.strftime("%d.%m.%Y") if occurrence.paid_on else "сегодня"
-        return f"«{occurrence.title}» за {occurrence.period_label} отмечен оплаченным ({paid})."
+        paid = due_text(occurrence.paid_on) if occurrence.paid_on else "сегодня"
+        return f"**«{clean(occurrence.title)}» за {occurrence.period_label} оплачен**\n\nОтметка от {paid} записана на вас."
+    if action.kind == "mark_unpaid":
+        assert_mark_paid(ctx)
+        occurrence = revoke(uuid.UUID(fields["occurrence_id"]), ctx, db)
+        return f"**«{clean(occurrence.title)}» за {occurrence.period_label} снова в инбоксе**\n\nОтметка оплаты снята."
     raise HTTPException(status_code=422, detail="Неизвестное действие")
 
 
@@ -433,17 +491,11 @@ def apply_patch(db: Session, ctx: TeamContext, action: AssistantAction, patch: d
     elif action.kind == "update_payment":
         _patch_update(db, ctx.team.id, fields, patch)
         action.payload = {**action.payload, "fields": fields}
-        action.summary = "Изменить платёж: " + fields["title"] + "\n" + "\n".join(
-            _change_lines(fields["before"], fields["changes"])
-        )
+        action.summary = _update_summary(fields["title"], fields["before"], fields["changes"])
     elif action.kind == "mark_paid":
         _patch_paid(db, ctx.team.id, action, fields, patch)
         action.payload = {**action.payload, "fields": fields}
-        action.summary = (
-            f"Отметить оплаченным: {fields['title']}\n"
-            f"{fields['period_label']}: {fields['amount']} {fields['currency']}, до "
-            f"{date.fromisoformat(fields['due_date']).strftime('%d.%m.%Y')}"
-        )
+        action.summary = _paid_summary(fields)
     else:
         raise HTTPException(status_code=422, detail="Эту карточку лучше поправить фразой в чате.")
     db.commit()
@@ -457,6 +509,19 @@ def _participant(db: Session, team_id: uuid.UUID, user_id: uuid.UUID) -> User:
     except HTTPException as exc:
         detail = exc.detail if isinstance(exc.detail, str) else "Ответственный не в этом отделе"
         raise HTTPException(status_code=422, detail=detail) from None
+
+
+def _create_payload(fields: dict) -> RecurringCreate:
+    return RecurringCreate(
+        title=fields["title"],
+        amount=Decimal(str(fields["amount"])),
+        currency=fields["currency"],
+        day_of_month=int(fields["day_of_month"]),
+        starts_on=date.fromisoformat(fields["starts_on"]),
+        periodicity=fields.get("periodicity") or "monthly",
+        interval_months=fields.get("interval_months"),
+        responsible_user_id=uuid.UUID(fields["responsible_user_id"]),
+    )
 
 
 def _patch_create(db: Session, team_id: uuid.UUID, fields: dict, patch: dict) -> None:
@@ -475,14 +540,7 @@ def _patch_create(db: Session, team_id: uuid.UUID, fields: dict, patch: dict) ->
         fields["responsible_user_id"] = str(person.id)
         fields["responsible_name"] = person.full_name
     try:
-        payload = RecurringCreate(
-            title=fields["title"],
-            amount=Decimal(str(fields["amount"])),
-            currency=fields["currency"],
-            day_of_month=int(fields["day_of_month"]),
-            starts_on=date.fromisoformat(fields["starts_on"]),
-            responsible_user_id=uuid.UUID(fields["responsible_user_id"]),
-        )
+        payload = _create_payload(fields)
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=_validation_text(exc)) from None
     due = first_due(payload.starts_on, payload.day_of_month)
@@ -529,7 +587,7 @@ def _patch_update(db: Session, team_id: uuid.UUID, fields: dict, patch: dict) ->
 def _patch_paid(db: Session, team_id: uuid.UUID, action: AssistantAction, fields: dict, patch: dict) -> None:
     occurrence_id = str(patch.get("occurrence_id") or "")
     if not occurrence_id:
-        raise HTTPException(status_code=422, detail="Выбери период")
+        raise HTTPException(status_code=422, detail="Выберите период")
     allowed = {str(fields.get("occurrence_id"))}
     allowed.update(str(item.get("occurrence_id")) for item in action.payload.get("alternatives") or [])
     if occurrence_id not in allowed:

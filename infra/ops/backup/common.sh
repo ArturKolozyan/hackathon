@@ -73,3 +73,18 @@ rotate_dumps() {
     fi
   done
 }
+
+# Архивы чеков ротируются так же: последние keep штук.
+rotate_receipts() {
+  dir=$1
+  keep=$2
+  set -- "$dir"/receipts-*.tar.gz
+  [ -e "$1" ] || return 0
+  n=0
+  ls -1t "$dir"/receipts-*.tar.gz | while IFS= read -r old; do
+    n=$((n + 1))
+    if [ "$n" -gt "$keep" ]; then
+      rm -f "$old"
+    fi
+  done
+}

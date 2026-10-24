@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -6,9 +7,17 @@ from pydantic import BaseModel, Field
 from app.schemas.telegram import TeamTelegram
 
 
+class EmailTeamOut(BaseModel):
+    id: UUID
+    name: str
+    enabled: bool
+    scope: str = Field(description="mine — только платежи, где человек ответственный; department — весь отдел.")
+
+
 class PersonalChannelOut(BaseModel):
     enabled: bool
     team_ids: list[UUID]
+    teams: list[EmailTeamOut] = Field(default_factory=list, description="Только у почты: настройки писем по отделам.")
     notify_scope: str = "mine"
     notify_overdue: bool = True
     bot_alive: bool = False
@@ -47,11 +56,16 @@ class NotificationsOut(BaseModel):
 
 class PersonalNotificationsIn(BaseModel):
     email_enabled: bool
-    email_team_ids: list[UUID] = Field(default_factory=list)
+    email_team_ids: list[UUID] | None = Field(default=None, description="Не передан — отделы писем не меняются.")
     telegram_enabled: bool
-    telegram_team_ids: list[UUID] = Field(default_factory=list)
+    telegram_team_ids: list[UUID] | None = Field(default=None, description="Не передан — не меняется.")
     notify_scope: str | None = None
     notify_overdue: bool | None = None
+
+
+class EmailTeamIn(BaseModel):
+    enabled: bool
+    scope: Literal["mine", "department"] = "mine"
 
 
 class WebhookIn(BaseModel):

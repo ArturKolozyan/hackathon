@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ApiError, api, type BudgetLine, type BudgetReport } from "../api";
 import { canManage, useAuth } from "../auth";
 import { DateField } from "../components/fields";
 import { PageControls } from "../components/PageControls";
+import { PeriodNav } from "../components/PeriodNav";
 import { ErrorState, LoadingBlock, SaveStatus, Segmented, useDebounced, useSaveState } from "../components/ui";
-import { formatMoney } from "../format";
+import { formatMoney, shiftMonthKey } from "../format";
 import { HINTS } from "../hints";
+import { useFresh } from "../fresh";
+import { RubHint } from "../rates";
 
 type Kind = "month" | "year";
 
@@ -36,10 +38,11 @@ export function BudgetPage() {
       setError(err instanceof ApiError ? err.message : "Бюджет не загрузился");
     }
   }, [kind, periodKey]);
+  const fresh = useFresh();
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, fresh]);
 
   return (
     <div className="page">
@@ -57,18 +60,29 @@ export function BudgetPage() {
         }
         left={
         kind === "month" ? (
-          <DateField mode="month" value={monthKey} onChange={setMonthKey} ariaLabel="Месяц" />
+          <PeriodNav
+            label="Месяц бюджета"
+            prevLabel="Предыдущий месяц"
+            nextLabel="Следующий месяц"
+            prevHint={HINTS.monthPrev}
+            nextHint={HINTS.monthNext}
+            onPrev={() => setMonthKey((key) => shiftMonthKey(key || currentMonth(), -1))}
+            onNext={() => setMonthKey((key) => shiftMonthKey(key || currentMonth(), 1))}
+            width="9.5rem"
+          >
+            <DateField mode="month" value={monthKey} onChange={setMonthKey} ariaLabel="Месяц" />
+          </PeriodNav>
         ) : (
-          <div className="tb-group cal-nav">
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Предыдущий год"
-              data-hint={HINTS.yearPrev}
-              onClick={() => setYearKey(String((Number(yearKey) || new Date().getFullYear()) - 1))}
-            >
-              <ChevronLeft size={18} strokeWidth={1.75} aria-hidden />
-            </button>
+          <PeriodNav
+            label="Год бюджета"
+            prevLabel="Предыдущий год"
+            nextLabel="Следующий год"
+            prevHint={HINTS.yearPrev}
+            nextHint={HINTS.yearNext}
+            onPrev={() => setYearKey(String((Number(yearKey) || new Date().getFullYear()) - 1))}
+            onNext={() => setYearKey(String((Number(yearKey) || new Date().getFullYear()) + 1))}
+            width="4.75rem"
+          >
             <input
               className="tb-year"
               aria-label="Год"
@@ -77,16 +91,7 @@ export function BudgetPage() {
               maxLength={4}
               onChange={(event) => setYearKey(event.target.value.replace(/\D/g, "").slice(0, 4))}
             />
-            <button
-              type="button"
-              className="icon-btn"
-              aria-label="Следующий год"
-              data-hint={HINTS.yearNext}
-              onClick={() => setYearKey(String((Number(yearKey) || new Date().getFullYear()) + 1))}
-            >
-              <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
-            </button>
-          </div>
+          </PeriodNav>
         )
         }
       />
@@ -110,7 +115,7 @@ export function BudgetPage() {
                   <strong className="money">{formatMoney(row.fact_amount, row.currency)}</strong>
                 </p>
                 <p className="budget-fact">
-                  <span>Ожидается</span>
+                  <span>Ещё к оплате</span>
                   <strong className="money">{formatMoney(row.expected_amount, row.currency)}</strong>
                 </p>
                 <p className="budget-fact">
@@ -213,7 +218,10 @@ function PlanInput({
           {problem}
         </p>
       ) : (
-        <p className="field-hint">Сохраняется само. Очистите поле, чтобы убрать план.</p>
+        <p className="field-hint">
+          <RubHint amount={value} currency={row.currency} className="rub-hint rub-hint-line" />
+          Сохраняется само. Очистите поле, чтобы убрать план.
+        </p>
       )}
     </div>
   );

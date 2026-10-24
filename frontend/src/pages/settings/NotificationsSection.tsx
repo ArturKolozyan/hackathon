@@ -3,20 +3,21 @@ import { Send } from "lucide-react";
 import {
   ApiError,
   api,
+  type EmailTeam,
   type NotificationsView,
   type Probe,
   type TeamTelegram,
   type TelegramLink,
   type TelegramSelf,
 } from "../../api";
-import { MultiSelectField, SelectField } from "../../components/fields";
+import { SelectField } from "../../components/fields";
 import { RowInput, SettingGroup, SettingRow, SwitchRow } from "../../components/SettingRow";
 import { ErrorState, LoadingBlock, SaveStatus, useDebounced, useSaveState, useToast } from "../../components/ui";
 import { HINTS } from "../../hints";
+import { useFresh } from "../../fresh";
 
 type Personal = {
   emailOn: boolean;
-  emailTeams: string[];
   tgOn: boolean;
   scope: "mine" | "department";
   overdueOn: boolean;
@@ -25,7 +26,6 @@ type Personal = {
 function personalOf(view: NotificationsView): Personal {
   return {
     emailOn: view.email.enabled,
-    emailTeams: view.email.team_ids,
     tgOn: view.telegram.enabled,
     scope: view.telegram.notify_scope || "mine",
     overdueOn: view.telegram.notify_overdue,
@@ -71,6 +71,7 @@ export function NotificationsSection() {
   const [busy, setBusy] = useState(false);
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const [confirmTeam, setConfirmTeam] = useState(false);
+  const [mailTeamId, setMailTeamId] = useState<string | null>(null);
   const webhookDirty = useRef(false);
   const tgSave = useSaveState();
   const mailSave = useSaveState();
@@ -87,13 +88,14 @@ export function NotificationsSection() {
     if (next.team.telegram.status === "connected" && next.team.telegram.source === "database") setTeamLink(null);
   }, []);
 
+  const fresh = useFresh();
   const load = useCallback(async () => {
     apply(await api<NotificationsView>("/api/v1/notifications"));
   }, [apply]);
 
   useEffect(() => {
     load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"));
-  }, [load]);
+  }, [load, fresh]);
 
   const pending = Boolean(personalLink || teamLink || data?.telegram.test_pending || data?.team.telegram.test_pending);
   useEffect(() => {
@@ -138,7 +140,6 @@ export function NotificationsSection() {
             method: "PATCH",
             body: JSON.stringify({
               email_enabled: next.emailOn,
-              email_team_ids: next.emailTeams,
               telegram_enabled: next.tgOn,
               notify_scope: next.scope,
               notify_overdue: next.overdueOn,
@@ -147,6 +148,28 @@ export function NotificationsSection() {
         );
       },
       () => setPersonal(before),
+    );
+  }
+
+  /** Письма по одному отделу: тумблер и охват. Оптимистично, с откатом. */
+  function saveMailTeam(team: EmailTeam, patch: Partial<Pick<EmailTeam, "enabled" | "scope">>) {
+    if (!data) return;
+    const before = data;
+    const next = { ...team, ...patch };
+    setData({
+      ...data,
+      email: { ...data.email, teams: data.email.teams.map((row) => (row.id === team.id ? next : row)) },
+    });
+    void mailSave.run(
+      async () => {
+        apply(
+          await api<NotificationsView>(`/api/v1/notifications/personal/email/teams/${team.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ enabled: next.enabled, scope: next.scope }),
+          }),
+        );
+      },
+      () => setData(before),
     );
   }
 
@@ -176,7 +199,12 @@ export function NotificationsSection() {
 
   const teamTg = data.team.telegram;
   const manage = data.team.can_manage;
-  const teamOptions = data.teams.map((team) => ({ value: team.id, label: team.name }));
+  const mailTeams = data.email.teams;
+  const mailTeam =
+    mailTeams.find((team) => team.id === mailTeamId) ??
+    mailTeams.find((team) => team.id === data.team.team_id) ??
+    mailTeams[0] ??
+    null;
   const urlProblem = webhookError(webhookUrl);
   const tgReady = data.telegram.bot_ready;
 
@@ -207,6 +235,7 @@ export function NotificationsSection() {
                     type="button"
                     className="ghost danger"
                     disabled={busy}
+                    data-hint={HINTS.tgUnlinkConfirm}
                     onClick={() =>
                       run(async () => {
                         await api<TelegramSelf>("/api/v1/me/telegram", { method: "DELETE" });
@@ -217,7 +246,7 @@ export function NotificationsSection() {
                   >
                     Да, отвязать
                   </button>
-                  <button type="button" className="ghost" onClick={() => setConfirmUnlink(false)}>
+                  <button type="button" className="ghost" data-hint={HINTS.cancel} onClick={() => setConfirmUnlink(false)}>
                     Отмена
                   </button>
                 </div>
@@ -263,7 +292,7 @@ export function NotificationsSection() {
         />
         <SettingRow
           title="Какие платежи"
-          description="Только те, где вы ответственный, или все платежи отдела"
+          description="В Telegram: только те, где вы ответственный, или все платежи ваших отделов"
           control={
             <SelectField
               ariaLabel="Какие платежи"
@@ -278,8 +307,8 @@ export function NotificationsSection() {
           }
         />
         <SwitchRow
-          title="Писать о просрочке"
-          description="Повторное сообщение, если срок прошёл, а оплаты нет"
+          title="Мне о просрочках"
+          description="Каждый день, пока срок прошёл, а оплаты нет. Действует и для писем"
           checked={personal.overdueOn}
           onChange={(overdueOn) => savePersonal({ overdueOn }, tgSave)}
         />
@@ -312,26 +341,60 @@ export function NotificationsSection() {
       <SettingGroup title="Почта" status={<SaveStatus save={mailSave} />} aside={data.email.address}>
         <SwitchRow
           title="Письма о платежах"
-          description="Напоминания на почту аккаунта. Адрес меняется в профиле"
+          description="Главный выключатель писем на почту аккаунта. Адрес меняется в профиле"
           checked={personal.emailOn}
           onChange={(emailOn) => savePersonal({ emailOn }, mailSave)}
         />
-        {teamOptions.length > 0 && (
+        {mailTeam && (
           <SettingRow
-            title="Отделы"
-            description="По каким отделам присылать письма"
+            title="Отдел"
+            description="Письма настраиваются отдельно для каждого отдела. Выберите отдел, ниже его настройки"
             control={
-              <MultiSelectField
-                mode="pick"
-                label="Отделы"
+              <SelectField
+                ariaLabel="Отдел для писем"
                 align="end"
-                disabled={!personal.emailOn}
-                value={personal.emailTeams}
-                onChange={(emailTeams) => savePersonal({ emailTeams }, mailSave)}
-                options={teamOptions}
+                value={mailTeam.id}
+                onChange={setMailTeamId}
+                options={mailTeams.map((team) => ({
+                  value: team.id,
+                  label: team.enabled ? team.name : `${team.name} (письма выключены)`,
+                }))}
               />
             }
           />
+        )}
+        {mailTeam && (
+          <fieldset className="set-sub" disabled={!personal.emailOn}>
+            <legend className="set-sub-head">
+              <span>Отдел «{mailTeam.name}»</span>
+              <span className={mailTeam.enabled && personal.emailOn ? "pill pill-paid" : "pill pill-neutral"}>
+                {!personal.emailOn ? "письма выключены везде" : mailTeam.enabled ? "письма приходят" : "письма выключены"}
+              </span>
+            </legend>
+            <SwitchRow
+              title="Письма по этому отделу"
+              description={`Напоминания о сроках и просрочке по платежам отдела «${mailTeam.name}»`}
+              checked={mailTeam.enabled}
+              disabled={!personal.emailOn}
+              onChange={(enabled) => saveMailTeam(mailTeam, { enabled })}
+            />
+            <SettingRow
+              title="Какие платежи"
+              description="Только те, где вы ответственный, или все платежи этого отдела"
+              control={
+                <SelectField
+                  ariaLabel={`Какие платежи отдела «${mailTeam.name}»`}
+                  align="end"
+                  value={mailTeam.scope}
+                  onChange={(value) => saveMailTeam(mailTeam, { scope: value as EmailTeam["scope"], enabled: true })}
+                  options={[
+                    { value: "mine", label: "Только мои" },
+                    { value: "department", label: "Все платежи отдела" },
+                  ]}
+                />
+              }
+            />
+          </fieldset>
         )}
         <SettingRow
           title="Проверка"
@@ -439,6 +502,7 @@ export function NotificationsSection() {
                       type="button"
                       className="ghost danger"
                       disabled={busy}
+                      data-hint={HINTS.teamChatOffConfirm}
                       onClick={() =>
                         run(async () => {
                           const next = await api<TeamTelegram>("/api/v1/telegram/team-chat", { method: "DELETE" });
@@ -449,7 +513,7 @@ export function NotificationsSection() {
                     >
                       Да, отключить
                     </button>
-                    <button type="button" className="ghost" onClick={() => setConfirmTeam(false)}>
+                    <button type="button" className="ghost" data-hint={HINTS.cancel} onClick={() => setConfirmTeam(false)}>
                       Отмена
                     </button>
                   </div>
@@ -464,92 +528,89 @@ export function NotificationsSection() {
         )}
       </SettingGroup>
 
-      <SettingGroup id="integrations" title="Уведомления в другие сервисы (вебхук)" status={<SaveStatus save={hookSave} />}>
-        <SwitchRow
-          title="Отправлять вебхук"
-          description="Вставьте ссылку, которую выдал сервис (например, Zapier, Make, n8n или ваш CRM). Мы будем отправлять на неё событие, когда счёт просрочен или оплачен."
-          checked={webhookOn}
-          disabled={!manage}
-          onChange={(on) => {
-            setWebhookOn(on);
-            if (on) return;
-            urlSaver.cancel();
-            webhookDirty.current = false;
-            if (data.team.webhook_url) {
-              const previous = webhookUrl;
-              setWebhookUrl("");
-              saveWebhook("", () => {
-                setWebhookOn(true);
-                setWebhookUrl(previous);
-              });
-            } else {
-              setWebhookUrl("");
-            }
-          }}
-        />
-        {!manage && (
-          <SettingRow title="Только чтение" description="Вебхук настраивает владелец или админ отдела" />
-        )}
-        {webhookOn && (
-          <SettingRow
-            title="Ссылка для событий"
-            description={`Отдел «${data.team.team_name}»: напоминание, просрочка, оплата`}
-            htmlFor="webhook-url"
-            error={urlProblem}
-            hint="Сохраняется сама, как только ссылка введена."
-            wide
-            control={
-              <RowInput
-                id="webhook-url"
-                type="url"
-                inputMode="url"
-                value={webhookUrl}
-                placeholder="https://hooks.example.com/…"
-                disabled={!manage}
-                invalid={Boolean(urlProblem)}
-                onChange={(value) => {
-                  webhookDirty.current = true;
-                  setWebhookUrl(value);
-                  urlSaver.schedule(value);
-                }}
-                onBlur={() => urlSaver.flush()}
-              />
-            }
+      {manage && (
+        <SettingGroup id="integrations" title="Уведомления в другие сервисы (вебхук)" status={<SaveStatus save={hookSave} />}>
+          <SwitchRow
+            title="Отправлять вебхук"
+            description="Вставьте ссылку, которую выдал сервис (например, Zapier, Make, n8n или ваш CRM). Мы будем отправлять на неё событие, когда счёт просрочен или оплачен."
+            checked={webhookOn}
+            onChange={(on) => {
+              setWebhookOn(on);
+              if (on) return;
+              urlSaver.cancel();
+              webhookDirty.current = false;
+              if (data.team.webhook_url) {
+                const previous = webhookUrl;
+                setWebhookUrl("");
+                saveWebhook("", () => {
+                  setWebhookOn(true);
+                  setWebhookUrl(previous);
+                });
+              } else {
+                setWebhookUrl("");
+              }
+            }}
           />
-        )}
-        {webhookOn && data.team.webhook_url && (
-          <SettingRow
-            title="Последняя отправка"
-            description={
-              data.team.webhook_check_error
-                ? `Не прошла: ${data.team.webhook_check_error}`
-                : data.team.webhook_checked_at
-                  ? `Прошла ${timeFormat.format(new Date(data.team.webhook_checked_at))}`
-                  : "Событий ещё не было. Отправьте тестовое, чтобы проверить"
-            }
-            control={
-              manage ? (
-                <button
-                  type="button"
-                  className="ghost"
-                  data-hint={HINTS.webhookTest}
-                  disabled={busy}
-                  onClick={() =>
-                    run(async () => {
-                      const probe = await api<Probe>("/api/v1/notifications/team/webhook/test", { method: "POST" });
-                      toast?.push(probe.detail);
-                      await load();
-                    })
-                  }
-                >
-                  <Send size={16} strokeWidth={1.75} aria-hidden />
-                  Тестовое событие
-                </button>
-              ) : undefined
-            }
-          />
-        )}
-      </SettingGroup>
+          {webhookOn && (
+            <SettingRow
+              title="Ссылка для событий"
+              description={`Отдел «${data.team.team_name}»: напоминание, просрочка, оплата`}
+              htmlFor="webhook-url"
+              error={urlProblem}
+              hint="Сохраняется сама, как только ссылка введена."
+              wide
+              control={
+                <RowInput
+                  id="webhook-url"
+                  type="url"
+                  inputMode="url"
+                  value={webhookUrl}
+                  placeholder="https://hooks.example.com/…"
+                  invalid={Boolean(urlProblem)}
+                  onChange={(value) => {
+                    webhookDirty.current = true;
+                    setWebhookUrl(value);
+                    urlSaver.schedule(value);
+                  }}
+                  onBlur={() => urlSaver.flush()}
+                />
+              }
+            />
+          )}
+          {webhookOn && data.team.webhook_url && (
+            <SettingRow
+              title="Последняя отправка"
+              description={
+                data.team.webhook_check_error
+                  ? `Не прошла: ${data.team.webhook_check_error}`
+                  : data.team.webhook_checked_at
+                    ? `Прошла ${timeFormat.format(new Date(data.team.webhook_checked_at))}`
+                    : "Событий ещё не было. Отправьте тестовое, чтобы проверить"
+              }
+              control={
+                manage ? (
+                  <button
+                    type="button"
+                    className="ghost"
+                    data-hint={HINTS.webhookTest}
+                    disabled={busy}
+                    onClick={() =>
+                      run(async () => {
+                        const probe = await api<Probe>("/api/v1/notifications/team/webhook/test", { method: "POST" });
+                        toast?.push(probe.detail);
+                        await load();
+                      })
+                    }
+                  >
+                    <Send size={16} strokeWidth={1.75} aria-hidden />
+                    Тестовое событие
+                  </button>
+                ) : undefined
+              }
+            />
+          )}
+        </SettingGroup>
+      )}
     </>
   );
 }

@@ -35,7 +35,6 @@ class RecurringPayment(Base):
     starts_on: Mapped[date] = mapped_column(Date)
     periodicity: Mapped[str] = mapped_column(String(16), default="monthly", server_default="monthly")
     interval_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    remind_archived_overdue: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     responsible_user_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

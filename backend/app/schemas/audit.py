@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.common import APIModel
 
@@ -21,3 +21,4 @@ class AuditOut(APIModel):
 class AuditList(BaseModel):
     items: list[AuditOut]
     total: int
+    timezone: str = Field(default="Europe/Moscow", description="Часовой пояс организации для показа времени")

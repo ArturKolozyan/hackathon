@@ -2,7 +2,7 @@ const MARKDOWN_HINT = /(^|\n)\s{0,3}(#{1,6}\s|[-*]\s|\d+\.\s)|\*\*|^\s*\|.+\|/m;
 
 const GROUPS = new Set(["Просрочено", "Скоро", "Впереди", "Оплачено", "Прочее"]);
 const ITEM_LINE = /^\*\*(.+?)\*\*\s+[—–-]\s+(.+)$/;
-const META_LINE = /^до\s+(\d{2}\.\d{2}\.\d{4}),\s+(.+?),\s+ответственный:\s+(.+)$/;
+const META_LINE = /^до\s+(.+?),\s+(просрочено|скоро|впереди|оплачено),\s+ответственный:\s+(.+)$/;
 
 export type AssistantBlock =
   | { kind: "md"; text: string }

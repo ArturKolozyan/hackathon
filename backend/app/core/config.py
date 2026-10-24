@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Канонический адрес. Письмо-напоминание дописывает его в конец. Пустая строка — без ссылки.
     app_public_url: str = "https://rekeeper.ru"
     worker_interval_seconds: int = 60
+    # Файлы чеков. В compose это том receipts, смонтированный в api по этому пути.
+    receipts_dir: str = "data/receipts"
+    receipt_max_mb: int = 10
     telegram_bot_token: str = Field(default="", repr=False)
     telegram_chat_id: str = ""
     # auto пробует IPv6, затем IPv4. ipv6 — только v6 (Aeza). ipv4 — только v4.

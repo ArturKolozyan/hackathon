@@ -15,7 +15,9 @@ const ACTIONS: Record<string, string> = {
   "occurrence.paid": "Оплата",
   "occurrence.unpaid": "Оплата снята",
   "occurrence.paid_at": "Дата оплаты",
-  "occurrence.receipt": "Чек",
+  "occurrence.receipt": "Комментарий к чеку",
+  "occurrence.receipt_attach": "Чек прикреплён",
+  "occurrence.receipt_remove": "Чек убран",
   "budget.create": "Бюджет задан",
   "budget.update": "Бюджет изменён",
   "budget.delete": "Бюджет удалён",
@@ -26,6 +28,12 @@ const ACTIONS: Record<string, string> = {
   "team.webhook": "Webhook отдела",
   "organization.update": "Настройки организации",
   "occurrence.update": "Период изменён",
+  "team.create": "Отдел создан",
+  "team.rename": "Отдел переименован",
+  "team.delete": "Отдел удалён",
+  "member.join": "Добавлен в отдел",
+  "member.role": "Роль в отделе",
+  "member.remove": "Убран из отдела",
 };
 
 const FIELDS: Record<string, string> = {
@@ -37,7 +45,6 @@ const FIELDS: Record<string, string> = {
   starts_on: "дата старта",
   responsible_user_id: "ответственный",
   is_archived: "архив",
-  receipt_url: "ссылка на чек",
   receipt_note: "комментарий к чеку",
   full_name: "имя",
   email: "почта",
@@ -49,7 +56,6 @@ const FIELDS: Record<string, string> = {
   due_date: "срок",
   periodicity: "периодичность",
   interval_months: "интервал",
-  remind_archived_overdue: "напоминание просрочки архива",
   timezone: "часовой пояс",
   remind_7_days: "напоминание за 7 дней",
   remind_3_days: "напоминание за 3 дня",
@@ -60,9 +66,10 @@ const FIELDS: Record<string, string> = {
 
 /** Action kinds for the Логи filter, grouped by category. */
 export const ACTION_GROUPS: { value: string; label: string; actions: string[] }[] = [
-  { value: "payments", label: "Оплаты", actions: ["occurrence.paid", "occurrence.unpaid", "occurrence.paid_at", "occurrence.receipt", "occurrence.update"] },
+  { value: "payments", label: "Оплаты", actions: ["occurrence.paid", "occurrence.unpaid", "occurrence.paid_at", "occurrence.receipt_attach", "occurrence.receipt_remove", "occurrence.receipt", "occurrence.update"] },
   { value: "templates", label: "Шаблоны", actions: ["template.create", "template.update", "template.delete"] },
   { value: "people", label: "Люди и приглашения", actions: ["user.create", "user.update", "user.delete", "user.invite", "user.invite_accept"] },
+  { value: "teams", label: "Отделы", actions: ["team.create", "team.rename", "team.delete", "member.join", "member.role", "member.remove"] },
   { value: "budget", label: "Бюджет", actions: ["budget.create", "budget.update", "budget.delete"] },
   {
     value: "channels",
@@ -97,7 +104,7 @@ function phrase(key: string, value: unknown, meta: Record<string, unknown>): str
   if (key === "state" && (value === "задан" || value === "снят")) return `адрес ${value}`;
   if (key === "reason" && value === "bot_removed") return "причина: бота удалили из чата";
   if (key === "role") {
-    const role = value === "admin" ? "админ" : value === "user" ? "участник" : String(value);
+    const role = value === "admin" ? "админ" : value === "user" || value === "member" ? "участник" : value === "owner" ? "владелец" : String(value);
     return `роль: ${role}`;
   }
   if (key === "period_type") {
@@ -114,7 +121,9 @@ function phrase(key: string, value: unknown, meta: Record<string, unknown>): str
   if (key === "fields") return `что изменилось: ${fieldList(value)}`;
   if (key === "paid_on" && typeof value === "string") return `дата оплаты: ${datePhrase(value)}`;
   if (key === "email") return `почта: ${String(value)}`;
-  if (key === "title") return `название: ${String(value)}`;
+  if (key === "file") return value ? `файл: ${String(value)}` : null;
+  if (key === "title" || key === "name") return `название: ${String(value)}`;
+  if (key === "team") return `отдел: ${String(value)}`;
   if (key === "status") return `ответ сервера: ${String(value)}`;
   if (key === "period_key") return `период: ${String(value)}`;
   if (key === "amount" && typeof value === "string") return `сумма: ${value}`;

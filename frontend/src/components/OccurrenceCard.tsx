@@ -1,42 +1,69 @@
 import { useEffect, useState } from "react";
+import { ChevronDown, Paperclip } from "lucide-react";
 import { ApiError, api, type Occurrence } from "../api";
 import { formatMoney, shortDue, statusPill } from "../format";
 import { DateField } from "./fields";
+import { ReceiptChip, ReceiptPicker } from "./ReceiptField";
 import { InlineConfirm, useToast } from "./ui";
 import { HINTS } from "../hints";
+import { RubHint } from "../rates";
 
 type Props = {
   item: Occurrence;
   today: string;
   mode: "inbox" | "history";
   onChanged: () => void;
+  /** Подпись отдела: календарь и статистика показывают платежи нескольких отделов. */
+  teamName?: string;
 };
 
-export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
-  const [open, setOpen] = useState(false);
-  const [receiptOpen, setReceiptOpen] = useState(false);
+type Panel = "none" | "pay" | "receipt";
+
+/** Upload a receipt file (and its comment) to one period. The period's own department goes in X-Team-Id; X-Team-Once keeps the active department as is. */
+async function uploadReceipt(item: Occurrence, file: File, note: string | null): Promise<void> {
+  const form = new FormData();
+  form.append("file", file);
+  if (note !== null) form.append("note", note);
+  await api(`/api/v1/payment-occurrences/${item.id}/receipt`, {
+    method: "POST",
+    body: form,
+    headers: { "X-Team-Id": item.team_id, "X-Team-Once": "1" },
+  });
+}
+
+export function OccurrenceCard({ item, today, mode, onChanged, teamName }: Props) {
+  const [panel, setPanel] = useState<Panel>("none");
   const [paidOn, setPaidOn] = useState(mode === "history" ? item.paid_on ?? today : today);
   const [paidAmount, setPaidAmount] = useState(item.paid_amount ?? item.amount);
-  const [note, setNote] = useState("");
-  const [receiptUrl, setReceiptUrl] = useState(item.receipt_url ?? "");
+  const [proofOpen, setProofOpen] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
   const [receiptNote, setReceiptNote] = useState(item.receipt_note ?? "");
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
+  const team = { "X-Team-Id": item.team_id, "X-Team-Once": "1" };
 
   useEffect(() => {
-    setReceiptUrl(item.receipt_url ?? "");
     setReceiptNote(item.receipt_note ?? "");
-  }, [item.receipt_url, item.receipt_note]);
+  }, [item.receipt_note]);
 
-  async function run(action: () => Promise<void>, done: string) {
+  function close() {
+    setPanel("none");
+    setFile(null);
+    setProofOpen(false);
+    setConfirmRemove(false);
+    setReceiptNote(item.receipt_note ?? "");
+    setError(null);
+  }
+
+  async function run(action: () => Promise<string>) {
     setBusy(true);
     setError(null);
     try {
-      await action();
-      setOpen(false);
-      setReceiptOpen(false);
+      const done = await action();
+      close();
       setConfirmRevoke(false);
       toast?.push(done);
       onChanged();
@@ -48,6 +75,92 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
   }
 
   const pill = statusPill(item);
+  const noteChanged = (receiptNote.trim() || null) !== (item.receipt_note || null);
+
+  async function submitPay() {
+    if (mode === "history") {
+      await api(`/api/v1/payment-occurrences/${item.id}`, {
+        method: "PATCH",
+        headers: team,
+        body: JSON.stringify({ paid_at: paidOn, paid_amount: paidAmount.replace(",", ".") }),
+      });
+      return "Оплата сохранена";
+    }
+    const body: Record<string, string | null> = { paid_at: paidOn, paid_amount: paidAmount.replace(",", ".") };
+    if (!file && noteChanged) body.receipt_note = receiptNote.trim() || null;
+    await api(`/api/v1/payment-occurrences/${item.id}/confirm`, {
+      method: "POST",
+      headers: team,
+      body: JSON.stringify(body),
+    });
+    if (!file) return "Оплата отмечена, платёж ушёл в историю";
+    try {
+      await uploadReceipt(item, file, receiptNote.trim());
+    } catch (err) {
+      onChanged();
+      const reason = err instanceof ApiError ? err.message : "Чек не загрузился";
+      throw new ApiError(0, `Оплата отмечена, но чек не прикрепился: ${reason}. Прикрепите его в истории`);
+    }
+    return "Оплата отмечена, чек прикреплён";
+  }
+
+  async function submitReceipt() {
+    if (file) {
+      await uploadReceipt(item, file, receiptNote.trim());
+      return item.receipt ? "Чек заменён" : "Чек прикреплён";
+    }
+    await api(`/api/v1/payment-occurrences/${item.id}`, {
+      method: "PATCH",
+      headers: team,
+      body: JSON.stringify({ receipt_note: receiptNote.trim() || null }),
+    });
+    return "Комментарий сохранён";
+  }
+
+  const proofFields = (
+    <>
+      {item.receipt && !file && (
+        <div className="receipt-current">
+          <ReceiptChip receipt={item.receipt} />
+          {panel === "receipt" &&
+            (confirmRemove ? (
+              <InlineConfirm
+                title={`Убрать чек «${item.receipt.name}»? Файл удалится.`}
+                confirmLabel="Убрать чек"
+                busy={busy}
+                onConfirm={() =>
+                  void run(async () => {
+                    await api(`/api/v1/payment-occurrences/${item.id}/receipt`, { method: "DELETE", headers: team });
+                    return "Чек убран";
+                  })
+                }
+                onCancel={() => setConfirmRemove(false)}
+              />
+            ) : (
+              <button
+                type="button"
+                className="ghost danger"
+                disabled={busy}
+                data-hint={HINTS.receiptRemove}
+                onClick={() => setConfirmRemove(true)}
+              >
+                Убрать чек
+              </button>
+            ))}
+        </div>
+      )}
+      <ReceiptPicker file={file} onFile={setFile} disabled={busy} />
+      <label>
+        Комментарий к чеку
+        <input
+          value={receiptNote}
+          onChange={(event) => setReceiptNote(event.target.value)}
+          maxLength={2000}
+          placeholder="Номер счёта, платёжки или кто платил"
+        />
+      </label>
+    </>
+  );
 
   return (
     <article className="card">
@@ -60,6 +173,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
         </div>
         <div className="card-sub">
           <p className="phrase">
+            {teamName && <span className="card-team">{teamName}</span>}
             <span>{item.period_label}</span>
             <span>до {shortDue(item.due_date)}</span>
           </p>
@@ -68,24 +182,16 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
         <p className="meta">
           <span>{item.responsible?.full_name ?? "без ответственного"}</span>
           {item.template_archived && <span className="pill pill-neutral">шаблон снят</span>}
-          {item.telegram_reminded_at && <span className="pill pill-neutral count">в Telegram</span>}
           {item.note && <span>{item.note}</span>}
+          <RubHint amount={item.status === "paid" && item.paid_amount ? item.paid_amount : item.amount} currency={item.currency} />
           {item.paid_amount && item.paid_amount !== item.amount && (
             <span>план {formatMoney(item.amount, item.currency)}</span>
           )}
           {item.paid_by && mode === "history" && <span>закрыл {item.paid_by.full_name}</span>}
         </p>
-        {(item.receipt_url || item.receipt_note) && (
-          <p className="meta">
-            {item.receipt_url && (
-              <a className="text-link" href={item.receipt_url} target="_blank" rel="noreferrer">
-                Чек
-              </a>
-            )}
-            {item.receipt_note && <span>{item.receipt_note}</span>}
-          </p>
-        )}
+        {panel !== "receipt" && <ReceiptChip receipt={item.receipt} note={item.receipt_note} />}
         {item.description && <p className="desc">{item.description}</p>}
+        {item.planned && <p className="muted planned-note">Плановый период. Отметить оплату можно будет ближе к сроку.</p>}
         {error && (
           <p className="error" role="alert">
             {error}
@@ -93,144 +199,120 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
         )}
         {confirmRevoke && (
           <InlineConfirm
-            title={`Вернуть «${item.title}» в инбокс? Оплата снимется.`}
+            title={`Вернуть «${item.title}» в инбокс? Оплата снимется, чек останется.`}
             confirmLabel="Вернуть в инбокс"
             busy={busy}
             onConfirm={() => {
-              void run(() => api(`/api/v1/payment-occurrences/${item.id}/revoke`, { method: "POST" }), "Период снова в инбоксе");
+              void run(async () => {
+                await api(`/api/v1/payment-occurrences/${item.id}/revoke`, { method: "POST", headers: team });
+                return "Платёж снова в инбоксе";
+              });
             }}
             onCancel={() => setConfirmRevoke(false)}
           />
         )}
-        {open && (
+        {panel === "pay" && (
           <form
             className="pay-form"
             onSubmit={(event) => {
               event.preventDefault();
-              void run(async () => {
-                if (mode === "history") {
-                  await api(`/api/v1/payment-occurrences/${item.id}`, {
-                    method: "PATCH",
-                    body: JSON.stringify({ paid_at: paidOn, paid_amount: paidAmount.replace(",", ".") }),
-                  });
-                  return;
-                }
-                const body: Record<string, string | null> = {
-                  paid_at: paidOn,
-                  note: note.trim() || null,
-                  paid_amount: paidAmount.replace(",", "."),
-                };
-                if ((receiptUrl.trim() || null) !== (item.receipt_url || null)) body.receipt_url = receiptUrl.trim() || null;
-                if ((receiptNote.trim() || null) !== (item.receipt_note || null)) body.receipt_note = receiptNote.trim() || null;
-                await api(`/api/v1/payment-occurrences/${item.id}/confirm`, {
-                  method: "POST",
-                  body: JSON.stringify(body),
-                });
-              }, mode === "history" ? "Дата сохранена" : "Период закрыт и ушёл в историю");
+              void run(submitPay);
             }}
           >
-            <label>
-              Фактическая дата
-              <DateField required max={today} value={paidOn} onChange={setPaidOn} />
-            </label>
-            <label>
-              Фактическая сумма
-              <input value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} inputMode="decimal" required />
-            </label>
+            <div className="pay-grid">
+              <label>
+                Фактическая дата
+                <DateField required max={today} value={paidOn} onChange={setPaidOn} />
+              </label>
+              <label>
+                Фактическая сумма, {item.currency}
+                <input value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} inputMode="decimal" required />
+                <RubHint amount={paidAmount} currency={item.currency} />
+              </label>
+            </div>
             {mode === "inbox" && (
-              <>
-                <label>
-                  Заметка
-                  <input value={note} onChange={(event) => setNote(event.target.value)} maxLength={2000} placeholder="необязательно" />
-                </label>
-                <label>
-                  Ссылка на чек
-                  <input
-                    value={receiptUrl}
-                    onChange={(event) => setReceiptUrl(event.target.value)}
-                    inputMode="url"
-                    placeholder="https://"
-                    maxLength={2000}
-                  />
-                </label>
-                <label>
-                  Комментарий к чеку
-                  <input value={receiptNote} onChange={(event) => setReceiptNote(event.target.value)} maxLength={2000} placeholder="необязательно" />
-                </label>
-              </>
+              <div className={proofOpen ? "proof is-open" : "proof"}>
+                <button
+                  type="button"
+                  className="proof-toggle"
+                  aria-expanded={proofOpen}
+                  data-hint={HINTS.receiptToggle}
+                  onClick={() => setProofOpen((open) => !open)}
+                >
+                  <Paperclip size={16} strokeWidth={1.75} aria-hidden />
+                  <span>Подтверждение оплаты</span>
+                  <span className="proof-optional">{file ? file.name : "необязательно"}</span>
+                  <ChevronDown size={16} strokeWidth={1.75} aria-hidden className="proof-chevron" />
+                </button>
+                {proofOpen && <div className="proof-body">{proofFields}</div>}
+              </div>
             )}
             <div className="row-actions">
-              <button type="submit" className="primary" disabled={busy} data-hint={mode === "history" ? HINTS.paidDateSave : HINTS.paidConfirm}>
-                {busy ? "Сохраняю…" : mode === "history" ? "Сохранить дату" : "Подтвердить"}
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy}
+                data-hint={mode === "history" ? HINTS.paidDateSave : HINTS.paidConfirm}
+              >
+                {busy ? "Сохраняю…" : mode === "history" ? "Сохранить" : "Подтвердить оплату"}
               </button>
-              <button type="button" className="ghost" onClick={() => setOpen(false)}>
+              <button type="button" className="ghost" data-hint={HINTS.cancel} onClick={close}>
                 Отмена
               </button>
             </div>
           </form>
         )}
-        {receiptOpen && (
+        {panel === "receipt" && (
           <form
             className="pay-form"
             onSubmit={(event) => {
               event.preventDefault();
-              void run(
-                () =>
-                  api(`/api/v1/payment-occurrences/${item.id}`, {
-                    method: "PATCH",
-                    body: JSON.stringify({
-                      receipt_url: receiptUrl.trim() || null,
-                      receipt_note: receiptNote.trim() || null,
-                    }),
-                  }),
-                "Чек сохранён",
-              );
+              void run(submitReceipt);
             }}
           >
-            <label>
-              Ссылка на чек
-              <input
-                value={receiptUrl}
-                onChange={(event) => setReceiptUrl(event.target.value)}
-                inputMode="url"
-                placeholder="https://"
-                maxLength={2000}
-              />
-            </label>
-            <label>
-              Комментарий к чеку
-              <input value={receiptNote} onChange={(event) => setReceiptNote(event.target.value)} maxLength={2000} placeholder="номер счёта, касса" />
-            </label>
+            {proofFields}
             <div className="row-actions">
-              <button type="submit" className="primary" disabled={busy} data-hint={HINTS.receiptSave}>
-                {busy ? "Сохраняю…" : "Сохранить чек"}
+              <button
+                type="submit"
+                className="primary"
+                disabled={busy || (!file && !noteChanged)}
+                data-hint={HINTS.receiptSave}
+              >
+                {busy ? "Сохраняю…" : file ? (item.receipt ? "Заменить чек" : "Прикрепить чек") : "Сохранить"}
               </button>
-              <button type="button" className="ghost" onClick={() => setReceiptOpen(false)}>
+              <button type="button" className="ghost" data-hint={HINTS.cancel} onClick={close}>
                 Отмена
               </button>
             </div>
           </form>
         )}
       </div>
-      {!open && !receiptOpen && !confirmRevoke && (
+      {panel === "none" && !confirmRevoke && !item.planned && (
         <div className="card-actions">
           {mode === "inbox" ? (
-            <button type="button" className="primary" data-hint={HINTS.paid} onClick={() => setOpen(true)}>
+            <button type="button" className="primary" data-hint={HINTS.paid} onClick={() => setPanel("pay")}>
               Оплачено
             </button>
           ) : (
             <>
-              <button type="button" className="outline" data-hint={HINTS.paidOtherDate} onClick={() => setOpen(true)}>
-                Дата
+              <button
+                type="button"
+                className={item.receipt ? "outline receipt-action has-file" : "outline receipt-action"}
+                aria-label={item.receipt ? "Чек: заменить или убрать" : "Прикрепить чек"}
+                data-hint={item.receipt ? HINTS.receiptReplace : HINTS.receiptAdd}
+                onClick={() => setPanel("receipt")}
+              >
+                <Paperclip size={16} strokeWidth={1.75} aria-hidden />
+                <span>{item.receipt ? "Чек" : "Прикрепить чек"}</span>
+              </button>
+              <button type="button" className="ghost" data-hint={HINTS.paidOtherDate} onClick={() => setPanel("pay")}>
+                Изменить дату оплаты
               </button>
               <button type="button" className="ghost" disabled={busy} data-hint={HINTS.revoke} onClick={() => setConfirmRevoke(true)}>
                 В инбокс
               </button>
             </>
           )}
-          <button type="button" className="ghost" data-hint={HINTS.receipt} onClick={() => setReceiptOpen(true)}>
-            Чек
-          </button>
         </div>
       )}
     </article>

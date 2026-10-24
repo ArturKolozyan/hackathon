@@ -58,9 +58,11 @@ def department_access(db: Session, user: User) -> list[DeptAccess]:
     ]
 
 
-def resolve_team(db: Session, user: User, team_id: UUID | None) -> TeamContext | None:
+def resolve_team(db: Session, user: User, team_id: UUID | None, *, remember: bool = True) -> TeamContext | None:
+    """remember=False: разовый запрос в чужой отдел (карточка платежа из календаря или статистики),
+    активный отдел пользователя не меняется."""
     if user.is_owner:
-        return _resolve_owner(db, user, team_id)
+        return _resolve_owner(db, user, team_id, remember=remember)
     rows = memberships_of(db, user)
     if not rows:
         if team_id is not None:
@@ -75,14 +77,14 @@ def resolve_team(db: Session, user: User, team_id: UUID | None) -> TeamContext |
         chosen = next((row for row in rows if row.team_id == user.active_team_id), None)
     if chosen is None:
         chosen = rows[0]
-    if user.active_team_id != chosen.team_id:
+    if remember and user.active_team_id != chosen.team_id:
         user.active_team_id = chosen.team_id
         user.updated_at = clock.now()
         db.commit()
     return TeamContext(user=user, team=chosen.team, membership=chosen)
 
 
-def _resolve_owner(db: Session, user: User, team_id: UUID | None) -> TeamContext | None:
+def _resolve_owner(db: Session, user: User, team_id: UUID | None, *, remember: bool = True) -> TeamContext | None:
     team: Team | None = None
     if team_id is not None:
         team = db.get(Team, team_id)
@@ -95,7 +97,7 @@ def _resolve_owner(db: Session, user: User, team_id: UUID | None) -> TeamContext
     if team is None:
         return None
     seat = db.scalar(select(Membership).where(Membership.team_id == team.id, Membership.user_id == user.id))
-    if user.active_team_id != team.id:
+    if remember and user.active_team_id != team.id:
         user.active_team_id = team.id
         user.updated_at = clock.now()
         db.commit()

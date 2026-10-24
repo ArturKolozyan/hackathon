@@ -3,7 +3,7 @@ from datetime import date
 from app.core.config import get_settings
 from app.models import PaymentOccurrence, RecurringPayment, User
 from app.schemas.common import UserBrief
-from app.schemas.occurrence import OccurrenceOut
+from app.schemas.occurrence import OccurrenceOut, ReceiptOut
 from app.schemas.recurring import RecurringOut
 from app.services.schedule import bucket_for, classify, paid_on_time, period_key, period_label
 from app.services import time as clock
@@ -13,19 +13,34 @@ def user_brief(user: User) -> UserBrief:
     return UserBrief(id=user.id, full_name=user.full_name, email=user.email)
 
 
-def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, today: date) -> OccurrenceOut:
+def receipt_out(occurrence: PaymentOccurrence) -> ReceiptOut | None:
+    if not occurrence.receipt_file:
+        return None
+    return ReceiptOut(
+        name=occurrence.receipt_name or "чек",
+        content_type=occurrence.receipt_type or "application/octet-stream",
+        size=occurrence.receipt_size or 0,
+        uploaded_at=occurrence.receipt_uploaded_at,
+        url=f"/api/v1/payment-occurrences/{occurrence.id}/receipt",
+    )
+
+
+def occurrence_out(
+    occurrence: PaymentOccurrence, template: RecurringPayment, today: date, *, planned: bool = False
+) -> OccurrenceOut:
     settings = get_settings()
     status = classify(occurrence.due_date, occurrence.paid_at, today, settings.soon_days)
     on_time = None
     lateness = None
     paid_on = None
     if occurrence.paid_at is not None:
-        on_time = paid_on_time(occurrence.paid_at, occurrence.due_date, settings.zone)
-        paid_on = occurrence.paid_at.astimezone(settings.zone).date()
+        on_time = paid_on_time(occurrence.paid_at, occurrence.due_date, clock.zone())
+        paid_on = occurrence.paid_at.astimezone(clock.zone()).date()
         lateness = (paid_on - occurrence.due_date).days
     responsible = template.responsible
     return OccurrenceOut(
         id=occurrence.id,
+        team_id=occurrence.team_id,
         recurring_payment_id=occurrence.recurring_payment_id,
         title=occurrence.title,
         description=occurrence.description,
@@ -43,16 +58,17 @@ def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, to
         days_delta=(occurrence.due_date - today).days,
         lateness_days=lateness,
         note=occurrence.note,
-        receipt_url=occurrence.receipt_url,
+        receipt=receipt_out(occurrence),
         receipt_note=occurrence.receipt_note,
         template_archived=template.is_archived,
+        planned=planned,
         responsible=user_brief(responsible) if responsible is not None else None,
         paid_by=user_brief(occurrence.payer) if occurrence.payer is not None else None,
         telegram_reminded_at=occurrence.telegram_reminded_at,
     )
 
 
-def _next_due(template: RecurringPayment, occurrences: list[PaymentOccurrence], today: date) -> date:
+def next_due(template: RecurringPayment, occurrences: list[PaymentOccurrence], today: date) -> date:
     from app.services.occurrences import scheduled_periods
 
     open_dates = [row.due_date for row in occurrences if row.paid_at is None and row.due_date >= today]
@@ -102,10 +118,9 @@ def recurring_out(template: RecurringPayment, occurrences: list[PaymentOccurrenc
         currency=template.currency,
         day_of_month=template.day_of_month,
         starts_on=template.starts_on,
-        next_payment_date=_next_due(template, occurrences, today),
+        next_payment_date=next_due(template, occurrences, today),
         periodicity=template.periodicity,
         interval_months=template.interval_months,
-        remind_archived_overdue=template.remind_archived_overdue,
         applies_from=applies_from_date(template, occurrences, today),
         debt_count=debt_count(occurrences, today),
         is_archived=template.is_archived,

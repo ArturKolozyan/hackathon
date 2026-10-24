@@ -1,111 +1,35 @@
-"""Системный промпт и функции GigaChat. Цифры в ответ кладёт не модель, а инструменты."""
+"""Системный промпт GigaChat. Цифры в ответ кладёт не модель, а инструменты (tools.py)."""
 
 from datetime import date
 
-FUNCTIONS: list[dict] = [
-    {
-        "name": "week_outlook",
-        "description": "Что горит на этой неделе: просроченные и платежи со сроком до воскресенья. Europe/Moscow.",
-        "parameters": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "list_overdue",
-        "description": "Только просроченные неоплаченные периоды.",
-        "parameters": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "month_spending",
-        "description": "Сколько уже оплачено за календарный месяц по валютам и что ещё открыто. month в формате YYYY-MM.",
-        "parameters": {
-            "type": "object",
-            "properties": {"month": {"type": "string", "description": "YYYY-MM, пусто — текущий месяц"}},
-        },
-    },
-    {
-        "name": "list_open",
-        "description": "Открытые платежи инбокса и суммы по валютам.",
-        "parameters": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "find_responsible",
-        "description": "Кто ответственный за платёж. query — часть названия.",
-        "parameters": {
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "propose_create_payment",
-        "description": (
-            "Показать карточку создания ежемесячного платежа. Ничего не записывает. "
-            "periodicity только month. Валюта RUB, USD или EUR. responsible_name — имя из команды."
-        ),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "amount": {"type": "string"},
-                "currency": {"type": "string"},
-                "day_of_month": {"type": "integer"},
-                "responsible_name": {"type": "string"},
-                "starts_on": {"type": "string", "description": "YYYY-MM-DD"},
-            },
-            "required": ["title", "amount", "currency", "day_of_month", "responsible_name"],
-        },
-    },
-    {
-        "name": "propose_mark_paid",
-        "description": "Карточка «отметить период оплаченным». Не ставит оплату. query — название. month — YYYY-MM, если назван период.",
-        "parameters": {
-            "type": "object",
-            "properties": {"query": {"type": "string"}, "month": {"type": "string"}},
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "propose_update_payment",
-        "description": "Карточка изменения шаблона. Не записывает. Укажи query и хотя бы одно поле.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "amount": {"type": "string"},
-                "currency": {"type": "string"},
-                "day_of_month": {"type": "integer"},
-                "responsible_name": {"type": "string"},
-                "title": {"type": "string"},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "propose_archive_payment",
-        "description": "Карточка архивации шаблона. Не архивирует, пока человек не подтвердит.",
-        "parameters": {
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
-        },
-    },
-]
+from app.assistant.answers import ROLE_RU
 
-_FACT = ("сколько", "сумм", "просроч", "горит", "ответствен", "платеж", "оплат", "расход", "должен")
+_FACT = ("сколько", "сумм", "просроч", "горит", "ответствен", "платеж", "оплат", "расход", "должен", "бюджет", "итог")
 
 
-def system_prompt(today: date, team_name: str) -> str:
+def system_prompt(today: date, team_name: str, role: str = "member") -> str:
+    admin = role in {"owner", "admin"}
+    rights = (
+        "Пользователь может создавать, менять и архивировать платежи и видеть людей отдела."
+        if admin
+        else "Пользователь — участник: смотрит данные и отмечает оплату. Создавать и менять платежи, "
+        "смотреть список людей он не может — так и скажите, предложите обратиться к админу."
+    )
     return (
-        "Ты ассистент rekeeper — инбокса регулярных платежей отдела. "
-        f"Сейчас открыт отдел «{team_name}». Другие отделы не упоминай. "
+        "Вы — Кип, помощник в rekeeper, сервисе учёта регулярных платежей отдела. Тон дружелюбный, но деловой. "
+        f"Открыт отдел «{team_name}», роль пользователя: {ROLE_RU.get(role, role)}. {rights} "
+        "Другие отделы упоминайте, только если их вернул инструмент. "
         f"Сегодня {today.isoformat()}, часовой пояс Europe/Moscow. "
-        "Отвечай по-русски, коротко, на ты. "
-        "Свободный ответ пиши коротким markdown: абзац в одно-два предложения и списки через «- ». "
-        "Жирным отмечай только название раздела. Заголовки с # не ставь, таблицы не рисуй. "
-        "Суммы, даты, статусы и имена бери только из функций. Если вопрос про данные — вызови функцию. "
-        "Изменения только через propose_*: они показывают карточку и ничего не записывают. "
-        "Не пиши, что платёж уже создан или оплачен. "
-        "Платежи только раз в месяц, по дню месяца. Неделя, квартал и год не поддерживаются — так и скажи. "
-        "Валюты: RUB, USD, EUR. Не выдумывай платежи и людей."
+        "Обращайтесь к человеку на «вы», вежливо и коротко, по-русски. "
+        "Любой вопрос о платежах, суммах, сроках, статистике, бюджете, истории или людях — вызовите подходящую функцию: "
+        "ответ с данными соберёт она. Суммы, даты, статусы и имена сами не пишите и не выдумывайте. "
+        "Вопрос «как сделать» или «где найти» в продукте — функция product_help. "
+        "Изменения только через propose_*: они показывают карточку и ничего не записывают, пока человек не подтвердит. "
+        "Не пишите, что платёж уже создан, изменён или оплачен. "
+        "Повтор платежа: ежемесячно, раз в квартал, полгода, год, раз в N месяцев или разово; недели и дни не поддерживаются. "
+        "Валюты: RUB, USD, EUR. "
+        "Если отвечаете сами, пишите markdown: заголовок ###, короткий абзац и список через «- ». "
+        "Не отвечайте на темы вне rekeeper: вежливо скажите, что помогаете только с платежами отдела."
     )
 
 

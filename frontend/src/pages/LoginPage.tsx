@@ -2,7 +2,8 @@ import { FormEvent, useEffect, useState } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { ApiError, api, type DemoAccount, type Me } from "../api";
 import { useAuth } from "../auth";
-import { TeamMark, ThemeToggle, Wordmark } from "../components/Brand";
+import { TeamMark, ThemeSwitch, Wordmark } from "../components/Brand";
+import { HINTS } from "../hints";
 import { LoadingBlock } from "../components/ui";
 
 export function LoginPage() {
@@ -62,7 +63,7 @@ export function LoginPage() {
       </a>
       <header className="topbar">
         <Wordmark />
-        <ThemeToggle />
+        <ThemeSwitch />
       </header>
       <div className="login-grid">
         <section className="login-copy">
@@ -100,7 +101,7 @@ export function LoginPage() {
               {error}
             </p>
           )}
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="primary" disabled={busy} data-hint={HINTS.login}>
             {busy ? "Вхожу…" : "Войти"}
           </button>
           <p className="auth-links">
@@ -110,6 +111,7 @@ export function LoginPage() {
             <div className="demo">
               {demos.map((account) => (
                 <button
+                  data-hint={HINTS.demoAccount}
                   key={account.label}
                   type="button"
                   onClick={() => {

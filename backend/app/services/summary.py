@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.models import PaymentOccurrence, RecurringPayment
 from app.schemas.summary import CurrencyTotals, SummaryOut
 from app.services import time as clock
-from app.services.occurrences import ensure_all
+from app.services.occurrences import ensure_all, hidden, planned_rows
 from app.services.schedule import add_months, classify
 
 CURRENCIES = ("RUB", "USD", "EUR")
@@ -32,8 +32,8 @@ def build_summary(db: Session, as_of: date | None = None, team_id=None) -> Summa
     settings = get_settings()
     real_today = clock.today()
     ref = as_of or real_today
-    anchor = ref if as_of is not None and as_of > real_today else real_today
-    ensure_all(db, anchor)
+    # Дата в будущем не пишет периоды в базу: недостающие сроки считаются на лету.
+    ensure_all(db, real_today)
     db.commit()
     db.expire_all()
     stmt = select(PaymentOccurrence).options(
@@ -42,18 +42,28 @@ def build_summary(db: Session, as_of: date | None = None, team_id=None) -> Summa
     )
     if team_id is not None:
         stmt = stmt.where(PaymentOccurrence.team_id == team_id)
-    rows = db.scalars(stmt).unique().all()
+    rows = [row for row in db.scalars(stmt).unique().all() if not hidden(row, real_today)]
+    if as_of is not None and as_of > real_today:
+        rows += planned_rows(
+            db,
+            team_ids=[team_id] if team_id is not None else None,
+            start=real_today,
+            end=add_months(ref, settings.horizon_months),
+            today=real_today,
+        )
     counts = {"overdue": 0, "due_soon": 0, "upcoming": 0, "paid": 0}
     totals = {currency: {key: Decimal("0.00") for key in counts} for currency in CURRENCIES}
     seen: set[str] = set()
-    zone = settings.zone
+    zone = clock.zone()
     for row in rows:
         if as_of is not None and not _in_snapshot(row, ref, settings.horizon_months):
             continue
         status = classify(row.due_date, _paid_as_of(row.paid_at, as_of, zone), ref, settings.soon_days)
         counts[status] += 1
         seen.add(row.currency)
-        totals[row.currency][status] += Decimal(row.amount)
+        # «Оплачено» — фактически заплаченная сумма, если её указали.
+        value = row.paid_amount if status == "paid" and row.paid_amount is not None else row.amount
+        totals[row.currency][status] += Decimal(value)
     result: list[CurrencyTotals] = []
     for currency in CURRENCIES:
         if currency not in seen:
@@ -71,7 +81,7 @@ def build_summary(db: Session, as_of: date | None = None, team_id=None) -> Summa
             )
         )
     return SummaryOut(
-        timezone=settings.timezone,
+        timezone=clock.zone().key,
         today=real_today,
         as_of=as_of,
         soon_days=settings.soon_days,

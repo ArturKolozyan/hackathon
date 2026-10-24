@@ -89,6 +89,14 @@ export function setStoredTeamId(id: string | null) {
   else localStorage.removeItem(TEAM_KEY);
 }
 
+export type Receipt = {
+  name: string;
+  content_type: string;
+  size: number;
+  uploaded_at: string | null;
+  url: string;
+};
+
 export type Occurrence = {
   id: string;
   recurring_payment_id: string;
@@ -108,10 +116,13 @@ export type Occurrence = {
   days_delta: number;
   lateness_days: number | null;
   note: string | null;
-  receipt_url: string | null;
+  team_id: string;
+  receipt: Receipt | null;
   receipt_note: string | null;
   telegram_reminded_at: string | null;
   template_archived: boolean;
+  /** Будущий период, которого ещё нет в базе: только показать. */
+  planned?: boolean;
   responsible: { id: string; full_name: string; email: string } | null;
   paid_by: { id: string; full_name: string; email: string } | null;
 };
@@ -156,6 +167,7 @@ export type CalendarMonth = {
   month: number;
   today: string;
   days: { date: string; items: Occurrence[] }[];
+  teams: { id: string; name: string }[];
 };
 
 export type BudgetLine = {
@@ -188,6 +200,7 @@ export type AuditItem = {
 export type AuditList = {
   items: AuditItem[];
   total: number;
+  timezone: string;
 };
 
 export type TelegramSelf = {
@@ -221,9 +234,17 @@ export type NotifyTeam = {
   name: string;
 };
 
+export type EmailTeam = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  scope: "mine" | "department";
+};
+
 export type PersonalChannel = {
   enabled: boolean;
   team_ids: string[];
+  teams: EmailTeam[];
   notify_scope: "mine" | "department";
   notify_overdue: boolean;
   bot_alive: boolean;
@@ -270,7 +291,6 @@ export type Template = {
   next_payment_date: string | null;
   periodicity: string;
   interval_months: number | null;
-  remind_archived_overdue: boolean;
   applies_from: string | null;
   debt_count: number;
   is_archived: boolean;
@@ -322,7 +342,7 @@ export type AssistantAlternative = {
 
 export type AssistantAction = {
   id: string;
-  kind: "create_payment" | "update_payment" | "archive_payment" | "mark_paid";
+  kind: "create_payment" | "update_payment" | "archive_payment" | "mark_paid" | "mark_unpaid";
   status: "pending" | "running" | "confirmed" | "cancelled" | "failed";
   summary: string;
   payload: {
@@ -377,16 +397,41 @@ export type Stats = {
     paid: { currency: string; amount: string; count: number }[];
   }[];
   people: { id: string; full_name: string; email: string }[];
+  departments: { id: string; name: string }[];
+  paid_count: number;
+  paid_on_time: number;
+  monthly: StatsMonth[];
+  operations: { items: StatsOperation[]; total: number; page: number; page_size: number } | null;
+};
+
+export type StatsMonth = { month: string; currency: string; paid: string; overdue: string; planned: string };
+
+export type StatsOperation = {
+  occurrence_id: string;
+  team_id: string;
+  team_name: string;
+  title: string;
+  period_label: string;
+  due_date: string;
+  amount: string;
+  paid_amount: string | null;
+  currency: string;
+  status: "overdue" | "due_soon" | "upcoming" | "paid";
+  paid_on: string | null;
+  lateness_days: number | null;
+  has_receipt: boolean;
+  planned?: boolean;
+  responsible: { id: string; full_name: string; email: string } | null;
 };
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  if (options.body && !headers.has("Content-Type")) {
+  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const team = storedTeamId();
   if (team && !headers.has("X-Team-Id")) headers.set("X-Team-Id", team);
-  const response = await fetch(path, { ...options, headers, credentials: "include" });
+  const response = await fetch(path, { cache: "no-store", ...options, headers, credentials: "include" });
   if (response.status === 204) return undefined as T;
   const text = await response.text();
   let data: unknown = null;
@@ -405,7 +450,7 @@ export async function downloadCsv(path: string, filename = "occurrences.csv"): P
   const headers = new Headers();
   const team = storedTeamId();
   if (team) headers.set("X-Team-Id", team);
-  const response = await fetch(path, { credentials: "include", headers });
+  const response = await fetch(path, { cache: "no-store", credentials: "include", headers });
   if (!response.ok) {
     const raw = await response.text();
     let data: unknown = null;
@@ -475,11 +520,11 @@ export async function streamAssistant(text: string, onToken: (chunk: string) => 
       if (!parsed || !parsed.data || typeof parsed.data !== "object") continue;
       const payload = parsed.data as { text?: string; detail?: string; message?: AssistantMessage };
       if (parsed.event === "token" && payload.text) onToken(payload.text);
-      if (parsed.event === "error") throw new ApiError(503, payload.detail || "Ассистент не ответил");
+      if (parsed.event === "error") throw new ApiError(503, payload.detail || "Кип не ответил");
       if (parsed.event === "done" && payload.message) doneMessage = payload.message;
     }
   }
-  if (!doneMessage) throw new ApiError(503, "Ассистент не ответил. Повтори фразу.");
+  if (!doneMessage) throw new ApiError(503, "Кип не ответил. Повторите фразу.");
   return doneMessage;
 }
 

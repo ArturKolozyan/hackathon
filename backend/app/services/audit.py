@@ -2,10 +2,14 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, User
 from app.services import time as clock
+
+# Одна установка — одна организация: журнал хранит последние 1000 записей.
+AUDIT_KEEP = 1000
 
 _SECRET_PARTS = ("password", "token", "secret", "authorization", "cookie", "smtp_")
 
@@ -40,6 +44,7 @@ def record(
     team_id: uuid.UUID | None = None,
     at: datetime | None = None,
 ) -> None:
+    trim(db, keep=AUDIT_KEEP - 1)
     db.add(
         AuditLog(
             at=at or clock.now(),
@@ -51,3 +56,9 @@ def record(
             meta=sanitize(meta or {}),
         )
     )
+
+
+def trim(db: Session, *, keep: int = AUDIT_KEEP) -> None:
+    """Самые старые записи сверх лимита удаляются. Журнал ни для чего, кроме показа, не читается."""
+    stale = select(AuditLog.id).order_by(AuditLog.at.desc(), AuditLog.id.desc()).offset(keep).scalar_subquery()
+    db.execute(delete(AuditLog).where(AuditLog.id.in_(stale)).execution_options(synchronize_session=False))

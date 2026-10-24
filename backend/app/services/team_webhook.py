@@ -1,9 +1,12 @@
-"""Webhook одной команды. URL задаёт владелец или админ, проверка — один POST."""
+"""Webhook одной команды. URL задаёт владелец или админ, проверка — один POST.
+
+Только https на публичный адрес. Тело ответа не сохраняем и не показываем, только код.
+"""
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.integrations.webhook import probe_webhook
+from app.integrations.webhook import probe_webhook, public_url_error
 from app.models import Team, User
 from app.services import time as clock
 from app.services.audit import record
@@ -13,10 +16,13 @@ def clean_webhook_url(raw: str) -> str:
     cleaned = raw.strip()
     if not cleaned:
         return ""
-    if not (cleaned.startswith("https://") or cleaned.startswith("http://")):
-        raise HTTPException(status_code=422, detail="URL должен начинаться с http:// или https://")
     if any(char in cleaned for char in "\r\n\t "):
         raise HTTPException(status_code=422, detail="Некорректный URL")
+    if len(cleaned) > 500:
+        raise HTTPException(status_code=422, detail="Слишком длинный URL")
+    error = public_url_error(cleaned)
+    if error is not None:
+        raise HTTPException(status_code=422, detail=error)
     return cleaned
 
 

@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, api, type InviteInfo, type Me } from "../api";
 import { useAuth } from "../auth";
 import { AuthFrame } from "../components/AuthFrame";
+import { HINTS } from "../hints";
 import { LoadingBlock } from "../components/ui";
 
 export function InvitePage() {
@@ -71,7 +72,7 @@ export function InvitePage() {
               {error}
             </p>
           )}
-          <button type="submit" className="primary" disabled={busy}>
+          <button type="submit" className="primary" disabled={busy} data-hint={HINTS.inviteAccept}>
             {busy ? "Входим…" : "Задать пароль и войти"}
           </button>
         </form>

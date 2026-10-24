@@ -4,6 +4,10 @@
 
 Хакатон: секреты здесь можно использовать как есть. VPS выдан организаторами — **баланс/продление не наша задача**.
 
+## Каталог infra/
+
+Всё про запуск — в `infra/`: `docker-compose.yml`, `.env` (в git нет), `.env.example`, `Caddyfile`, `ops/` и `backups/` (в git нет). Сборка из `../backend` и `../frontend`. Деплой один раз сам переносит старые `.env` и `backups/` из корня в `infra/`.
+
 ## Кабинет Aeza
 
 | | |
@@ -65,7 +69,7 @@ ssh -L 8080:127.0.0.1:80 root@217.144.184.232
 
 Дальше в браузере http://127.0.0.1:8080. При `COOKIE_SECURE=true` браузер по этому HTTP сессию не сохранит: туннель годится, чтобы увидеть health и страницу входа. Логин в браузере — через https://rekeeper.ru. Если https мёртв и зайти надо именно так: на сервере временно `COOKIE_SECURE=false`, пересоздать `api`, зайти, вернуть `true` и снова пересоздать `api`.
 
-Локально панель: http://localhost:8080. `DOMAIN` пустой — Caddy отдаёт HTTP и в Let's Encrypt не ходит. Команда одна: `docker compose up --build -d`, см. [README](../README.md). На ноутбуке не задавайте `DOMAIN=rekeeper.ru`: выпуск сертификата с чужой машины бьёт лимит Let's Encrypt.
+Локально панель: http://localhost:8080. `DOMAIN` пустой — Caddy отдаёт HTTP и в Let's Encrypt не ходит. Команда одна, из `infra/`: `docker compose up --build -d`, см. [README](../README.md). На ноутбуке не задавайте `DOMAIN=rekeeper.ru`: выпуск сертификата с чужой машины бьёт лимит Let's Encrypt.
 
 ## Порты
 
@@ -100,24 +104,25 @@ Push в `main`, pull request и ручной `workflow_dispatch` → [`.github/w
 
 | Шаг | Что |
 |-----|-----|
-| backup selftest | `sh ops/backup/selftest.sh`: полночь МСК и ротация 7 файлов, без живой базы |
+| backup selftest | `sh infra/ops/backup/selftest.sh`: полночь МСК и ротация 7 файлов, без живой базы |
 | pytest | Python 3.12, `pytest -x -ra --tb=short` в `backend/`. Postgres 16 — service GitHub Actions, `127.0.0.1:5433` (5432 занимает compose в smoke), пользователь `invoice` / `change-me`. Тесты сами создают базу `invoice_keeper_test` |
 | web | Node 22, `npm ci`, `tsc --noEmit`, `vite build` в `frontend/` — три отдельных шага |
-| smoke | `bash ops/smoke.sh`: чистый `.env.example`, `docker compose up --build -d`, вход владельца, эндпоинты кейса, рестарт, остановленный `bot`, ассистент выключен без ключей и недоступен после `stop assistant` |
+| smoke | `bash infra/ops/smoke.sh`: чистый `.env.example`, `docker compose up --build -d`, вход владельца, эндпоинты кейса, рестарт, остановленный `bot`, ассистент выключен без ключей и недоступен после `stop assistant` |
 
-`deploy` — `ssh` с проверкой отпечатка хоста, на сервере выполняется [`ops/deploy-remote.sh`](../ops/deploy-remote.sh). `healthcheck` после деплоя ждёт ответа `https://rekeeper.ru/api/v1/health` до двух минут.
+`deploy` — `ssh` с проверкой отпечатка хоста, на сервере выполняется [`infra/ops/deploy-remote.sh`](../infra/ops/deploy-remote.sh). `healthcheck` после деплоя ждёт ответа `https://rekeeper.ru/api/v1/health` до двух минут.
 
-Упал шаг — в Summary запуска один блок от [`ops/ci/report.sh`](../ops/ci/report.sh): какой шаг, ключевые строки его лога (для pytest — секция FAILURES и итог), для smoke и deploy — `docker compose ps` и по 100 строк логов каждого сервиса, для healthcheck — последний HTTP-код и тело. Его и копировать. Полные логи шагов — артефакт `verify-logs` / `deploy-logs`.
+Упал шаг — в Summary запуска один блок от [`infra/ops/ci/report.sh`](../infra/ops/ci/report.sh): какой шаг, ключевые строки его лога (для pytest — секция FAILURES и итог), для smoke и deploy — `docker compose ps` и по 100 строк логов каждого сервиса, для healthcheck — последний HTTP-код и тело. Его и копировать. Полные логи шагов — артефакт `verify-logs` / `deploy-logs`.
 
 Логи контейнеров: одна строка на запись `время уровень логгер текст`, traceback ниже. Уровень — `LOG_LEVEL` в `.env`, по умолчанию `INFO`. Необработанная ошибка запроса пишется uvicorn с traceback.
 
-Деплой на сервере делает ровно то, что README: `git pull --ff-only origin main` и `docker compose up --build -d`. Отдельных `-f` нет.
+Деплой на сервере делает ровно то, что README: `git pull --ff-only origin main`, `cd infra` и `docker compose up --build -d`. Отдельных `-f` нет. Имя проекта `invoice-keeper` задано в compose-файле, поэтому тома и сеть после переезда в `infra/` те же.
 
 SSH:
 
 ```bash
 cd /opt/invoice-keeper
 git pull --ff-only origin main
+cd infra
 docker compose up --build -d
 curl -fsS http://127.0.0.1/healthz
 curl -fsS https://rekeeper.ru/api/v1/health
@@ -155,7 +160,7 @@ Actions ходит **ключом**, не паролем из таблицы SSH
 
 ### Серверный `.env`
 
-Файл деплой не перезаписывает. До мержа, в `/opt/invoice-keeper/.env`, заменить или добавить ровно эти строки:
+Файл деплой не перезаписывает. До мержа, в `/opt/invoice-keeper/infra/.env`, заменить или добавить ровно эти строки:
 
 ```
 COOKIE_SECURE=true
@@ -193,7 +198,7 @@ Workflow каталог и `.env` не создаёт. Docker Compose на се�
 
 ```bash
 git clone https://github.com/ArturKolozyan/hackathon.git /opt/invoice-keeper
-cd /opt/invoice-keeper
+cd /opt/invoice-keeper/infra
 cp .env.example .env
 # затем три строки прода из раздела выше
 docker compose up --build -d
@@ -204,7 +209,7 @@ curl -fsS http://127.0.0.1/healthz
 
 ```bash
 ssh root@217.144.184.232
-cd /opt/invoice-keeper && git pull --ff-only origin main && docker compose up --build -d
+cd /opt/invoice-keeper && git pull --ff-only origin main && cd infra && docker compose up --build -d
 curl -fsS http://127.0.0.1/healthz
 curl -fsS https://rekeeper.ru/api/v1/health
 docker compose ps
@@ -227,11 +232,11 @@ docker compose up --build -d --remove-orphans
 
 ## Бэкапы Postgres
 
-Отдельный сервис `backup` в [docker-compose.yml](../docker-compose.yml), не systemd-таймер на хосте.
+Отдельный сервис `backup` в [infra/docker-compose.yml](../infra/docker-compose.yml), не systemd-таймер на хосте.
 
 Деплой и так делает `docker compose up`. Сервис поднимается и откатывается вместе с репозиторием. Unit на хосте пришлось бы ещё копировать и `enable` в том же SSH, и при откате коммита таймер остался бы старым. `pg_dump` берётся из того же образа `postgres:16-alpine`, что и сервер: клиент на хост ставить не нужно, версии не разъедутся. В `postgres:16-alpine` нет cron и tzdata, пакеты при старте не ставим (зеркала с Москвы лишняя точка отказа). Цикл в `ops/backup/loop.sh` спит до полуночи. Москва — UTC+3 круглый год, без летнего времени, поэтому полночь считается от `date -u`, а не от часового пояса контейнера.
 
-Дамп — custom-формат (`pg_dump -Fc`, сжатие 6). Это не `.sql.gz`: gzip его не открывает, восстановление — `pg_restore`. Пароль только в `PGPASSWORD` внутри контейнера, в командную строку не попадает. Каталог на хосте — `./backups` от корня репозитория. На VPS это `/opt/invoice-keeper/backups`. `git reset --hard` его не трогает, `git clean` деплой не делает. Права каталога `700`. Контейнер идёт от root: у образа Postgres пользователь `postgres`, ему хостовый каталог не записать. Сервер базы этот контейнер не запускает. В git дампы не коммитить.
+Дамп — custom-формат (`pg_dump -Fc`, сжатие 6). Это не `.sql.gz`: gzip его не открывает, восстановление — `pg_restore`. Пароль только в `PGPASSWORD` внутри контейнера, в командную строку не попадает. Каталог на хосте — `./backups` от корня репозитория. На VPS это `/opt/invoice-keeper/infra/backups`. `git reset --hard` его не трогает, `git clean` деплой не делает. Права каталога `700`. Контейнер идёт от root: у образа Postgres пользователь `postgres`, ему хостовый каталог не записать. Сервер базы этот контейнер не запускает. В git дампы не коммитить.
 
 Расписание: каждый день в 00:00 по Москве, хранятся **7 последних файлов**, не «7 календарных дней, если за день их несколько». Старые удаляются только после успешного нового дампа. Неудачный `pg_dump` оставляет предыдущие файлы и повторяется через минуту. Если контейнер проспал полночь, при старте снимает один дамп за текущие сутки, когда файла за эту дату ещё нет. Имя: `invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump`, время в имени — московское.
 
@@ -244,7 +249,7 @@ docker compose up --build -d --remove-orphans
 Проверка после деплоя:
 
 ```bash
-cd /opt/invoice-keeper
+cd /opt/invoice-keeper/infra
 docker compose ps backup
 docker compose logs --tail=20 backup
 ls -l backups
@@ -254,10 +259,10 @@ ls -l backups
 
 ### Восстановление
 
-Скрипт [ops/backup/restore.sh](../ops/backup/restore.sh) останавливает `api`, `worker`, `bot` и `backup` (чтобы не писали в ту же базу), сессии к базе обрывает, `pg_restore --clean --if-exists` прогоняет внутри контейнера `db`, затем снова запускает эти сервисы и ждёт `/healthz` на `HTTP_PORT` из `.env`. Postgres не останавливается. Без `--yes` скрипт ничего не делает.
+Скрипт [infra/ops/backup/restore.sh](../infra/ops/backup/restore.sh) останавливает `api`, `worker`, `bot` и `backup` (чтобы не писали в ту же базу), сессии к базе обрывает, `pg_restore --clean --if-exists` прогоняет внутри контейнера `db`. Пока `api` стоит, распаковывает в том `receipts` архив `receipts-<тот же штамп>-*.tar.gz` из того же каталога (старое содержимое тома заменяется; архива нет — файлы остаются как есть). Затем снова запускает эти сервисы и ждёт `/healthz` на `HTTP_PORT` из `.env`. Postgres не останавливается. Без `--yes` скрипт ничего не делает.
 
 ```bash
-cd /opt/invoice-keeper
+cd /opt/invoice-keeper/infra
 ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
 ```
 
@@ -266,6 +271,22 @@ ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
 ```bash
 docker compose restart backup
 ```
+
+### Файлы чеков
+
+Чеки (PDF и фото) лежат в именованном томе `receipts`: `api` монтирует его в `/data/receipts` (`RECEIPTS_DIR`), `backup` — только на чтение в `/receipts`. Каждый дамп базы сопровождается архивом `backups/receipts-YYYYMMDDTHHMMSS-<pid>.tar.gz`, ротация та же — `BACKUP_KEEP` последних. Архив — полный снимок тома, поэтому на диске всегда 7 суточных полных архивов чеков (при `BACKUP_KEEP=7`): место считать как 7 × размер тома. Ошибка архива не отменяет дамп базы, в лог `backup` уходит строка `ERROR: receipts archive failed`. `restore.sh` возвращает чеки сам. Только файлы, без базы:
+
+```sh
+docker compose run --rm -v "$PWD/backups:/b:ro" --entrypoint sh api -c 'tar -xzf /b/receipts-YYYYMMDDTHHMMSS-<pid>.tar.gz -C /data/receipts'
+```
+
+Файлы, на которые не ссылается ни один период, и недописанные `*.part` старше часа `api` стирает при старте. Вручную: `docker compose exec api python -m app.receipts_sweep`.
+
+Бэкапы лежат на том же диске, что и база. Копию `backups/` держать вне VPS: например, cron на другой машине раз в сутки после 00:30 по Москве делает `rsync -a --delete root@<vps>:/opt/invoice-keeper/infra/backups/ /srv/rekeeper-backups/`.
+
+Курсы для подсказки «≈ … ₽» под суммой в USD и EUR `api` берёт у ЦБ РФ (`www.cbr.ru/scripts/XML_daily.asp`, запасной `www.cbr-xml-daily.ru`), держит в памяти и обновляет раз в час. ЦБ недоступен — подсказки нет, остальное работает. В итоги курс не входит.
+
+Лимит размера чека — `RECEIPT_MAX_MB` (по умолчанию 10). nginx в `web` пропускает тело до 12 МБ.
 
 Сколько файлов держать — `BACKUP_KEEP` в `.env` (по умолчанию 7). Остальной `.env` ради бэкапа не трогать.
 
@@ -281,7 +302,7 @@ docker compose restart backup
 - [ ] `curl -fsS https://rekeeper.ru/api/v1/health` и 301 с `https://www.rekeeper.ru` на apex
 - [ ] Снаружи 5432 и 8000 больше не открываются
 - [ ] В логе `bot` нет таймаута IPv4 до `api.telegram.org` и нет пути `api.telegram.org/bot<токен>/`
-- [ ] `backup` running, в `/opt/invoice-keeper/backups` есть `invoice-keeper-*.dump`
+- [ ] `backup` running, в `/opt/invoice-keeper/infra/backups` есть `invoice-keeper-*.dump`
 - [ ] BotFather → токен + chat_id, если ещё не стоят в `.env`
 
-Следующий шаг: в `/opt/invoice-keeper/.env` домен, порты 80/443, IPv6 и удаление `COMPOSE_FILE`; `ss` на 80/443 и остановить только чужой процесс, если порт занят не нашим `caddy`; мерж. После зелёного Actions — `curl` на https, лог `bot` без токена, файл в `backups/`.
+Следующий шаг: в `/opt/invoice-keeper/infra/.env` домен, порты 80/443, IPv6 и удаление `COMPOSE_FILE`; `ss` на 80/443 и остановить только чужой процесс, если порт занят не нашим `caddy`; мерж. После зелёного Actions — `curl` на https, лог `bot` без токена, файл в `backups/`.

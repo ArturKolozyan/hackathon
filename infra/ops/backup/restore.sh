@@ -1,13 +1,15 @@
 #!/bin/sh
-# Восстановление дампа custom-формата в живую базу.
+# Восстановление дампа custom-формата в живую базу и файлов чеков того же снимка.
 # Останавливает писателей (api, worker, backup), не останавливает Postgres.
-# Запуск из любого каталога: скрипт сам переходит в корень репозитория.
+# Архив receipts-<stamp>-*.tar.gz рядом с дампом распаковывается в том receipts,
+# пока api остановлен. Архива нет — файлы чеков остаются как есть.
+# Запуск из любого каталога: скрипт сам переходит в infra/, путь к дампу — от infra/.
 #
-#   ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
+#   infra/ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump
 set -eu
 
 if [ "${1:-}" != "--yes" ] || [ -z "${2:-}" ]; then
-  echo "usage: ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump" >&2
+  echo "usage: infra/ops/backup/restore.sh --yes backups/invoice-keeper-YYYYMMDDTHHMMSS-<pid>.dump" >&2
   echo "Останавливает api, worker и backup, заменяет объекты базы, запускает их снова." >&2
   exit 2
 fi
@@ -60,12 +62,31 @@ set -e
 # shellcheck disable=SC2086
 $COMPOSE exec -T db rm -f /tmp/rekeeper-restore.dump
 
+# invoice-keeper-<stamp>-<pid>.dump -> receipts-<stamp>-*.tar.gz того же прогона.
+stamp=${base#invoice-keeper-}
+stamp=${stamp%%-*}
+archive=$(ls -1t "$(dirname "$file")"/receipts-"$stamp"-*.tar.gz 2>/dev/null | head -n 1 || true)
+if [ "$status" -eq 0 ] && [ -n "$archive" ]; then
+  echo "restoring receipts from $(basename "$archive")"
+  # Тот же образ и пользователь, что у api: права на файлы остаются как были.
+  # shellcheck disable=SC2086
+  if ! $COMPOSE run --rm --no-deps -T \
+    -v "$(dirname "$archive")":/restore:ro \
+    --entrypoint sh api -c \
+    'find /data/receipts -mindepth 1 -delete && tar -xzf "/restore/$1" -C /data/receipts' sh "$(basename "$archive")"; then
+    echo "ERROR: receipts archive was not restored, database is restored" >&2
+    status=1
+  fi
+elif [ "$status" -eq 0 ]; then
+  echo "no receipts archive for $stamp, receipt files are left as is" >&2
+fi
+
 echo "starting api worker bot backup"
 # shellcheck disable=SC2086
 $COMPOSE start api worker bot backup
 
 if [ "$status" -ne 0 ]; then
-  echo "pg_restore failed ($status)" >&2
+  echo "restore failed ($status)" >&2
   exit "$status"
 fi
 

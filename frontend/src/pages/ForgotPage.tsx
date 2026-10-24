@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, api } from "../api";
+import { HINTS } from "../hints";
 import { AuthFrame } from "../components/AuthFrame";
 
 export function ForgotPage() {
@@ -32,7 +33,7 @@ export function ForgotPage() {
           <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="username" />
         </label>
         {error && <p className="error" role="alert">{error}</p>}
-        <button type="submit" className="primary" disabled={busy}>{busy ? "Отправляю…" : "Прислать код"}</button>
+        <button type="submit" className="primary" disabled={busy} data-hint={HINTS.resetCode}>{busy ? "Отправляю…" : "Прислать код"}</button>
         <p className="caption"><Link to="/login">Ко входу</Link></p>
       </form>
     </AuthFrame>

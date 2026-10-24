@@ -60,11 +60,12 @@ def test_reads_come_from_the_database(client, db_session):
     assert week["action"] is None
 
     overdue = _say(client, headers, "Что просрочено?")
-    assert overdue["content"].startswith("Просрочено")
+    assert overdue["content"].startswith("### Просрочено")
     assert "999" not in overdue["content"]
 
     september = _say(client, headers, "Сколько потратили за сентябрь?")
-    assert "Уже оплачено: EUR 15.00" in september["content"]
+    assert september["content"].startswith("### Сентябрь 2026")
+    assert "| EUR | 15\u00a0€ |" in september["content"]
     assert "Ещё не оплачено" in september["content"]
 
     infra = db_session.scalar(select(Team).where(Team.name == "Инфраструктура"))
@@ -105,13 +106,13 @@ def test_create_waits_for_confirm_and_checks_role(client, db_session):
     assert action["status"] == "pending"
     assert action["kind"] == "create_payment"
     assert "Почта" in action["summary"]
-    assert "20.11.2026" in action["summary"]
+    assert "Первый срок: 20 ноября" in action["summary"]
     assert "Иван Петров" in action["summary"]
     assert _count(db_session) == before
 
     revised = _say(client, admin, "сумму на 1300 рублей")
     assert revised["action"]["id"] == action["id"]
-    assert "1300.00 RUB" in revised["action"]["summary"]
+    assert "Сумма: 1\u202f300\u00a0₽" in revised["action"]["summary"]
     assert _count(db_session) == before
 
     stolen = _assistant_call(client, "post", f"/api/v1/assistant/actions/{action['id']}/confirm", headers=ivan)
@@ -154,7 +155,7 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     assert "оплачен" in done.json()["message"]["content"]
 
     update = _say(client, {**admin, "X-Team-Id": str(infra.id)}, "Измени сумму сервера на 45 долларов")
-    assert "40.00 USD → 45.00 USD" in update["action"]["summary"]
+    assert "Сумма: 40\u00a0$ → **45\u00a0$**" in update["action"]["summary"]
     db_session.expire_all()
     assert f"{server.amount:.2f}" == "40.00"
     changed = _assistant_call(client, "post", f"/api/v1/assistant/actions/{update['action']['id']}/confirm", headers=admin)

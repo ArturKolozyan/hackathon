@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.deps import get_current_user
+from app.core.deps import get_active_user
 from app.models import Team, User
 from app.schemas.team import MemberOut, MemberRoleIn, TeamCreate, TeamDelete, TeamOut, TeamRename
 from app.services.access import department_access
@@ -35,12 +35,12 @@ def _member_out(row) -> MemberOut:
 
 
 @router.get("", response_model=list[TeamOut], summary="Мои отделы")
-def my_teams(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[TeamOut]:
+def my_teams(user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> list[TeamOut]:
     return [TeamOut(id=row.team_id, name=row.team.name, role=row.role) for row in department_access(db, user)]
 
 
 @router.post("", response_model=TeamOut, status_code=201, summary="Создать отдел")
-def open_team(payload: TeamCreate, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> TeamOut:
+def open_team(payload: TeamCreate, user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> TeamOut:
     team = create_team(db, user, payload.name)
     db.commit()
     return TeamOut(id=team.id, name=team.name, role="owner")
@@ -50,7 +50,7 @@ def open_team(payload: TeamCreate, user: User = Depends(get_current_user), db: S
 def rename(
     team_id: UUID,
     payload: TeamRename,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_active_user),
     db: Session = Depends(get_db),
 ) -> TeamOut:
     team = _team_or_404(db, team_id)
@@ -63,7 +63,7 @@ def rename(
 def remove_team(
     team_id: UUID,
     payload: TeamDelete,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_active_user),
     db: Session = Depends(get_db),
 ) -> None:
     team = _team_or_404(db, team_id)
@@ -72,14 +72,14 @@ def remove_team(
 
 
 @router.post("/{team_id}/leave", status_code=204, summary="Выйти из отдела")
-def leave_team(team_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> None:
+def leave_team(team_id: UUID, user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> None:
     team = _team_or_404(db, team_id)
     leave(db, team, user)
     db.commit()
 
 
 @router.get("/{team_id}/members", response_model=list[MemberOut], summary="Участники")
-def members(team_id: UUID, user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> list[MemberOut]:
+def members(team_id: UUID, user: User = Depends(get_active_user), db: Session = Depends(get_db)) -> list[MemberOut]:
     team = _team_or_404(db, team_id)
     if not user.is_owner:
         require_membership(db, team, user)
@@ -91,7 +91,7 @@ def member_role(
     team_id: UUID,
     user_id: UUID,
     payload: MemberRoleIn,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_active_user),
     db: Session = Depends(get_db),
 ) -> MemberOut:
     team = _team_or_404(db, team_id)
@@ -105,7 +105,7 @@ def member_role(
 def member_remove(
     team_id: UUID,
     user_id: UUID,
-    user: User = Depends(get_current_user),
+    user: User = Depends(get_active_user),
     db: Session = Depends(get_db),
 ) -> None:
     team = _team_or_404(db, team_id)

@@ -1,12 +1,12 @@
 import type { ReactNode } from "react";
-import { TeamMark, ThemeToggle, Wordmark } from "./Brand";
+import { TeamMark, ThemeSwitch, Wordmark } from "./Brand";
 
 export function AuthFrame({ kicker, title, text, children }: { kicker: string; title: string; text: string; children: ReactNode }) {
   return (
     <div className="login-page">
       <header className="topbar">
         <Wordmark />
-        <ThemeToggle />
+        <ThemeSwitch />
       </header>
       <div className="login-grid">
         <section className="login-copy">

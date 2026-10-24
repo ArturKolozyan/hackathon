@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { CalendarCheck, ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarCheck, X } from "lucide-react";
 import { ApiError, api, type CalendarMonth, type Occurrence } from "../api";
 import { OccurrenceCard } from "../components/OccurrenceCard";
+import { SelectField } from "../components/fields";
 import { PageControls } from "../components/PageControls";
+import { PeriodNav } from "../components/PeriodNav";
 import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import {
   addIsoDays,
@@ -18,12 +20,14 @@ import {
   weekLabel,
   weekStart,
 } from "../format";
+import { useAuth } from "../auth";
 import { useMediaQuery } from "../useMediaQuery";
 import { HINTS } from "../hints";
+import { useFresh } from "../fresh";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
-type View = "day" | "week" | "month";
+type View = "week" | "month";
 
 function monthKey(year: number, month: number): string {
   return `${year}-${month}`;
@@ -44,10 +48,28 @@ function monthsFor(view: View, iso: string): { year: number; month: number }[] {
   return [first, last];
 }
 
-function dowIndex(iso: string): number {
-  const { year, month, day } = isoParts(iso);
-  return (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
+function compactWeek(startIso: string, endIso: string): string {
+  const start = isoParts(startIso);
+  const end = isoParts(endIso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(start.day)}.${pad(start.month)}–${pad(end.day)}.${pad(end.month)}`;
 }
+
+const MONTH_SHORT = ["янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек"];
+
+/** Неделя на стыке лет длиннее остальных — сокращаем месяцы, чтобы влезла в ту же ширину. */
+function wideWeek(startIso: string, endIso: string): string {
+  const start = isoParts(startIso);
+  const end = isoParts(endIso);
+  if (start.year === end.year) return weekLabel(startIso, endIso);
+  return `${start.day} ${MONTH_SHORT[start.month - 1]} ${start.year} – ${end.day} ${MONTH_SHORT[end.month - 1]} ${end.year}`;
+}
+
+/** Ширина середины навигатора: стрелки не прыгают между периодами. */
+const LABEL_WIDTH: Record<View, { wide: string; narrow: string }> = {
+  week: { wide: "17.5rem", narrow: "8rem" },
+  month: { wide: "10.5rem", narrow: "9rem" },
+};
 
 function cellsOf(year: number, month: number): Array<string | null> {
   const first = new Date(Date.UTC(year, month - 1, 1));
@@ -63,6 +85,11 @@ function cellsOf(year: number, month: number): Array<string | null> {
 
 export function CalendarPage() {
   const narrow = useMediaQuery("(max-width: 720px)");
+  const { user } = useAuth();
+  // Несколько отделов (владелец или человек в двух отделах) — календарь сразу по всем, с фильтром.
+  const multi = Boolean(user?.is_owner) || (user?.memberships.length ?? 0) > 1;
+  const scope = multi ? "&scope=all" : "";
+  const [teamFilter, setTeamFilter] = useState("");
   const [view, setView] = useState<View>("month");
   const [anchor, setAnchor] = useState<string | null>(null);
   const [today, setToday] = useState<string | null>(null);
@@ -73,6 +100,7 @@ export function CalendarPage() {
   const [error, setError] = useState<string | null>(null);
   const cacheRef = useRef(cache);
   const detailRef = useRef<HTMLElement>(null);
+  const fresh = useFresh();
   cacheRef.current = cache;
 
   useEffect(() => {
@@ -82,7 +110,7 @@ export function CalendarPage() {
       try {
         if (!anchor) {
           setLoading(true);
-          const first = await api<CalendarMonth>("/api/v1/payments/calendar");
+          const first = await api<CalendarMonth>(`/api/v1/payments/calendar${multi ? "?scope=all" : ""}`);
           if (cancelled) return;
           const next = { ...cacheRef.current, [monthKey(first.year, first.month)]: first };
           cacheRef.current = next;
@@ -92,14 +120,11 @@ export function CalendarPage() {
           setLoading(false);
           return;
         }
-        const missing = monthsFor(view, anchor).filter((item) => !cacheRef.current[monthKey(item.year, item.month)]);
-        if (missing.length === 0) {
-          setLoading(false);
-          return;
-        }
-        setLoading(true);
+        // Уже виденный месяц показывается сразу и тут же сверяется с сервером.
+        const months = monthsFor(view, anchor);
+        setLoading(months.some((item) => !cacheRef.current[monthKey(item.year, item.month)]));
         const loaded = await Promise.all(
-          missing.map((item) => api<CalendarMonth>(`/api/v1/payments/calendar?year=${item.year}&month=${item.month}`)),
+          months.map((item) => api<CalendarMonth>(`/api/v1/payments/calendar?year=${item.year}&month=${item.month}${scope}`)),
         );
         if (cancelled) return;
         const next = { ...cacheRef.current };
@@ -120,7 +145,7 @@ export function CalendarPage() {
     return () => {
       cancelled = true;
     };
-  }, [anchor, view]);
+  }, [anchor, view, fresh]);
 
   useEffect(() => {
     setPicked(null);
@@ -146,13 +171,23 @@ export function CalendarPage() {
     return () => document.removeEventListener("keydown", onKey);
   }, [picked]);
 
+  const teams = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const month of Object.values(cache)) for (const team of month.teams ?? []) map.set(team.id, team.name);
+    return map;
+  }, [cache]);
+  const showTeam = multi && teams.size > 1 && !teamFilter;
+
   const byDate = useMemo(() => {
     const map = new Map<string, Occurrence[]>();
     for (const month of Object.values(cache)) {
-      for (const day of month.days) map.set(day.date, day.items);
+      for (const day of month.days) {
+        const items = teamFilter ? day.items.filter((item) => item.team_id === teamFilter) : day.items;
+        if (items.length > 0) map.set(day.date, items);
+      }
     }
     return map;
-  }, [cache]);
+  }, [cache, teamFilter]);
 
   async function reload(keepId?: string) {
     if (!anchor) return;
@@ -160,10 +195,11 @@ export function CalendarPage() {
     try {
       const loaded = await Promise.all(
         monthsFor(view, anchor).map((item) =>
-          api<CalendarMonth>(`/api/v1/payments/calendar?year=${item.year}&month=${item.month}`),
+          api<CalendarMonth>(`/api/v1/payments/calendar?year=${item.year}&month=${item.month}${scope}`),
         ),
       );
-      const next = { ...cacheRef.current };
+      // Изменение могло задеть и другие месяцы: старые снимки выбрасываем.
+      const next: Record<string, CalendarMonth> = {};
       const items: Occurrence[] = [];
       for (const month of loaded) {
         next[monthKey(month.year, month.month)] = month;
@@ -181,8 +217,7 @@ export function CalendarPage() {
 
   function step(delta: number) {
     if (!anchor) return;
-    if (view === "day") setAnchor(addIsoDays(anchor, delta));
-    else if (view === "week") setAnchor(addIsoDays(anchor, delta * 7));
+    if (view === "week") setAnchor(addIsoDays(anchor, delta * 7));
     else setAnchor(shiftAnchorMonth(anchor, delta));
   }
 
@@ -190,18 +225,33 @@ export function CalendarPage() {
     ? "Календарь"
     : view === "month"
       ? capitalMonth(isoParts(anchor).year, isoParts(anchor).month)
-      : view === "week"
-        ? weekLabel(weekStart(anchor), addIsoDays(weekStart(anchor), 6))
-        : longDue(anchor);
+      : narrow
+        ? compactWeek(weekStart(anchor), addIsoDays(weekStart(anchor), 6))
+        : wideWeek(weekStart(anchor), addIsoDays(weekStart(anchor), 6));
+  const fullLabel = anchor && view === "week" ? weekLabel(weekStart(anchor), addIsoDays(weekStart(anchor), 6)) : label;
+  const teamSelect =
+    multi && teams.size > 1 ? (
+      <SelectField
+        ariaLabel="Отдел"
+        align="end"
+        value={teamFilter}
+        onChange={setTeamFilter}
+        options={[
+          { value: "", label: "Все отделы" },
+          ...[...teams.entries()]
+            .sort((a, b) => a[1].localeCompare(b[1], "ru"))
+            .map(([id, name]) => ({ value: id, label: name })),
+        ]}
+      />
+    ) : null;
 
-  const dayItems = anchor ? byDate.get(anchor) ?? [] : [];
   const weekDays = anchor ? Array.from({ length: 7 }, (_, index) => addIsoDays(weekStart(anchor), index)) : [];
   const month = anchor ? isoParts(anchor) : null;
   const cells = month ? cellsOf(month.year, month.month) : [];
   const rows = Math.max(1, Math.ceil(cells.length / 7));
 
-  function openDay(iso: string) {
-    setView("day");
+  function openWeek(iso: string) {
+    setView("week");
     setAnchor(iso);
   }
 
@@ -209,38 +259,44 @@ export function CalendarPage() {
     <div className={`page page-cal view-${view}`}>
       <PageControls
         left={
-        <div className="tb-group cal-nav">
-          <button type="button" className="icon-btn" aria-label="Назад" data-hint={HINTS.calPrev} disabled={!anchor} onClick={() => step(-1)}>
-            <ChevronLeft size={18} strokeWidth={1.75} aria-hidden />
-          </button>
-          <button type="button" className="icon-btn" aria-label="Дальше" data-hint={HINTS.calNext} disabled={!anchor} onClick={() => step(1)}>
-            <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
-          </button>
+        <PeriodNav
+          label="Период календаря"
+          prevLabel={view === "week" ? "Предыдущая неделя" : "Предыдущий месяц"}
+          nextLabel={view === "week" ? "Следующая неделя" : "Следующий месяц"}
+          prevHint={HINTS.calPrev}
+          nextHint={HINTS.calNext}
+          disabled={!anchor}
+          onPrev={() => step(-1)}
+          onNext={() => step(1)}
+          width={narrow ? LABEL_WIDTH[view].narrow : LABEL_WIDTH[view].wide}
+        >
           <button
             type="button"
             className="cal-label"
             disabled={!today}
             data-hint={HINTS.calToday}
-            aria-label={`${label}. Перейти к сегодня`}
+            aria-label={`${fullLabel}. Перейти к сегодня`}
+            aria-live="polite"
             onClick={() => today && setAnchor(today)}
           >
             {label}
           </button>
-        </div>
+        </PeriodNav>
         }
+        right={!narrow && teamSelect ? teamSelect : undefined}
         center={
         <Segmented
           label="Вид календаря"
           value={view}
           options={[
-            { value: "day", label: "День" },
-            { value: "week", label: "Неделя" },
-            { value: "month", label: "Месяц" },
+            { value: "week", label: "Неделя", hint: HINTS.calViewWeek },
+            { value: "month", label: "Месяц", hint: HINTS.calViewMonth },
           ]}
           onChange={setView}
         />
         }
       />
+      {narrow && teamSelect && <div className="cal-filter">{teamSelect}</div>}
       {error && <ErrorState message={error} onRetry={() => void reload(picked?.id)} />}
       {loading && !anchor && <LoadingBlock label="Загружаем календарь…" />}
       {anchor && view === "month" && month && (
@@ -285,7 +341,7 @@ export function CalendarPage() {
                         className="cal-num"
                         aria-current={iso === today ? "date" : undefined}
                         data-hint={HINTS.calOpenDay}
-                        onClick={() => openDay(iso)}
+                        onClick={() => openWeek(iso)}
                       >
                         <span className="sr-only">{longDue(iso)}</span>
                         <span aria-hidden="true">{day}</span>
@@ -295,10 +351,10 @@ export function CalendarPage() {
                   </div>
                   {!narrow &&
                     items.slice(0, 2).map((item) => (
-                      <OperationCard key={item.id} item={item} iso={iso} compact onOpen={setPicked} />
+                      <OperationCard key={item.id} item={item} iso={iso} compact team={showTeam ? teams.get(item.team_id) : undefined} onOpen={setPicked} />
                     ))}
                   {!narrow && items.length > 2 && (
-                    <button type="button" className="cal-more" data-hint={HINTS.calMore} onClick={() => openDay(iso)}>
+                    <button type="button" className="cal-more" data-hint={HINTS.calMore} onClick={() => openWeek(iso)}>
                       ещё {items.length - 2}
                     </button>
                   )}
@@ -315,7 +371,7 @@ export function CalendarPage() {
                 </EmptyState>
               ) : (
                 (byDate.get(agenda) ?? []).map((item) => (
-                  <OperationCard key={item.id} item={item} iso={agenda} onOpen={setPicked} />
+                  <OperationCard key={item.id} item={item} iso={agenda} team={showTeam ? teams.get(item.team_id) : undefined} onOpen={setPicked} />
                 ))
               )}
             </section>
@@ -338,7 +394,7 @@ export function CalendarPage() {
                     className={iso === today ? "cal-num today-num" : "cal-num"}
                     aria-current={iso === today ? "date" : undefined}
                     data-hint={HINTS.calOpenDay}
-                    onClick={() => openDay(iso)}
+                    onClick={() => openWeek(iso)}
                   >
                     {isoParts(iso).day}
                   </button>
@@ -346,31 +402,12 @@ export function CalendarPage() {
                 <div className="week-body">
                   {items.length === 0 && <p className="muted week-empty">Пусто</p>}
                   {items.map((item) => (
-                    <OperationCard key={item.id} item={item} iso={iso} onOpen={setPicked} />
+                    <OperationCard key={item.id} item={item} iso={iso} team={showTeam ? teams.get(item.team_id) : undefined} onOpen={setPicked} />
                   ))}
                 </div>
               </section>
             );
           })}
-        </div>
-      )}
-      {anchor && view === "day" && (
-        <div className={isWeekend(anchor) ? "day-board weekend" : "day-board"}>
-          <header className="day-head">
-            <span className="cal-dow">{WEEKDAYS[dowIndex(anchor)]}</span>
-            <span className={anchor === today ? "cal-num today-num" : "cal-num"}>{isoParts(anchor).day}</span>
-            {dayItems.length > 0 && <span className="cal-count">платежей: {dayItems.length}</span>}
-          </header>
-          <div className="day-body">
-            {dayItems.length === 0 && !loading && (
-              <EmptyState icon={CalendarCheck} title="В этот день платежей нет">
-                Перейдите на соседний день или откройте месяц целиком.
-              </EmptyState>
-            )}
-            {dayItems.map((item) => (
-              <OperationCard key={item.id} item={item} iso={anchor} onOpen={setPicked} />
-            ))}
-          </div>
         </div>
       )}
       {picked && today && (
@@ -394,6 +431,7 @@ export function CalendarPage() {
               item={picked}
               today={today}
               mode={picked.status === "paid" ? "history" : "inbox"}
+              teamName={multi && teams.size > 1 ? teams.get(picked.team_id) : undefined}
               onChanged={() => void reload(picked.id)}
             />
           </section>
@@ -407,27 +445,48 @@ function OperationCard({
   item,
   iso,
   compact,
+  team,
   onOpen,
 }: {
   item: Occurrence;
   iso: string;
   compact?: boolean;
+  team?: string;
   onOpen: (item: Occurrence) => void;
 }) {
   const tone = statusTone(item.status);
+  if (item.planned) {
+    // Плановый период ещё не открыт: только показать, без действий.
+    return (
+      <div
+        className={`op-card tone-${tone} is-planned`}
+        role="group"
+        aria-label={`${item.title}${team ? `, ${team}` : ""}, план, ${formatMoney(item.amount, item.currency)}, ${longDue(iso)}`}
+      >
+        <span className="pill pill-neutral">План</span>
+        <span className="op-meta">
+          {formatMoney(item.amount, item.currency)}, до {shortDue(iso)}
+        </span>
+        <span className="op-title">{item.title}</span>
+        {!compact && team && <span className="op-who op-team">{team}</span>}
+        {!compact && item.responsible && <span className="op-who">{item.responsible.full_name}</span>}
+      </div>
+    );
+  }
   return (
     <button
       type="button"
       className={`op-card tone-${tone}`}
       data-hint={HINTS.calOperation}
       onClick={() => onOpen(item)}
-      aria-label={`${item.title}, ${statusShort(item.status)}, ${formatMoney(item.amount, item.currency)}, ${longDue(iso)}`}
+      aria-label={`${item.title}${team ? `, ${team}` : ""}, ${statusShort(item.status)}, ${formatMoney(item.amount, item.currency)}, ${longDue(iso)}`}
     >
       <span className={`pill pill-${tone}`}>{statusShort(item.status)}</span>
       <span className="op-meta">
         {formatMoney(item.amount, item.currency)}, до {shortDue(iso)}
       </span>
       <span className="op-title">{item.title}</span>
+      {!compact && team && <span className="op-who op-team">{team}</span>}
       {!compact && item.responsible && <span className="op-who">{item.responsible.full_name}</span>}
     </button>
   );

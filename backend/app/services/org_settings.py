@@ -124,3 +124,11 @@ def save_org(
     row.updated_at = clock.now()
     db.flush()
     return _from_row(row)
+
+
+def bind_org_zone(db: Session):
+    """Часовой пояс организации на текущий контекст: «сегодня», просрочка и даты оплаты считаются в нём.
+
+    Возвращает токен для clock.reset_zone. API делает это в OrgZoneMiddleware, воркер и бот — сами.
+    """
+    return clock.bind_zone(load_org(db).timezone)

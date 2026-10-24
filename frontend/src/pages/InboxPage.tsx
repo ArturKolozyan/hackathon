@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { CircleCheck, Inbox as InboxIcon, X } from "lucide-react";
+import { CircleCheck, Inbox as InboxIcon } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, type Inbox, type Occurrence, type Summary, type TeamTelegram, type TelegramSelf } from "../api";
 import { canManage, useAuth } from "../auth";
-import { DateField } from "../components/fields";
 import { OccurrenceCard } from "../components/OccurrenceCard";
 import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
-import { chipTone, formatMoney } from "../format";
+import { chipTone, daysWord, formatMoney } from "../format";
 import { HINTS } from "../hints";
+import { useFresh } from "../fresh";
 import { useTelegramLink } from "../useTelegramLink";
 
 export function InboxPage() {
@@ -17,7 +17,7 @@ export function InboxPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const mine = params.get("mine") === "1";
-  const [asOf, setAsOf] = useState("");
+  const fresh = useFresh();
   const [inbox, setInbox] = useState<Inbox | null>(null);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [selfTg, setSelfTg] = useState<TelegramSelf | null>(null);
@@ -29,21 +29,20 @@ export function InboxPage() {
     setError(null);
     try {
       const query = mine ? "?mine=true" : "";
-      const summaryQuery = asOf ? `?as_of=${asOf}` : "";
       const [nextInbox, nextSummary] = await Promise.all([
         api<Inbox>(`/api/v1/payment-occurrences/inbox${query}`),
-        api<Summary>(`/api/v1/payments/summary${summaryQuery}`),
+        api<Summary>("/api/v1/payments/summary"),
       ]);
       setInbox(nextInbox);
       setSummary(nextSummary);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Инбокс не загрузился");
     }
-  }, [mine, asOf]);
+  }, [mine]);
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, fresh]);
 
   useEffect(() => {
     api<TelegramSelf>("/api/v1/me/telegram")
@@ -53,7 +52,7 @@ export function InboxPage() {
     api<TeamTelegram>("/api/v1/telegram/status")
       .then(setTeamTg)
       .catch(() => setTeamTg(null));
-  }, [manage]);
+  }, [manage, fresh]);
 
   const totalOpen = inbox ? inbox.overdue.length + inbox.soon.length + inbox.rest.length : 0;
   const paidBefore = (summary?.counts.paid ?? 0) > 0;
@@ -72,17 +71,6 @@ export function InboxPage() {
           onChange={(value) => setParams(value === "mine" ? { mine: "1" } : {})}
         />
         }
-        left={
-        <div className="tb-group tb-date">
-          {asOf && <span className="tb-label">Итоги на</span>}
-          <DateField value={asOf} onChange={setAsOf} ariaLabel="Итоги на дату" placeholder="Итоги на дату" hint={HINTS.asOfDate} />
-          {asOf && (
-            <button type="button" className="icon-btn" aria-label="Сбросить дату" data-hint={HINTS.asOfReset} onClick={() => setAsOf("")}>
-              <X size={16} strokeWidth={1.75} aria-hidden />
-            </button>
-          )}
-        </div>
-        }
       />
       {summary && (
         <>
@@ -91,10 +79,8 @@ export function InboxPage() {
               const chip = chipTone(row);
               const open = Number(row.open_amount);
               const closed = !(open > 0);
-              const tone = closed ? "paid" : chip.tone === "rest" ? "neutral" : chip.tone;
-              const slice =
-                chip.tone === "overdue" ? "просрочено" : chip.tone === "soon" ? "скоро" : chip.tone === "paid" ? "закрыто" : "остальное";
-              const differs = !closed && Number(chip.amount) !== open;
+              const slice = chip.tone === "overdue" ? "просрочено" : chip.tone === "soon" ? "скоро" : null;
+              const differs = !closed && slice !== null && Number(chip.amount) !== open;
               return (
                 <article key={row.currency} className="total">
                   <span className="code">
@@ -102,10 +88,9 @@ export function InboxPage() {
                     <span className="code-cur">{row.currency}</span>
                   </span>
                   <strong className="money rule">{formatMoney(closed ? row.paid_amount : row.open_amount, row.currency)}</strong>
-                  <span className={`pill pill-${tone}`}>{closed ? "закрыто" : slice}</span>
-                  {differs && (
-                    <span className="muted slice-note">
-                      из них {slice} {formatMoney(chip.amount, row.currency)}
+                  {!closed && slice && (
+                    <span className={`slice-note tone-${chip.tone}`}>
+                      {differs ? `из них ${slice} ${formatMoney(chip.amount, row.currency)}` : `всё ${slice}`}
                     </span>
                   )}
                 </article>
@@ -113,18 +98,7 @@ export function InboxPage() {
             })}
           </div>
           <p className="caption">
-            Суммы по валютам, без пересчёта
-            {mine ? ", по всему отделу" : ""}. Скоро — в пределах {summary.soon_days} дней, включая день срока.
-            {summary.as_of
-              ? ` Итоги на конец ${summary.as_of}: оплата позже этой даты ещё не засчитана. Очередь ниже — на сегодня.`
-              : ""}
-            {!mine && (
-              <>
-                {" "}
-                Просрочено: {summary.counts.overdue}, скоро: {summary.counts.due_soon}, позже: {summary.counts.upcoming}, в
-                истории: {summary.counts.paid}.
-              </>
-            )}
+            Итоги {mine ? "всего отдела" : "отдела"} по валютам без пересчёта, «скоро» — в ближайшие {summary.soon_days} {daysWord(summary.soon_days)}.
           </p>
         </>
       )}
@@ -174,7 +148,7 @@ export function InboxPage() {
                 Показать весь отдел
               </button>
             ) : paidBefore ? (
-              <Link className="ghost" to="/history">
+              <Link className="ghost" to="/history" data-hint={HINTS.openHistory}>
                 Открыть историю
               </Link>
             ) : manage ? (

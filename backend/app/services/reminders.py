@@ -6,8 +6,7 @@
 на период, вид и получателя.
 За один проход уходит только ближайшая уже наступившая точка: платёж,
 созданный за два дня, получает одно «за 3 дня», а не T-7 вместе с T-3.
-Оплаченный молчит. Архив не шлёт будущие точки; повтор уже существующей
-просрочки остаётся, пока его не выключили при архивации.
+Оплаченный молчит. Архивный платёж молчит полностью: ни напоминаний, ни просрочек.
 """
 
 from datetime import date, datetime
@@ -53,21 +52,18 @@ def notification_events(
     soon_days: int | None = None,
     offsets: tuple[int, ...] | None = None,
     overdue: bool = True,
-    remind_archived_overdue: bool = True,
 ) -> list[str]:
-    if paid_at is not None:
+    if paid_at is not None or archived:
         return []
     chosen = offsets
     if chosen is None:
         chosen = (soon_days,) if soon_days is not None else DEFAULT_OFFSETS
     days_until = (due - today).days
     if days_until < 0:
-        if not overdue or (archived and not remind_archived_overdue):
+        if not overdue:
             return []
         event = overdue_event(-days_until)
         return [event] if event else []
-    if archived:
-        return []
     event = reminder_event(days_until, chosen)
     return [event] if event else []
 
@@ -81,7 +77,6 @@ def should_remind(
     soon_days: int | None = None,
     offsets: tuple[int, ...] | None = None,
     overdue: bool = True,
-    remind_archived_overdue: bool = True,
 ) -> bool:
     return bool(
         notification_events(
@@ -92,6 +87,5 @@ def should_remind(
             soon_days=soon_days,
             offsets=offsets,
             overdue=overdue,
-            remind_archived_overdue=remind_archived_overdue,
         )
     )

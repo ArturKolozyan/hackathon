@@ -9,6 +9,20 @@ def migrate() -> None:
     command.upgrade(Config("alembic.ini"), "head")
 
 
+def _sweep_receipts() -> None:
+    """Файлы чеков без периода (откат, удаление, обрыв загрузки) убираются при старте api."""
+    from app.core.database import SessionLocal
+    from app.services.receipts import sweep
+
+    db = SessionLocal()
+    try:
+        sweep(db)
+    except Exception:
+        logging.getLogger("invoice_keeper.receipts").exception("receipts sweep failed")
+    finally:
+        db.close()
+
+
 def serve() -> None:
     from app.core.logging import configure_logging, install_redaction, quiet_http_loggers
 
@@ -24,6 +38,7 @@ def serve() -> None:
 
     ensure_owner()
     ensure_organization()
+    _sweep_receipts()
     from app.integrations.email import smtp_host_configured
 
     # fileConfig в alembic выключает логгеры, созданные до миграции, в том числе httpx.

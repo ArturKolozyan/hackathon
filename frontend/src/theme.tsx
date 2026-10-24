@@ -1,36 +1,39 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
-export type Theme = "dark" | "light";
+export type Theme = "dark" | "light" | "aeza";
+
+export const THEMES: Theme[] = ["light", "dark", "aeza"];
 
 const STORAGE_KEY = "rekeeper-theme";
+const BROWSER_BAR: Record<Theme, string> = { dark: "#0E0E0E", light: "#FAF6EC", aeza: "#F4F4F4" };
 
 function readTheme(): Theme {
-  return document.documentElement.dataset.theme === "light" ? "light" : "dark";
+  const current = document.documentElement.dataset.theme;
+  return current === "light" || current === "aeza" ? current : "dark";
 }
 
 function paint(theme: Theme) {
   document.documentElement.dataset.theme = theme;
   localStorage.setItem(STORAGE_KEY, theme);
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "light" ? "#FAF6EC" : "#0E0E0E");
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", BROWSER_BAR[theme]);
 }
 
 type ThemeApi = {
   theme: Theme;
-  toggle: () => void;
+  setTheme: (theme: Theme) => void;
 };
 
 const ThemeContext = createContext<ThemeApi | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(readTheme);
+  const [theme, setState] = useState<Theme>(readTheme);
 
   const api = useMemo<ThemeApi>(
     () => ({
       theme,
-      toggle() {
-        const next: Theme = theme === "dark" ? "light" : "dark";
+      setTheme(next) {
         paint(next);
-        setTheme(next);
+        setState(next);
       },
     }),
     [theme],

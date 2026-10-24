@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import timedelta
+from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -13,8 +14,10 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.config import get_settings
 from app.integrations.telegram import TelegramError
 from app.models import NotificationDelivery, PaymentOccurrence, RecurringPayment
+from app.services import humanize
+from app.services import telegram_html as tg
 from app.services import time as clock
-from app.services.reminders import DIGEST, is_reminder, is_overdue
+from app.services.reminders import DIGEST, is_reminder
 from app.services.schedule import period_label
 from app.services.telegram_links import TEAM_RECIPIENT, move_chat, resolve_team_chat_id
 
@@ -103,13 +106,39 @@ def _outgoing_text(db: Session, occurrence: PaymentOccurrence, event: str, today
             .order_by(PaymentOccurrence.due_date, PaymentOccurrence.id)
         ).all()
     )
-    lines = [f"Просрочено периодов: {len(siblings)}", occurrence.title]
-    for row in siblings:
-        lines.append(
-            f"{period_label(row.period_year, row.period_month)}: {row.amount:.2f} {row.currency}, до {row.due_date.strftime('%d.%m.%Y')}"
+    return digest_text(siblings or [occurrence], today)
+
+
+def digest_text(rows: list[PaymentOccurrence], today) -> str:
+    """Сводка просрочек одного платежа: один заголовок, периоды списком, итог по валютам."""
+    from app.services.telegram_cards import responsible_name, team_name
+
+    first = rows[0]
+    facts = [tg.bold(first.title)]
+    team = team_name(first)
+    if team:
+        facts.append(tg.field("Отдел", team))
+    facts.append(tg.field("Ответственный", responsible_name(first)))
+    periods = []
+    totals: dict[str, Decimal] = {}
+    for row in rows:
+        label = period_label(row.period_year, row.period_month).capitalize()
+        periods.append(
+            tg.bullet(
+                f"{tg.esc(label)}: <b>{tg.esc(humanize.money(row.amount, row.currency))}</b>, "
+                f"срок {tg.esc(humanize.ru_date(row.due_date))}, {tg.esc(humanize.due_phrase(row.due_date, today))}"
+            )
         )
-    lines.append("Отметьте каждый период в панели.")
-    return "\n".join(lines)
+        totals[row.currency] = totals.get(row.currency, Decimal("0")) + Decimal(row.amount)
+    total = ", ".join(humanize.money(amount, currency) for currency, amount in sorted(totals.items()))
+    periods.append(tg.field("Итого", total, strong=True))
+    return tg.compose(
+        "🔴",
+        f"Просрочено {len(rows)} {humanize.plural(len(rows), 'период', 'периода', 'периодов')}",
+        facts,
+        periods,
+        tg.esc("Отметьте оплату каждого периода в rekeeper."),
+    )
 
 
 def _previous_card(occurrence: PaymentOccurrence, slot: str) -> tuple[str | None, int | None]:
@@ -175,8 +204,7 @@ def drain_telegram(db: Session, bot) -> int:
             row.status = "skipped"
             row.last_error = "closed"
             continue
-        archived_overdue = template.is_archived and template.remind_archived_overdue and is_overdue(row.event)
-        if template.is_archived and not archived_overdue:
+        if template.is_archived:
             row.status = "skipped"
             row.last_error = "closed"
             continue

@@ -1,6 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api } from "../api";
+import { HINTS } from "../hints";
 import { AuthFrame } from "../components/AuthFrame";
 
 export function ResetPage() {
@@ -46,7 +47,7 @@ export function ResetPage() {
           <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required minLength={8} autoComplete="new-password" />
         </label>
         {error && <p className="error" role="alert">{error}</p>}
-        <button type="submit" className="primary" disabled={busy}>Сохранить</button>
+        <button type="submit" className="primary" disabled={busy} data-hint={HINTS.resetSave}>Сохранить</button>
         <p className="caption"><Link to="/login">Ко входу</Link></p>
       </form>
     </AuthFrame>

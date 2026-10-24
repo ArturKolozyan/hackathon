@@ -16,6 +16,7 @@ from app.services.occurrences import ensure_template
 from app.services.telegram_cards import handle_callback, sync_telegram_cards
 from app.services.telegram_links import UNLINKED_ALERT
 from app.worker import tick
+from tests.support import card_title
 
 CHAT = "-100"
 MOSCOW = ZoneInfo("Europe/Moscow")
@@ -263,25 +264,23 @@ def test_remind_window_dedup_archive_and_paid(db_session, tg_bot):
     late = _template(db_session, title="Аренда", day=20)
     closed = _template(db_session, title="Закрыт", day=26)
     archived = _template(db_session, title="Архив", day=20, archived=True)
-    archived.remind_archived_overdue = False
     db_session.commit()
     paid = _october(db_session, closed)
     paid.paid_at = FROZEN
     db_session.commit()
 
     assert dispatch_due_reminders(db_session) == 2
-    titles = {item["text"].splitlines()[0] for item in tg_bot.sent}
+    titles = {card_title(item["text"]) for item in tg_bot.sent}
     assert titles == {"Сервер", "Аренда"}
-    server = next(item for item in tg_bot.sent if item["text"].startswith("Сервер"))
-    assert "40.00 USD" in server["text"]
-    assert "Срок: 26.10.2026" in server["text"]
-    assert "Статус: скоро" in server["text"]
+    server = next(item for item in tg_bot.sent if card_title(item["text"]) == "Сервер")
+    assert server["text"].startswith("🟡 <b>Оплатить через 3 дня</b>")
+    assert "Сумма: <b>40\u00a0$</b>" in server["text"]
+    assert "Срок: 26 октября 2026" in server["text"]
+    assert "Ответственный: " in server["text"]
     assert server["reply_markup"]["inline_keyboard"][0][0]["callback_data"] == f"paid:{_october(db_session, soon).id}"
-    rent = next(item for item in tg_bot.sent if item["text"].startswith("Аренда"))
-    assert "Статус: просрочено" in rent["text"]
-    assert all(not item["text"].startswith("Рано") for item in tg_bot.sent)
-    assert all(not item["text"].startswith("Закрыт") for item in tg_bot.sent)
-    assert all(not item["text"].startswith("Архив") for item in tg_bot.sent)
+    rent = next(item for item in tg_bot.sent if card_title(item["text"]) == "Аренда")
+    assert rent["text"].startswith("🔴 <b>Просрочено на ")
+    assert all(card_title(item["text"]) not in {"Рано", "Закрыт", "Архив"} for item in tg_bot.sent)
 
     assert dispatch_due_reminders(db_session) == 0
     assert len(tg_bot.sent) == 2
@@ -379,7 +378,8 @@ def test_button_marks_paid_by_linked_user_and_keeps_note(db_session, monkeypatch
     assert payer.email == "maria@invoice.local"
     assert bot.answers == [("cb-1", "Оплачено")]
     assert bot.alerts == [False]
-    assert "✅ Оплачено — Мария, 23.10.2026" in bot.edits[-1]["text"]
+    assert bot.edits[-1]["text"].startswith("✅ <b>Оплачено</b>")
+    assert "Оплата: Мария, 23 октября 2026" in bot.edits[-1]["text"]
     assert bot.edits[-1]["reply_markup"] == {"inline_keyboard": []}
     assert fresh.telegram_message_id == 7
     action = db_session.scalar(select(AuditLog).where(AuditLog.entity_id == row.id))
@@ -438,7 +438,6 @@ def test_button_ignores_other_chat_bad_payload_and_missing_period(db_session, mo
 
 def test_archived_period_can_still_be_paid_from_the_button(db_session, tg_bot):
     template = _template(db_session, title="Архив", day=20, archived=True)
-    template.remind_archived_overdue = False
     db_session.commit()
     row = _october(db_session, template)
     assert dispatch_due_reminders(db_session) == 0
@@ -456,7 +455,7 @@ def test_web_pay_and_revoke_edit_the_same_message(db_session, tg_bot):
     db_session.commit()
     assert sync_telegram_cards(db_session, tg_bot) == 1
     assert tg_bot.edits[-1]["reply_markup"] == {"inline_keyboard": []}
-    assert "✅ Оплачено — Админ, 23.10.2026" in tg_bot.edits[-1]["text"]
+    assert "Оплата: Админ, 23 октября 2026" in tg_bot.edits[-1]["text"]
     assert sync_telegram_cards(db_session, tg_bot) == 0
 
     row = _reload(db_session, row)
@@ -473,7 +472,7 @@ def test_status_change_edits_message_lost_message_does_not_resend(db_session, tg
     dispatch_due_reminders(db_session)
     monkeypatch.setattr("app.services.time.today", lambda: date(2026, 10, 27))
     assert sync_telegram_cards(db_session, tg_bot) == 1
-    assert "Статус: просрочено" in tg_bot.edits[-1]["text"]
+    assert tg_bot.edits[-1]["text"].startswith("🔴 <b>Просрочено на 1 день</b>")
 
     row = _reload(db_session, _october(db_session, template))
     row.telegram_fingerprint = "force-edit"

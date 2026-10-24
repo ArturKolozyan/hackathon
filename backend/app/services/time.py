@@ -15,7 +15,7 @@ def reset_zone(token) -> None:
     try:
         _zone_override.reset(token)
     except ValueError:
-        # Генератор зависимости может закрыться в другом context, чем открылся.
+        # Токен из другого контекста: просто снимаем привязку.
         _zone_override.set(None)
 
 

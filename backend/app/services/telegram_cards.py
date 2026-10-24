@@ -12,11 +12,13 @@ import uuid
 from typing import Any, Protocol
 
 from sqlalchemy import or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.core.config import get_settings
 from app.integrations.telegram import TelegramError
-from app.models import PaymentOccurrence, User
+from app.models import PaymentOccurrence, Team, User
+from app.services import humanize
+from app.services import telegram_html as tg
 from app.services import time as clock
 from app.services.schedule import classify
 from app.services.templates import touch
@@ -25,12 +27,6 @@ log = logging.getLogger("invoice_keeper.telegram")
 
 PAID_PREFIX = "paid:"
 EMPTY_KEYBOARD: dict[str, Any] = {"inline_keyboard": []}
-_STATUS_RU = {
-    "overdue": "просрочено",
-    "due_soon": "скоро",
-    "upcoming": "впереди",
-    "paid": "оплачено",
-}
 
 
 class BotSender(Protocol):
@@ -67,24 +63,57 @@ def _payer_name(occurrence: PaymentOccurrence) -> str | None:
     return name or None
 
 
+def _status_head(status: str, due, today) -> tuple[str, str]:
+    if status == "paid":
+        return "✅", "Оплачено"
+    delta = (due - today).days
+    if delta < 0:
+        return "🔴", f"Просрочено на {humanize.days(-delta)}"
+    if delta == 0:
+        return "🟠", "Оплатить сегодня"
+    if status == "due_soon":
+        return "🟡", f"Оплатить {humanize.due_phrase(due, today)}"
+    return "🗓", f"Оплатить {humanize.due_phrase(due, today)}"
+
+
+def team_name(occurrence: PaymentOccurrence) -> str | None:
+    session = object_session(occurrence)
+    if session is None:
+        return None
+    team = session.get(Team, occurrence.team_id)
+    return team.name if team is not None else None
+
+
+def responsible_name(occurrence: PaymentOccurrence) -> str:
+    template = occurrence.template
+    person = template.responsible if template is not None else None
+    return person.full_name if person is not None else "не назначен"
+
+
 def telegram_text(occurrence: PaymentOccurrence) -> str:
+    """Карточка периода. Одна на напоминание, просрочку и «оплачено»: правится на месте."""
     settings = get_settings()
-    status = classify(occurrence.due_date, occurrence.paid_at, clock.today(), settings.soon_days)
-    lines = [
-        occurrence.title,
-        f"{occurrence.amount:.2f} {occurrence.currency}",
-        f"Срок: {occurrence.due_date.strftime('%d.%m.%Y')}",
-        f"Статус: {_STATUS_RU[status]}",
+    today = clock.today()
+    status = classify(occurrence.due_date, occurrence.paid_at, today, settings.soon_days)
+    icon, head = _status_head(status, occurrence.due_date, today)
+    amount = humanize.money(occurrence.amount, occurrence.currency)
+    facts = [
+        tg.bold(occurrence.title),
+        tg.field("Сумма", amount, strong=True),
+        tg.field("Срок", humanize.ru_date(occurrence.due_date)),
     ]
+    team = team_name(occurrence)
+    if team:
+        facts.append(tg.field("Отдел", team))
+    facts.append(tg.field("Ответственный", responsible_name(occurrence)))
     if occurrence.paid_at is not None:
-        paid_on = occurrence.paid_at.astimezone(settings.zone).date()
-        stamp = paid_on.strftime("%d.%m.%Y")
+        paid_on = humanize.ru_date(occurrence.paid_at.astimezone(clock.zone()).date())
         who = _payer_name(occurrence)
-        if who:
-            lines.append(f"✅ Оплачено — {who}, {stamp}")
-        else:
-            lines.append(f"Оплачено: {stamp}")
-    return "\n".join(lines)
+        facts.append(tg.field("Оплата", f"{who}, {paid_on}" if who else paid_on))
+        paid_amount = occurrence.paid_amount
+        if paid_amount is not None and paid_amount != occurrence.amount:
+            facts.append(tg.field("Оплачено фактически", humanize.money(paid_amount, occurrence.currency)))
+    return tg.compose(icon, head, facts)
 
 
 def _exec(db: Session, stmt):
@@ -245,7 +274,7 @@ def _dm_hint(bot: BotSender, sender: dict[str, Any], text: str | None = None) ->
         tg_id = int(sender.get("id"))
     except (TypeError, ValueError):
         return
-    hint = text or UNLINKED_ALERT
+    hint = tg.notice("🔒", "Нет доступа", text) if text else tg.notice("🔗", "Telegram не привязан", UNLINKED_ALERT)
     try:
         bot.send_message(str(tg_id), hint, {"inline_keyboard": []})
     except Exception:
@@ -326,7 +355,7 @@ def _mark_paid(db: Session, row: PaymentOccurrence, payer: User) -> None:
         entity_type="payment_occurrence",
         entity_id=row.id,
         meta={
-            "paid_on": paid_at.astimezone(get_settings().zone).date().isoformat(),
+            "paid_on": paid_at.astimezone(clock.zone()).date().isoformat(),
             "title": row.title,
             "source": "telegram",
         },

@@ -1,7 +1,10 @@
 # Invoice Keeper. Одна установка — одна организация.
 # Контейнеры: web, api, worker, bot, assistant (профиль), db, caddy.
-# backup — служебный pg_dump, в список продукта не входит, но на сервере остаётся.
-# Отличия жюри и rekeeper.ru — только .env. Отдельных override-файлов нет.
+# backup — служебный pg_dump и архив чеков, в список продукта не входит, но на сервере остаётся.
+# Файлы чеков живут в томе receipts: api пишет, backup читает.
+# Отличия жюри и rekeeper.ru — только infra/.env. Отдельных override-файлов нет.
+# Файл лежит в infra/: сборка из ../backend и ../frontend, имя проекта задано ниже,
+# поэтому тома и сеть остаются invoice-keeper_*, как до переезда.
 # Ассистент стартует, только если в .env задан COMPOSE_PROFILES=assistant.
 
 name: invoice-keeper
@@ -45,18 +48,22 @@ services:
     volumes:
       - ./ops/backup:/opt/backup:ro
       - ./backups:/backups
+      - receipts:/receipts:ro
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
 
   api:
-    build: ./backend
+    build: ../backend
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       ASSISTANT_URL: http://assistant:8002
+      RECEIPTS_DIR: /data/receipts
       TZ: ${TIMEZONE:-Europe/Moscow}
+    volumes:
+      - receipts:/data/receipts
     depends_on:
       db:
         condition: service_healthy
@@ -77,7 +84,7 @@ services:
     restart: unless-stopped
 
   worker:
-    build: ./backend
+    build: ../backend
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -101,7 +108,7 @@ services:
     restart: unless-stopped
 
   bot:
-    build: ./backend
+    build: ../backend
     env_file: .env
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
@@ -130,7 +137,7 @@ services:
   assistant:
     profiles: ["assistant"]
     build:
-      context: ./backend
+      context: ../backend
       dockerfile: Dockerfile.assistant
     env_file: .env
     environment:
@@ -155,7 +162,7 @@ services:
     restart: unless-stopped
 
   web:
-    build: ./frontend
+    build: ../frontend
     depends_on:
       api:
         condition: service_healthy
@@ -199,5 +206,6 @@ networks:
 
 volumes:
   pgdata:
+  receipts:
   caddy_data:
   caddy_config:

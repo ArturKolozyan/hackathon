@@ -31,6 +31,9 @@ os.environ["GIGACHAT_MODEL"] = "GigaChat-2-Max"
 os.environ["GIGACHAT_FALLBACK_MODEL"] = "GigaChat-2-Pro"
 os.environ["YANDEX_SPEECHKIT_API_KEY"] = ""
 os.environ["YANDEX_FOLDER_ID"] = ""
+os.environ["RECEIPTS_DIR"] = os.path.join(__import__("tempfile").gettempdir(), "rekeeper-test-receipts")
+# Старые файлы прошлых прогонов не должны попадать в sweep этого.
+__import__("shutil").rmtree(os.environ["RECEIPTS_DIR"], ignore_errors=True)
 
 
 def _with_db(url: str, name: str) -> str:
@@ -72,6 +75,17 @@ def freeze_clock(monkeypatch):
     frozen_now = datetime(2026, 10, 23, 12, 0, tzinfo=zone)
     monkeypatch.setattr("app.services.time.today", lambda: frozen_now.date())
     monkeypatch.setattr("app.services.time.now", lambda: frozen_now)
+
+
+@pytest.fixture(autouse=True)
+def offline_rates(monkeypatch):
+    """Тесты не ходят в ЦБ: курса нет, пока тест сам не подставит."""
+    from app.services import rates
+
+    rates.forget()
+    monkeypatch.setattr(rates, "fetch", lambda: None)
+    yield
+    rates.forget()
 
 
 @pytest.fixture(scope="session")

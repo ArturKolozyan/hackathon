@@ -19,6 +19,7 @@ from app.services.telegram_cards import sync_telegram_cards
 from app.services.telegram_links import bot_row, flush_test_message, remember_bot
 from app.services.telegram_updates import handle_update
 from app.services import time as clock
+from app.services.org_settings import bind_org_zone
 
 log = logging.getLogger("invoice_keeper.bot")
 
@@ -46,7 +47,9 @@ def _beat(status: str, error: str | None = None) -> None:
 
 def _drain_and_cards(bot: TelegramClient) -> None:
     db = SessionLocal()
+    token = None
     try:
+        token = bind_org_zone(db)
         drain_telegram(db, bot)
         sync_telegram_cards(db, bot)
         db.commit()
@@ -55,6 +58,8 @@ def _drain_and_cards(bot: TelegramClient) -> None:
         log.exception("bot drain failed")
     finally:
         db.close()
+        if token is not None:
+            clock.reset_zone(token)
 
 
 def _pending_loop(stop: threading.Event, bot: TelegramClient) -> None:
@@ -94,11 +99,13 @@ def _poll(bot: TelegramClient, offset: int | None) -> tuple[int | None, bool]:
             continue
         try:
             db = SessionLocal()
+            token = bind_org_zone(db)
             try:
                 handle_update(db, bot, update)
                 db.commit()
             finally:
                 db.close()
+                clock.reset_zone(token)
         except Exception:
             tries = _attempts.get(update_id, 0) + 1
             _attempts[update_id] = tries

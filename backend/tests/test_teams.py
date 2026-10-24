@@ -164,10 +164,12 @@ def test_remove_clears_responsible_and_archive_hides_open(client, db_session):
     assert client.delete(f"/api/v1/recurring-payments/{created.json()['id']}", headers=headers).status_code == 200
     inbox = client.get("/api/v1/payment-occurrences/inbox", headers=headers).json()
     open_ids = {item["id"] for name in ("overdue", "soon", "rest") for item in inbox[name]}
-    unpaid = [item for item in periods if item["id"] != august["id"]]
-    assert unpaid
-    missing = [item["period"] for item in unpaid if item["id"] not in open_ids]
-    assert not missing, missing
+    debts = [item for item in periods if item["id"] != august["id"] and item["due_date"] < "2026-10-23"]
+    future = [item for item in periods if item["due_date"] >= "2026-10-23"]
+    assert debts and future
+    # Долги архивного платежа видны, будущие сроки — нет.
+    assert all(item["id"] in open_ids for item in debts)
+    assert not any(item["id"] in open_ids for item in future)
     assert august["id"] not in open_ids
     history = client.get("/api/v1/payment-occurrences?view=history", headers=headers).json()["items"]
     assert any(item["id"] == august["id"] for item in history)
@@ -205,3 +207,102 @@ def test_owner_stats_cover_every_department(client):
     assert {"Бухгалтерия", "Инфраструктура"} <= names
     assert {row["role"] for row in body["by_team"]} == {"owner"}
     assert any(row["count"] > 0 for row in body["to_pay"]), teams.text
+
+
+def test_owner_stats_dashboard_pages_and_months(client):
+    seed(demo=True)
+    admin = _login(client, "admin@invoice.local", "change-me")
+    headers = _auth(admin["access_token"])
+    body = client.get("/api/v1/stats", headers=headers).json()
+    names = {row["name"] for row in body["departments"]}
+    assert {"Бухгалтерия", "Инфраструктура"} <= names
+    operations = body["operations"]
+    assert operations["page"] == 1 and operations["page_size"] == 20
+    assert len(operations["items"]) == min(20, operations["total"])
+    ranks = {"overdue": 0, "due_soon": 1, "upcoming": 2, "paid": 3}
+    seen = [ranks[item["status"]] for item in operations["items"]]
+    assert seen == sorted(seen)
+    months = {row["month"] for row in body["monthly"]}
+    assert len(months) == 12
+    assert "2026-10" in months and "2026-04" in months and "2027-03" in months
+    if operations["total"] > 20:
+        second = client.get("/api/v1/stats?page=2", headers=headers).json()["operations"]
+        assert second["page"] == 2
+        first_ids = {item["occurrence_id"] for item in operations["items"]}
+        assert not first_ids & {item["occurrence_id"] for item in second["items"]}
+    far = client.get("/api/v1/stats?page=999", headers=headers).json()["operations"]
+    assert far["page"] >= 1
+
+
+def test_calendar_all_departments_for_owner(client):
+    seed(demo=True)
+    admin = _login(client, "admin@invoice.local", "change-me")
+    headers = _auth(admin["access_token"])
+    one = client.get("/api/v1/payments/calendar?year=2026&month=10", headers=headers).json()
+    every = client.get("/api/v1/payments/calendar?year=2026&month=10&scope=all", headers=headers).json()
+    count_one = sum(len(day["items"]) for day in one["days"])
+    count_all = sum(len(day["items"]) for day in every["days"])
+    assert len(one["teams"]) == 1
+    assert {row["name"] for row in every["teams"]} >= {"Бухгалтерия", "Инфраструктура"}
+    assert count_all > count_one
+    team_ids = {item["team_id"] for day in every["days"] for item in day["items"]}
+    assert len(team_ids) >= 2
+    # Карточка платежа чужого отдела открывается без переключения активного отдела.
+    active = client.get("/api/v1/auth/me", headers=headers).json()["active_team_id"]
+    foreign = next(item for day in every["days"] for item in day["items"] if item["team_id"] != active)
+    once = {**headers, "X-Team-Id": foreign["team_id"], "X-Team-Once": "1"}
+    card = client.get(f"/api/v1/payment-occurrences/{foreign['id']}", headers=once)
+    assert card.status_code == 200, card.text
+    assert client.get("/api/v1/auth/me", headers=headers).json()["active_team_id"] == active
+
+
+def test_email_settings_per_department(client, db_session):
+    from app.services.channels import wants_email
+    from app.models import User
+    from sqlalchemy import select
+
+    seed(demo=True)
+    admin = _login(client, "admin@invoice.local", "change-me")
+    headers = _auth(admin["access_token"])
+    view = client.get("/api/v1/notifications", headers=headers).json()
+    teams = view["email"]["teams"]
+    assert len(teams) >= 2
+    target = teams[0]["id"]
+    other = teams[1]["id"]
+    saved = client.put(
+        f"/api/v1/notifications/personal/email/teams/{target}",
+        headers=headers,
+        json={"enabled": True, "scope": "department"},
+    )
+    assert saved.status_code == 200, saved.text
+    rows = {row["id"]: row for row in saved.json()["email"]["teams"]}
+    assert rows[target]["enabled"] is True and rows[target]["scope"] == "department"
+    off = client.put(
+        f"/api/v1/notifications/personal/email/teams/{other}",
+        headers=headers,
+        json={"enabled": False, "scope": "mine"},
+    )
+    rows = {row["id"]: row for row in off.json()["email"]["teams"]}
+    assert rows[other]["enabled"] is False
+    assert rows[target]["enabled"] is True
+    # Telegram-тумблер не трогает выбор отделов почты.
+    kept = client.patch(
+        "/api/v1/notifications/personal",
+        headers=headers,
+        json={"email_enabled": True, "telegram_enabled": False},
+    )
+    rows = {row["id"]: row for row in kept.json()["email"]["teams"]}
+    assert rows[target]["enabled"] is True and rows[other]["enabled"] is False
+
+    db_session.expire_all()
+    owner = db_session.scalar(select(User).where(User.email == "admin@invoice.local"))
+    import uuid
+
+    assert wants_email(db_session, owner, uuid.UUID(target), responsible=False) is True
+    assert wants_email(db_session, owner, uuid.UUID(other), responsible=True) is False
+    foreign = client.put(
+        f"/api/v1/notifications/personal/email/teams/{uuid.uuid4()}",
+        headers=headers,
+        json={"enabled": True, "scope": "mine"},
+    )
+    assert foreign.status_code == 403

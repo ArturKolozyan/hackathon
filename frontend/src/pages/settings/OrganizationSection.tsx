@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type OrganizationSettings } from "../../api";
 import { RowInput, SettingGroup, SettingRow, SwitchRow } from "../../components/SettingRow";
 import { ErrorState, LoadingBlock, SaveStatus, useDebounced, useSaveState } from "../../components/ui";
+import { useFresh } from "../../fresh";
 
 type ToggleKey = "remind_7_days" | "remind_3_days" | "remind_1_day" | "remind_overdue";
 
@@ -37,13 +38,14 @@ export function OrganizationSection() {
     setTimezone(next.timezone);
   }, []);
 
+  const fresh = useFresh();
   const load = useCallback(async () => {
     apply(await api<OrganizationSettings>("/api/v1/organization"));
   }, [apply]);
 
   useEffect(() => {
     load().catch((err: unknown) => setLoadError(err instanceof ApiError ? err.message : "Не загрузилось"));
-  }, [load]);
+  }, [load, fresh]);
 
   async function patch(body: Partial<OrganizationSettings>) {
     setSaved(await api<OrganizationSettings>("/api/v1/organization", { method: "PATCH", body: JSON.stringify(body) }));

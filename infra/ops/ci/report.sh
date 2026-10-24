@@ -4,6 +4,10 @@
 # STEPS — toJSON(steps) из workflow.
 set -uo pipefail
 
+# Workflow запускает скрипт из корня репозитория, compose-файл лежит в infra/.
+export COMPOSE_FILE
+COMPOSE_FILE="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)/docker-compose.yml"
+
 MARK='--- отчёт об ошибке ---'
 out=${GITHUB_STEP_SUMMARY:-/dev/stdout}
 steps=${STEPS:-}

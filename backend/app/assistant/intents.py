@@ -28,8 +28,18 @@ _RESP_RE = re.compile(
     re.IGNORECASE,
 )
 _UNSUPPORTED_RE = re.compile(
-    r"еженедел|раз в (?:\d+\s+|две\s+)?недел|кажд(?:ую|ый)\s+недел|ежеднев|раз в день|"
-    r"ежегод|раз в год|ежеквартал|раз в квартал",
+    r"еженедел|раз в (?:\d+\s+|две\s+)?недел|кажд(?:ую|ый)\s+недел|ежеднев|раз в день|кажд(?:ый|ого) дн",
+    re.IGNORECASE,
+)
+_PERIODICITY = (
+    (re.compile(r"ежеквартал|раз в квартал|кажд\w* квартал", re.IGNORECASE), "quarterly", None),
+    (re.compile(r"раз в полгода|кажд\w* полгода|раз в пол года", re.IGNORECASE), "semiannual", None),
+    (re.compile(r"ежегод|раз в год|кажд\w* год", re.IGNORECASE), "yearly", None),
+    (re.compile(r"разово|один раз|однократно", re.IGNORECASE), "once", None),
+)
+_EVERY_N = re.compile(r"(?:раз в|кажд\w*)\s+(\d{1,2})\s+месяц", re.IGNORECASE)
+_HOWTO_RE = re.compile(
+    r"^(?:как|где|можно ли|подскаж\w*,? как)\b|как (?:мне )?(?:выгруз|экспорт|скача|привяз|подключ|добав|настро|задат|отмет|верн|созда)",
     re.IGNORECASE,
 )
 
@@ -125,6 +135,71 @@ def _split_period(fragment: str, today: date) -> tuple[str, tuple[int, int] | No
     return _query_tail(fragment[: match.start()]), extract_month(period_text, today)
 
 
+def _months_back(low: str) -> int:
+    found = re.search(r"(?:за|последн\w*)\s+(\d{1,2})\s+месяц", low)
+    if found:
+        return max(1, min(int(found.group(1)), 12))
+    if re.search(r"за (?:пол ?года|полгода)", low):
+        return 6
+    if re.search(r"за год", low):
+        return 12
+    return 6
+
+
+def _read_intent(raw: str, low: str, today: date) -> Intent | None:
+    """Вопросы без изменений: сводки, статистика, бюджет, справка."""
+    if re.fullmatch(r"(?:что (?:ты |вы )?(?:умеешь|умеете|можешь|можете)|помощь|help|справка|что ты такое|кто ты)", low):
+        return Intent("capabilities")
+    if _HOWTO_RE.search(low) and not re.match(r"(?:создай|добавь|заведи|отметь|закрой|верни)\b", low):
+        return Intent("help", {"topic": low})
+    if "бюджет" in low:
+        if re.search(r"(?:за|на) (?:\d{4} )?год|годов", low):
+            year = re.search(r"(20\d{2})", low)
+            return Intent("budget", {"year": int(year.group(1)) if year else today.year})
+        year, month = extract_month(low, today) if month_mentioned(low) else (today.year, today.month)
+        return Intent("budget", {"year": year, "month": month})
+    if re.search(r"по отделам|все отделы|сравни\w* отдел|какой отдел", low):
+        return Intent("departments")
+    if re.search(r"статистик|по месяцам|динамик|помесячн", low):
+        return Intent("stats", {"months": _months_back(low)})
+    if re.search(r"кто в отделе|люди отдела|людей отдела|сотрудник|участник|список людей|кто у нас", low):
+        return Intent("people")
+    if re.search(r"архив", low) and re.search(r"покажи|что в|какие|список", low):
+        return Intent("templates", {"archived": True})
+    if re.search(r"список платежей|какие (?:у нас |есть )*(?:регулярные )?платежи|все платежи|шаблон|регулярные платежи", low) and not re.search(
+        r"создай|добавь|заведи|измени|смени|поменяй|архивир|удали|убери", low
+    ):
+        return Intent("templates")
+    if re.search(r"сводк|итог|общая сумма|сколько всего", low):
+        return Intent("summary")
+    upcoming = re.search(r"(?:ближайшие|следующие)\s+(\d{1,2})\s+д", low)
+    if upcoming:
+        return Intent("upcoming", {"days": int(upcoming.group(1))})
+    if re.search(r"ближайш|что (?:будет|впереди)|на следующ\w* недел", low):
+        return Intent("upcoming", {"days": 14})
+    details = re.search(r"(?:истори\w*|подробн\w*|расскажи|карточк\w*)\s+(?:о\s+|об\s+|про\s+|по\s+)?(?:платеж\w*\s+)?(.+)$", raw, re.IGNORECASE)
+    if details and not re.search(r"истори\w* оплат$", low):
+        return Intent("details", {"query": _query_tail(details.group(1).rstrip("?!."))})
+    return None
+
+
+def _parse_unpaid(raw: str, today: date) -> Intent | None:
+    match = re.match(
+        r"(?:верни|отмени оплату|сними оплату|сними отметку(?: оплаты)?)\s+(?:с\s+|у\s+)?(?:период\s+)?(?:платеж\w*\s+)?(.+?)(?:\s+в\s+(?:неоплачен\w*|инбокс))?$",
+        raw,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return None
+    query, period = _split_period(match.group(1), today)
+    if not query:
+        return Intent("clarify", {"text": "Какой платёж вернуть в неоплаченные?"})
+    slots: dict = {"query": query}
+    if period is not None:
+        slots["year"], slots["month"] = period
+    return Intent("mark_unpaid", slots)
+
+
 def parse_intent(text: str, today: date) -> Intent | None:
     raw, low = _pair(text)
     low = low.rstrip("?!., ")
@@ -132,7 +207,7 @@ def parse_intent(text: str, today: date) -> Intent | None:
         return None
     if _UNSUPPORTED_RE.search(low) and re.search(r"платеж|создай|добавь|заведи|новый", low):
         return Intent("unsupported_frequency")
-    if "просроч" in low:
+    if "просроч" in low and not _HOWTO_RE.search(low):
         return Intent("overdue")
     if re.search(r"горит|на этой неделе|до конца недели|горящ", low):
         return Intent("week")
@@ -150,6 +225,12 @@ def parse_intent(text: str, today: date) -> Intent | None:
     )
     if responsible:
         return Intent("responsible", {"query": _query_tail(responsible.group(1).rstrip("?!."))})
+    read = _read_intent(raw, low, today)
+    if read is not None:
+        return read
+    unpaid = _parse_unpaid(raw, today)
+    if unpaid is not None:
+        return unpaid
     person = re.search(r"(?:что у|платежи|задачи)\s+([A-Za-zА-ЯЁа-яё][\w\-]+)", raw, flags=re.IGNORECASE)
     if person and not re.search(r"создай|добавь|отметь|измени", low):
         return Intent("person", {"name": person.group(1).strip("?!.,")})
@@ -263,6 +344,7 @@ def _parse_create(raw: str, low: str, today: date) -> Intent:
     if missing:
         return Intent("clarify", {"text": "Чтобы создать платёж, не хватает: " + ", ".join(missing) + "."})
     starts = parse_explicit_start(low, today) or today
+    periodicity, interval = _periodicity(low)
     return Intent(
         "create",
         {
@@ -272,5 +354,17 @@ def _parse_create(raw: str, low: str, today: date) -> Intent:
             "day_of_month": day,
             "responsible_name": responsible,
             "starts_on": starts.isoformat(),
+            "periodicity": periodicity,
+            "interval_months": interval,
         },
     )
+
+
+def _periodicity(low: str) -> tuple[str, int | None]:
+    every = _EVERY_N.search(low)
+    if every:
+        return "every_n", int(every.group(1))
+    for pattern, kind, interval in _PERIODICITY:
+        if pattern.search(low):
+            return kind, interval
+    return "monthly", None

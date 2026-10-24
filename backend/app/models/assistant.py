@@ -14,7 +14,7 @@ class AssistantAction(Base):
     __tablename__ = "assistant_actions"
     __table_args__ = (
         CheckConstraint(
-            "kind in ('create_payment', 'update_payment', 'archive_payment', 'mark_paid')",
+            "kind in ('create_payment', 'update_payment', 'archive_payment', 'mark_paid', 'mark_unpaid')",
             name="kind",
         ),
         CheckConstraint(

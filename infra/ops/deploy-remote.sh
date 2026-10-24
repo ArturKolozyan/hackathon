@@ -26,6 +26,15 @@ echo "== git pull"
 git pull --ff-only origin main
 git log -1 --oneline
 
+# Разовый переезд в infra/: .env и бэкапы раньше лежали в корне. Повторный запуск ничего не делает.
+for item in .env backups; do
+  if [ -e "$item" ] && [ ! -e "infra/$item" ]; then
+    echo "== mv $item infra/$item"
+    mv "$item" "infra/$item"
+  fi
+done
+cd infra
+
 echo "== docker compose up --build -d"
 docker compose up --build -d
 

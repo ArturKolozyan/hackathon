@@ -9,6 +9,7 @@ from app.models import NotificationDelivery, User
 from app.seed import seed
 from app.services.notify import dispatch_due_reminders
 from tests.test_telegram import CHAT, FakeBot, _october, _sent_delta, _template
+from tests.support import card_title
 
 
 @pytest.fixture
@@ -80,15 +81,15 @@ def test_owner_account_is_immutable(client, db_session):
     assert client.delete(f"/api/v1/users/{owner.id}", headers=headers).status_code == 403
 
 
-def test_archived_overdue_reminds_until_silenced(db_session, tg_bot):
+def test_archived_payment_never_reminds(db_session, tg_bot):
     _template(db_session, title="Архив", day=20, archived=True)
-    quiet = _template(db_session, title="Тихий", day=20, archived=True)
-    quiet.remind_archived_overdue = False
+    _template(db_session, title="Скоро в архиве", day=25, archived=True)
+    _template(db_session, title="Живой", day=20)
     db_session.commit()
     dispatch_due_reminders(db_session)
-    titles = {item["text"].splitlines()[0] for item in tg_bot.sent}
-    assert "Архив" in titles
-    assert "Тихий" not in titles
+    titles = {card_title(item["text"]) for item in tg_bot.sent}
+    assert "Живой" in titles
+    assert "Архив" not in titles and "Скоро в архиве" not in titles
     assert dispatch_due_reminders(db_session) == 0
 
 

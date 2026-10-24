@@ -22,19 +22,28 @@ def _team_filter(db: Session, ctx: TeamContext):
     emails = []
     if member_ids:
         emails = list(db.scalars(select(User.email).where(User.id.in_(member_ids))).all())
+    # Записи без отдела (вход, привязка Telegram) — только о самих участниках.
+    # Действия владельца по организации и по людям других отделов админ не видит.
     personal = []
     if member_ids:
-        personal.append(AuditLog.actor_user_id.in_(member_ids))
+        personal.append(AuditLog.entity_id.in_(member_ids))
     if emails:
         personal.append(AuditLog.meta["email"].astext.in_(emails))
     if not personal:
         return AuditLog.team_id == ctx.team.id
-    return or_(AuditLog.team_id == ctx.team.id, and_(AuditLog.team_id.is_(None), or_(*personal)))
+    return or_(
+        AuditLog.team_id == ctx.team.id,
+        and_(
+            AuditLog.team_id.is_(None),
+            or_(AuditLog.entity_type == "user", AuditLog.entity_type.is_(None)),
+            or_(*personal),
+        ),
+    )
 
 
 @router.get("", response_model=AuditList, summary="Журнал действий")
 def list_audit_logs(
-    limit: int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     date_from: date | None = Query(default=None, description="С этой даты включительно (часовой пояс организации)"),
     date_to: date | None = Query(default=None, description="По эту дату включительно"),
@@ -76,4 +85,4 @@ def list_audit_logs(
         )
         for row in rows
     ]
-    return AuditList(items=items, total=total)
+    return AuditList(items=items, total=total, timezone=zone.key)
