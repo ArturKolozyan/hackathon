@@ -54,7 +54,10 @@ curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/recurring-payments" | grep -q '�
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/recurring-payments" | grep -q 'Подписка'
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/teams" >/tmp/rekeeper-teams.json
 infra=$(python3 -c 'import json; rows=json.load(open("/tmp/rekeeper-teams.json")); print(next(row["id"] for row in rows if row["name"]=="Инфраструктура"))')
+accounting=$(python3 -c 'import json; rows=json.load(open("/tmp/rekeeper-teams.json")); print(next(row["id"] for row in rows if row["name"]=="Бухгалтерия"))')
 curl -fsS --max-time 10 -H "$hdr" -H "X-Team-Id: $infra" "$base/api/v1/recurring-payments" | grep -q 'Сервер'
+# X-Team-Id запоминает активный отдел. Дальше явно просим Бухгалтерию.
+curl -fsS --max-time 10 -H "$hdr" -H "X-Team-Id: $accounting" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/payment-occurrences" >/dev/null
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/payments/summary" >/dev/null
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/users" >/dev/null
@@ -90,7 +93,7 @@ done
 test "$ok" = 1
 login admin@invoice.local change-me
 token=$(auth)
-curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
+curl -fsS --max-time 10 -H "Authorization: Bearer $token" -H "X-Team-Id: $accounting" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
 
 docker compose stop bot
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/payments/summary" >/dev/null
@@ -120,7 +123,7 @@ data = json.load(open("/tmp/rekeeper-features.json"))
 assert data["assistant"] is True, data
 assert data["assistant_available"] is False, data
 PY
-curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
+curl -fsS --max-time 10 -H "Authorization: Bearer $token" -H "X-Team-Id: $accounting" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/users" >/dev/null
 
 docker compose down -v
