@@ -1,5 +1,6 @@
 from sqlalchemy.orm import configure_mappers
 
+from app.models.assistant import AssistantAction, AssistantMessage
 from app.models.audit import AuditLog
 from app.models.base import Base
 from app.models.budget import Budget
@@ -17,6 +18,8 @@ from app.models.user import User
 configure_mappers()
 
 __all__ = [
+    "AssistantAction",
+    "AssistantMessage",
     "AuditLog",
     "AuthSession",
     "Base",

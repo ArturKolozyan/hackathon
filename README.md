@@ -126,6 +126,12 @@ docker compose exec api python -m pytest -q
 
 На VPS Aeza у контейнера в bridge нет маршрута IPv6, хотя с хоста `api.telegram.org` по IPv6 открывается. Деплой поднимает worker в сети хоста: [compose.telegram-host.yml](compose.telegram-host.yml). Postgres при этом опубликован на `127.0.0.1`, и worker (тот же loopback, что у VPS) ходит туда, а не на имя `db`. `api`, `web` и `caddy` остаются в bridge. Локально на Docker Desktop для панели второй файл не нужен.
 
+## Ассистент
+
+Раздел «Ассистент» в вебе и личка бота. Короткие команды читают базу без модели. Создание, правка, архив и «оплачено» сначала карточка с кнопками «Подтвердить» / «Изменить». Голос: микрофон в вебе (webm → ffmpeg → SpeechKit) и голосовые Telegram (уже ogg). Фразы и ожидаемое поведение: [docs/assistant.md](docs/assistant.md).
+
+`GIGACHAT_AUTH_KEY`, `GIGACHAT_SCOPE`, `YANDEX_SPEECHKIT_API_KEY`, `YANDEX_FOLDER_ID` на VPS уже в `.env`. В примере добавлен `GIGACHAT_MODEL` (по умолчанию `GigaChat-2-Max`). Пустые ключи не роняют API: команды по базе отвечают, свободная речь и голос говорят, что сервис не настроен.
+
 Живой бот и HTTPS на VPS — одной командой, её же выполняет workflow:
 
 ```bash

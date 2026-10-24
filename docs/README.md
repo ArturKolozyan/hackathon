@@ -9,3 +9,4 @@
 | [design.md](design.md) | UI |
 | [pitch.md](pitch.md) | Защита |
 | [qa.md](qa.md) | Приёмка |
+| [assistant.md](assistant.md) | Чат, голос, демо-фразы |
