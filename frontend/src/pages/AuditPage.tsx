@@ -1,24 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type AuditItem, type AuditList } from "../api";
-
-const LABELS: Record<string, string> = {
-  "auth.login.success": "Вход",
-  "auth.login.failure": "Неудачный вход",
-  "auth.logout": "Выход",
-  "template.create": "Шаблон создан",
-  "template.update": "Шаблон изменён",
-  "template.delete": "Шаблон в архиве",
-  "user.create": "Человек создан",
-  "user.update": "Человек изменён",
-  "user.delete": "Человек отключён",
-  "occurrence.paid": "Оплата",
-  "occurrence.unpaid": "Оплата снята",
-  "occurrence.paid_at": "Дата оплаты",
-  "occurrence.receipt": "Чек",
-  "budget.create": "Бюджет задан",
-  "budget.update": "Бюджет изменён",
-  "budget.delete": "Бюджет удалён",
-};
+import { actionLabel, metaPhrase } from "../auditCopy";
+import { EmptyState, ErrorState, LoadingBlock } from "../components/ui";
 
 const formatter = new Intl.DateTimeFormat("ru-RU", {
   timeZone: "Europe/Moscow",
@@ -29,21 +12,19 @@ const formatter = new Intl.DateTimeFormat("ru-RU", {
   minute: "2-digit",
 });
 
-function metaText(meta: Record<string, unknown>): string {
-  const parts = Object.entries(meta).map(([key, value]) => {
-    const shown = Array.isArray(value) ? value.join(", ") : String(value);
-    return `${key}: ${shown}`;
-  });
-  return parts.join(" · ") || "—";
-}
-
 function Row({ item }: { item: AuditItem }) {
+  const when = formatter.format(new Date(item.at));
+  const who = item.actor_name ?? "—";
+  const action = actionLabel(item.action);
+  const detail = metaPhrase(item.meta);
   return (
     <tr>
-      <td>{formatter.format(new Date(item.at))}</td>
-      <td>{item.actor_name ?? "—"}</td>
-      <td>{LABELS[item.action] ?? item.action}</td>
-      <td className="meta">{metaText(item.meta)}</td>
+      <td data-label="Когда">{when}</td>
+      <td data-label="Кто">{who}</td>
+      <td data-label="Действие">{action}</td>
+      <td className="audit-detail" data-label="Детали">
+        {detail}
+      </td>
     </tr>
   );
 }
@@ -73,18 +54,14 @@ export function AuditPage() {
     <div className="page page-wide">
       <div className="page-head">
         <div>
-          <p className="kicker">Журнал</p>
+          <p className="kicker">Логи</p>
           <h1>Кто что сделал</h1>
         </div>
       </div>
       <p className="caption">Вход, шаблоны, люди, оплаты и бюджет. Пароли и токены сюда не пишутся. Время — Москва.</p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {!data && !error && <p className="muted">Загрузка…</p>}
-      {data && data.items.length === 0 && <p className="panel empty">Пока пусто.</p>}
+      {error && <ErrorState message={error} onRetry={() => void load()} />}
+      {!data && !error && <LoadingBlock label="Загружаем журнал…" />}
+      {data && data.items.length === 0 && <EmptyState title="Пока пусто">Входы, шаблоны, люди, оплаты и бюджет появятся здесь.</EmptyState>}
       {data && data.items.length > 0 && (
         <div className="table-wrap panel">
           <table className="table">

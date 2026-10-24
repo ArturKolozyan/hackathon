@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type BudgetLine, type BudgetReport } from "../api";
 import { useAuth } from "../auth";
+import { ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { formatMoney } from "../format";
 
 type Kind = "month" | "year";
@@ -73,14 +74,15 @@ export function BudgetPage() {
           <p className="kicker">Бюджет</p>
           <h1>План и факт</h1>
         </div>
-        <div className="head-actions">
-          <button type="button" className={kind === "month" ? "primary" : "ghost"} onClick={() => setKind("month")}>
-            Месяц
-          </button>
-          <button type="button" className={kind === "year" ? "primary" : "ghost"} onClick={() => setKind("year")}>
-            Год
-          </button>
-        </div>
+        <Segmented
+          label="Масштаб плана"
+          value={kind}
+          options={[
+            { value: "month", label: "Месяц" },
+            { value: "year", label: "Год" },
+          ]}
+          onChange={setKind}
+        />
       </div>
       <p className="caption">
         Факт — закрытые периоды этого {kind === "month" ? "месяца" : "года"}. Ожидается — ещё открытые. Валюты не смешиваем.
@@ -103,12 +105,8 @@ export function BudgetPage() {
           </label>
         )}
       </div>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {!report && !error && <p className="muted">Загрузка…</p>}
+      {error && <ErrorState message={error} onRetry={() => void load()} />}
+      {!report && !error && <LoadingBlock label="Загружаем бюджет…" />}
       {report && (
         <div className="budget-grid">
           {report.rows.map((row) => {
@@ -124,18 +122,25 @@ export function BudgetPage() {
                 </header>
                 <p className="budget-fact">
                   <span>Факт</span>
-                  <strong>{formatMoney(row.fact_amount, row.currency)}</strong>
+                  <strong className="money">{formatMoney(row.fact_amount, row.currency)}</strong>
                 </p>
                 <p className="budget-fact">
                   <span>Ожидается</span>
-                  <strong>{formatMoney(row.expected_amount, row.currency)}</strong>
+                  <strong className="money">{formatMoney(row.expected_amount, row.currency)}</strong>
                 </p>
                 <p className="budget-fact">
                   <span>План</span>
-                  <strong>{row.plan_amount ? formatMoney(row.plan_amount, row.currency) : "—"}</strong>
+                  <strong className="money">{row.plan_amount ? formatMoney(row.plan_amount, row.currency) : "—"}</strong>
                 </p>
                 {plan > 0 && (
-                  <div className={over ? "bar over" : "bar"} aria-hidden="true">
+                  <div
+                    className={over ? "bar over" : "bar"}
+                    role="meter"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.round(width)}
+                    aria-label={over ? `${row.currency}: факт выше плана` : `${row.currency}: факт от плана`}
+                  >
                     <span style={{ width: `${width}%` }} />
                   </div>
                 )}
