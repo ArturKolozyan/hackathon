@@ -7,6 +7,7 @@ from app.api.v1 import (
     budgets,
     join,
     me,
+    notifications,
     payment_occurrences,
     payments,
     recurring_payments,
@@ -30,6 +31,7 @@ api_router.include_router(audit.router)
 api_router.include_router(stats.router)
 api_router.include_router(telegram.router)
 api_router.include_router(assistant.router)
+api_router.include_router(notifications.router)
 
 
 @api_router.get("/health", tags=["meta"], summary="Проверка живости")

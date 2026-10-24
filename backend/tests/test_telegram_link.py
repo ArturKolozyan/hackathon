@@ -42,7 +42,7 @@ def test_group_link_replaces_previous_chat(db_session):
         _message(f"/start@rekeeper_bot {token.token}", chat_id=-100500, chat_type="group", title="404 mercy"),
     )
     # command with bot mention and payload
-    assert bot.sent[-1]["text"] == "Подключено к rekeeper"
+    assert bot.sent[-1]["text"] == "Подключено. Сейчас открытых платежей нет."
     row = db_session.get(TelegramIntegration, 1)
     assert row is not None
     assert row.team_status == "connected"
@@ -59,7 +59,7 @@ def test_group_link_replaces_previous_chat(db_session):
     db_session.refresh(row)
     assert row.team_chat_id == "-100777"
     assert row.team_chat_title == "Новый"
-    assert bot.sent[-1]["text"] == "Подключено к rekeeper"
+    assert bot.sent[-1]["text"] == "Подключено. Сейчас открытых платежей нет."
 
 
 def test_personal_link_greeting_and_one_account(db_session):
@@ -179,6 +179,13 @@ def test_private_button_uses_linked_user(db_session):
         telegram_user_id=42,
     )
     db_session.add(ivan)
+    db_session.flush()
+    from app.models import Team
+    from app.services.teams import add_member
+
+    team = db_session.get(Team, template.team_id)
+    assert team is not None
+    add_member(db_session, team, ivan, "member", actor=_admin(db_session))
     db_session.commit()
     row = _october(db_session, template)
     bot = FakeBot()

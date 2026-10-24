@@ -219,6 +219,10 @@ def _apply_callback(db: Session, bot: BotSender, callback: dict[str, Any]) -> tu
     payer = _linked_sender(db, sender)
     if payer is None:
         return UNLINKED_ALERT, True
+    from app.services.teams import membership
+
+    if membership(db, row.team_id, payer.id) is None:
+        return "Нет доступа к этой команде", True
 
     if row.paid_at is None:
         _mark_paid(db, row, payer)

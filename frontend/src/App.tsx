@@ -11,6 +11,7 @@ import { HistoryPage } from "./pages/HistoryPage";
 import { InboxPage } from "./pages/InboxPage";
 import { JoinPage } from "./pages/JoinPage";
 import { LoginPage } from "./pages/LoginPage";
+import { NotificationsPage } from "./pages/NotificationsPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { RegisterPage } from "./pages/RegisterPage";
 import { ResetPage } from "./pages/ResetPage";
@@ -39,6 +40,7 @@ export function App() {
             <Route path="/budget" element={<BudgetPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/notifications" element={<NotificationsPage />} />
             <Route element={<ManageOnly />}>
               <Route path="/templates" element={<TemplatesPage />} />
               <Route path="/team" element={<TeamPage />} />

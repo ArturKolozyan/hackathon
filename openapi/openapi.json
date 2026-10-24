@@ -1091,6 +1091,34 @@
         "title": "NotificationsIn",
         "type": "object"
       },
+      "NotificationsOut": {
+        "properties": {
+          "email": {
+            "$ref": "#/components/schemas/PersonalChannelOut"
+          },
+          "team": {
+            "$ref": "#/components/schemas/TeamChannelsOut"
+          },
+          "teams": {
+            "items": {
+              "$ref": "#/components/schemas/TeamRef"
+            },
+            "title": "Teams",
+            "type": "array"
+          },
+          "telegram": {
+            "$ref": "#/components/schemas/PersonalChannelOut"
+          }
+        },
+        "required": [
+          "email",
+          "telegram",
+          "teams",
+          "team"
+        ],
+        "title": "NotificationsOut",
+        "type": "object"
+      },
       "OccurrenceList": {
         "properties": {
           "items": {
@@ -1399,6 +1427,167 @@
           "new_password"
         ],
         "title": "PasswordIn",
+        "type": "object"
+      },
+      "PersonalChannelOut": {
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "bot_ready": {
+            "default": false,
+            "title": "Bot Ready",
+            "type": "boolean"
+          },
+          "bot_username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bot Username"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "linked": {
+            "default": false,
+            "title": "Linked",
+            "type": "boolean"
+          },
+          "team_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Team Ids",
+            "type": "array"
+          },
+          "test_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Error"
+          },
+          "test_pending": {
+            "default": false,
+            "title": "Test Pending",
+            "type": "boolean"
+          },
+          "test_sent_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Test Sent At"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          }
+        },
+        "required": [
+          "enabled",
+          "team_ids"
+        ],
+        "title": "PersonalChannelOut",
+        "type": "object"
+      },
+      "PersonalNotificationsIn": {
+        "properties": {
+          "email_enabled": {
+            "title": "Email Enabled",
+            "type": "boolean"
+          },
+          "email_team_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Email Team Ids",
+            "type": "array"
+          },
+          "telegram_enabled": {
+            "title": "Telegram Enabled",
+            "type": "boolean"
+          },
+          "telegram_team_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Telegram Team Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "email_enabled",
+          "telegram_enabled"
+        ],
+        "title": "PersonalNotificationsIn",
+        "type": "object"
+      },
+      "ProbeOut": {
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "pending": {
+            "default": false,
+            "title": "Pending",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ok",
+          "detail"
+        ],
+        "title": "ProbeOut",
         "type": "object"
       },
       "RecurringCreate": {
@@ -2035,6 +2224,68 @@
         "title": "SummaryOut",
         "type": "object"
       },
+      "TeamChannelsOut": {
+        "properties": {
+          "can_manage": {
+            "title": "Can Manage",
+            "type": "boolean"
+          },
+          "team_id": {
+            "format": "uuid",
+            "title": "Team Id",
+            "type": "string"
+          },
+          "team_name": {
+            "title": "Team Name",
+            "type": "string"
+          },
+          "telegram": {
+            "$ref": "#/components/schemas/TeamTelegram"
+          },
+          "webhook_check_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Check Error"
+          },
+          "webhook_checked_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Checked At"
+          },
+          "webhook_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Webhook Url"
+          }
+        },
+        "required": [
+          "team_id",
+          "team_name",
+          "can_manage",
+          "telegram"
+        ],
+        "title": "TeamChannelsOut",
+        "type": "object"
+      },
       "TeamCreate": {
         "properties": {
           "name": {
@@ -2087,6 +2338,25 @@
           "role"
         ],
         "title": "TeamOut",
+        "type": "object"
+      },
+      "TeamRef": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "TeamRef",
         "type": "object"
       },
       "TeamRename": {
@@ -2356,6 +2626,17 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WebhookIn": {
+        "properties": {
+          "url": {
+            "default": "",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "WebhookIn",
         "type": "object"
       },
       "app__schemas__auth__ConfirmIn": {
@@ -4403,6 +4684,452 @@
         "summary": "Ссылка для привязки Telegram",
         "tags": [
           "telegram"
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "show_api_v1_notifications_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Каналы уведомлений",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/personal": {
+      "patch": {
+        "operationId": "update_personal_api_v1_notifications_personal_patch",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PersonalNotificationsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Личные каналы",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/personal/email/test": {
+      "post": {
+        "operationId": "test_email_api_v1_notifications_personal_email_test_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Тестовое письмо",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/personal/telegram/test": {
+      "post": {
+        "operationId": "test_telegram_api_v1_notifications_personal_telegram_test_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Тестовое в личку",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/team/webhook": {
+      "put": {
+        "operationId": "save_webhook_api_v1_notifications_team_webhook_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Webhook команды",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/team/webhook/test": {
+      "post": {
+        "operationId": "test_webhook_api_v1_notifications_team_webhook_test_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProbeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Проверить webhook команды",
+        "tags": [
+          "notifications"
         ]
       }
     },

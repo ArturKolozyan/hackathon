@@ -35,6 +35,12 @@ STAR_PATHS = [
     "/api/v1/me/telegram",
     "/api/v1/me/telegram/link",
     "/api/v1/me/notifications",
+    "/api/v1/notifications",
+    "/api/v1/notifications/personal",
+    "/api/v1/notifications/personal/email/test",
+    "/api/v1/notifications/personal/telegram/test",
+    "/api/v1/notifications/team/webhook",
+    "/api/v1/notifications/team/webhook/test",
 ]
 
 

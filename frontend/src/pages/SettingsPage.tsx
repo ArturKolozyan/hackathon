@@ -1,83 +1,11 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { ApiError, api, type Me, type Sent, type TeamTelegram, type TelegramLink, type TelegramSelf } from "../api";
-import { canManage, useAuth } from "../auth";
-import { ErrorState, LoadingBlock, useToast } from "../components/ui";
-
-function personLabel(self: TelegramSelf): string {
-  if (self.username) return `@${self.username}`;
-  return self.display_name || "Telegram привязан";
-}
+import { FormEvent, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { ApiError, api, type Me, type Sent } from "../api";
+import { useAuth } from "../auth";
 
 export function SettingsPage() {
-  const { user, setUser } = useAuth();
+  const { setUser } = useAuth();
   const navigate = useNavigate();
-  const admin = canManage(user);
-  const [self, setSelf] = useState<TelegramSelf | null>(null);
-  const [team, setTeam] = useState<TeamTelegram | null>(null);
-  const [personalLink, setPersonalLink] = useState<TelegramLink | null>(null);
-  const [teamLink, setTeamLink] = useState<TelegramLink | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const toast = useToast();
-  const [confirmUnlink, setConfirmUnlink] = useState(false);
-  const [confirmTeam, setConfirmTeam] = useState(false);
-
-  const load = useCallback(async () => {
-    const me = await api<TelegramSelf>("/api/v1/me/telegram");
-    setSelf(me);
-    if (me.linked) setPersonalLink(null);
-    if (admin) {
-      const status = await api<TeamTelegram>("/api/v1/telegram/status");
-      setTeam(status);
-      if (status.status === "connected" && status.source === "database") setTeamLink(null);
-    }
-  }, [admin]);
-
-  useEffect(() => {
-    load()
-      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"))
-      .finally(() => setReady(true));
-  }, [load]);
-
-  useEffect(() => {
-    if (!personalLink && !teamLink && !team?.test_pending) return;
-    const timer = window.setInterval(() => {
-      load().catch(() => undefined);
-    }, 3000);
-    return () => window.clearInterval(timer);
-  }, [load, personalLink, teamLink, team?.test_pending]);
-
-  async function run(action: () => Promise<void>) {
-    setBusy(true);
-    setError(null);
-    try {
-      await action();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Не получилось");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function copy(url: string) {
-    try {
-      await navigator.clipboard.writeText(url);
-      toast?.push("Ссылка скопирована");
-    } catch {
-      toast?.push("Скопируйте ссылку вручную");
-    }
-  }
-
-  const teamLabel =
-    team?.status === "connected"
-      ? team.chat_title || (team.source === "env" ? "Чат из настроек сервера" : "Чат подключён")
-      : team?.status === "disconnected"
-        ? team.chat_title
-          ? `Бот удалён из «${team.chat_title}»`
-          : "Чат отключён"
-        : "Чат не подключён";
 
   return (
     <div className="page">
@@ -87,9 +15,6 @@ export function SettingsPage() {
           <h1>Профиль</h1>
         </div>
       </div>
-      {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
-      {!ready && !error && <LoadingBlock label="Загружаем настройки…" />}
-      {self && (
       <div className="stack">
         <ProfileCard
           onPasswordChanged={() => {
@@ -98,187 +23,13 @@ export function SettingsPage() {
           }}
         />
         <section className="panel settings-card">
-          <div className="row-between">
-            <h2>Личный Telegram</h2>
-            <span className={`pill ${self?.linked ? "pill-paid" : "pill-neutral"}`}>
-              {self?.linked ? "привязан" : "не привязан"}
-            </span>
-          </div>
-          <p className="desc">
-            {self?.linked
-              ? `${personLabel(self)}. Кнопка «Оплачено» записывается на вас.`
-              : "Привяжите Telegram, чтобы закрывать платежи из чата своим именем."}
-          </p>
-          {self?.linked ? (
-            <div className="row-actions">
-              {confirmUnlink ? (
-                <>
-                  <button type="button" className="primary" disabled={busy} onClick={() => run(async () => {
-                    setSelf(await api<TelegramSelf>("/api/v1/me/telegram", { method: "DELETE" }));
-                    setConfirmUnlink(false);
-                  })}>
-                    Отвязать
-                  </button>
-                  <button type="button" className="ghost" onClick={() => setConfirmUnlink(false)}>
-                    Отмена
-                  </button>
-                </>
-              ) : (
-                <button type="button" className="ghost" onClick={() => setConfirmUnlink(true)}>
-                  Отвязать
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="row-actions">
-              <button
-                type="button"
-                className="primary"
-                disabled={busy || self?.bot_ready === false}
-                onClick={() =>
-                  run(async () => {
-                    setPersonalLink(await api<TelegramLink>("/api/v1/me/telegram/link", { method: "POST" }));
-                  })
-                }
-              >
-                Привязать Telegram
-              </button>
-            </div>
-          )}
-          {self && !self.bot_ready && (
-            <p className="desc">Бот ещё не на связи. Нужен TELEGRAM_BOT_TOKEN и запущенный worker.</p>
-          )}
-          {personalLink && (
-            <div className="link-box">
-              <p className="desc">Ссылка действует 15 минут. Откройте её в Telegram.</p>
-              <a href={personalLink.url} target="_blank" rel="noreferrer">
-                Открыть в Telegram
-              </a>
-              <button type="button" className="ghost" onClick={() => copy(personalLink.url)}>
-                Скопировать
-              </button>
-            </div>
-          )}
-          <div className="row-between">
-            <div>
-              <strong>Личные напоминания</strong>
-              <p className="desc">Если вы ответственный и срок близко — дубль в личку.</p>
-            </div>
-            <button
-              type="button"
-              className="ghost"
-              aria-pressed={self.reminders_enabled}
-              aria-label={self.reminders_enabled ? "Личные напоминания включены" : "Личные напоминания выключены"}
-              disabled={busy}
-              onClick={() =>
-                run(async () => {
-                  setSelf(
-                    await api<TelegramSelf>("/api/v1/me/notifications", {
-                      method: "PATCH",
-                      body: JSON.stringify({ telegram_reminders: !self?.reminders_enabled }),
-                    }),
-                  );
-                })
-              }
-            >
-              {self?.reminders_enabled ? "Включены" : "Выключены"}
-            </button>
-          </div>
+          <h2>Уведомления</h2>
+          <p className="desc">Личный Telegram, почта и каналы команды настраиваются в отдельном разделе.</p>
+          <Link className="outline" to="/notifications">
+            Открыть уведомления
+          </Link>
         </section>
-
-        {admin && (
-          <section className="panel settings-card">
-            <div className="row-between">
-              <h2>Чат команды</h2>
-              <span className={`pill ${team?.status === "connected" ? "pill-paid" : "pill-neutral"}`}>
-                {team?.status === "connected" ? "подключён" : team?.status === "disconnected" ? "отключено" : "не подключён"}
-              </span>
-            </div>
-            <p className="desc">{teamLabel}</p>
-            {team?.status === "connected" && (
-              <p className="desc">Новая ссылка заменит текущий чат. Прежний перестанет получать напоминания.</p>
-            )}
-            {team?.source === "env" && (
-              <p className="desc">Сейчас напоминания идут в чат из TELEGRAM_CHAT_ID. Подключение из веба его заменит.</p>
-            )}
-            <div className="row-actions">
-              <button
-                type="button"
-                className="primary"
-                disabled={busy || team?.bot_ready === false}
-                onClick={() =>
-                  run(async () => {
-                    setTeamLink(await api<TelegramLink>("/api/v1/telegram/team-chat/link", { method: "POST" }));
-                  })
-                }
-              >
-                Подключить чат команды
-              </button>
-              <button
-                type="button"
-                className="outline"
-                disabled={busy || team?.status !== "connected" || team.test_pending}
-                onClick={() =>
-                  run(async () => {
-                    setTeam(await api<TeamTelegram>("/api/v1/telegram/team-chat/test", { method: "POST" }));
-                    toast?.push("Сообщение уйдёт в чат в ближайшие секунды");
-                  })
-                }
-              >
-                {team?.test_pending ? "Отправляем…" : "Отправить тестовое"}
-              </button>
-              {team?.status === "connected" &&
-                (confirmTeam ? (
-                  <>
-                    <button
-                      type="button"
-                      className="ghost"
-                      disabled={busy}
-                      onClick={() =>
-                        run(async () => {
-                          setTeam(await api<TeamTelegram>("/api/v1/telegram/team-chat", { method: "DELETE" }));
-                          setConfirmTeam(false);
-                        })
-                      }
-                    >
-                      Отключить
-                    </button>
-                    <button type="button" className="ghost" onClick={() => setConfirmTeam(false)}>
-                      Отмена
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" className="ghost" onClick={() => setConfirmTeam(true)}>
-                    Отключить
-                  </button>
-                ))}
-            </div>
-            {team && !team.bot_ready && (
-              <p className="desc">Бот ещё не представился. Подождите, пока worker вызовет getMe.</p>
-            )}
-            {team?.test_error && (
-              <p className="error" role="alert">
-                {team.test_error}
-              </p>
-            )}
-            {team?.test_sent_at && !team.test_pending && !team.test_error && (
-              <p className="desc">Тестовое отправлено.</p>
-            )}
-            {teamLink && (
-              <div className="link-box">
-                <p className="desc">Ссылка действует 15 минут. Добавьте бота в группу.</p>
-                <a href={teamLink.url} target="_blank" rel="noreferrer">
-                  Открыть в Telegram
-                </a>
-                <button type="button" className="ghost" onClick={() => copy(teamLink.url)}>
-                  Скопировать
-                </button>
-              </div>
-            )}
-          </section>
-        )}
       </div>
-      )}
     </div>
   );
 }
@@ -357,7 +108,11 @@ function ProfileCard({ onPasswordChanged }: { onPasswordChanged: () => void }) {
         <h2>Аккаунт</h2>
         <span className="muted">{user?.email}</span>
       </div>
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       {notice && <p className="caption">{notice}</p>}
       {mailSent?.delivery === "log" && <p className="dev-banner">Почта не подключена: код записан в лог API.</p>}
       <form className="pay-form" onSubmit={(event) => void saveName(event)}>
@@ -365,18 +120,35 @@ function ProfileCard({ onPasswordChanged }: { onPasswordChanged: () => void }) {
           Имя
           <input value={name} onChange={(event) => setName(event.target.value)} required maxLength={200} />
         </label>
-        <button type="submit" className="primary" disabled={busy}>Сохранить имя</button>
+        <button type="submit" className="primary" disabled={busy}>
+          Сохранить имя
+        </button>
       </form>
       <form className="pay-form" onSubmit={(event) => void savePassword(event)}>
         <label>
           Текущий пароль
-          <input type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(event) => setCurrentPassword(event.target.value)}
+            required
+          />
         </label>
         <label>
           Новый пароль
-          <input type="password" autoComplete="new-password" value={nextPassword} onChange={(event) => setNextPassword(event.target.value)} required minLength={8} />
+          <input
+            type="password"
+            autoComplete="new-password"
+            value={nextPassword}
+            onChange={(event) => setNextPassword(event.target.value)}
+            required
+            minLength={8}
+          />
         </label>
-        <button type="submit" className="ghost" disabled={busy}>Сменить пароль</button>
+        <button type="submit" className="ghost" disabled={busy}>
+          Сменить пароль
+        </button>
       </form>
       <form className="pay-form" onSubmit={(event) => void (mailSent ? confirmEmail(event) : sendEmail(event))}>
         <label>
@@ -386,7 +158,15 @@ function ProfileCard({ onPasswordChanged }: { onPasswordChanged: () => void }) {
         {mailSent && (
           <label>
             Код из письма
-            <input className="code-input" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} required />
+            <input
+              className="code-input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={6}
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+              required
+            />
           </label>
         )}
         <div className="row-actions">
@@ -394,7 +174,14 @@ function ProfileCard({ onPasswordChanged }: { onPasswordChanged: () => void }) {
             {mailSent ? "Подтвердить почту" : "Отправить код"}
           </button>
           {mailSent && (
-            <button type="button" className="ghost" onClick={() => { setMailSent(null); setCode(""); }}>
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => {
+                setMailSent(null);
+                setCode("");
+              }}
+            >
               Другой адрес
             </button>
           )}

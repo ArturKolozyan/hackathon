@@ -168,6 +168,46 @@ export type TeamTelegram = {
   test_error: string | null;
 };
 
+export type NotifyTeam = {
+  id: string;
+  name: string;
+};
+
+export type PersonalChannel = {
+  enabled: boolean;
+  team_ids: string[];
+  address: string | null;
+  linked: boolean;
+  username: string | null;
+  display_name: string | null;
+  bot_ready: boolean;
+  bot_username: string | null;
+  test_pending: boolean;
+  test_sent_at: string | null;
+  test_error: string | null;
+};
+
+export type NotificationsView = {
+  email: PersonalChannel;
+  telegram: PersonalChannel;
+  teams: NotifyTeam[];
+  team: {
+    team_id: string;
+    team_name: string;
+    can_manage: boolean;
+    telegram: TeamTelegram;
+    webhook_url: string | null;
+    webhook_checked_at: string | null;
+    webhook_check_error: string | null;
+  };
+};
+
+export type Probe = {
+  ok: boolean;
+  pending: boolean;
+  detail: string;
+};
+
 export type Template = {
   id: string;
   title: string;

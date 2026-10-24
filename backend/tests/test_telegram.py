@@ -298,9 +298,9 @@ def test_email_does_not_block_telegram(db_session, tg_bot, monkeypatch):
     template = _template(db_session, title="Сервер", day=26)
     row = _october(db_session, template)
     tg_bot.fail_sends = 1
-    assert dispatch_due_reminders(db_session) == 1
+    assert dispatch_due_reminders(db_session) == 2
     db_session.commit()
-    assert len(sent) == 1
+    assert len(sent) == 2
     assert _channel(db_session, row.id, "email") is not None
     assert _channel(db_session, row.id, "telegram") is None
 
@@ -323,6 +323,12 @@ def test_button_marks_paid_by_linked_user_and_keeps_note(db_session, monkeypatch
     )
     db_session.add(maria)
     db_session.flush()
+    from app.models import Team
+    from app.services.teams import add_member
+
+    team = db_session.get(Team, template.team_id)
+    assert team is not None
+    add_member(db_session, team, maria, "member", actor=_admin(db_session))
     _bind(db_session, maria, 900)
     row = _october(db_session, template)
     bot = FakeBot()
@@ -363,7 +369,7 @@ def test_unlinked_click_does_not_pay(db_session, monkeypatch):
     fresh = _reload(db_session, row)
     assert fresh.paid_at is None
     assert fresh.paid_by_id is None
-    assert bot.answers[-1][1] == "Сначала привяжи Telegram в профиле rekeeper"
+    assert bot.answers[-1][1] == "Сначала привяжи Telegram в rekeeper: раздел «Уведомления»."
     assert bot.alerts[-1] is True
     assert bot.edits == []
     get_settings.cache_clear()
@@ -437,8 +443,10 @@ def test_status_change_edits_message_lost_message_does_not_resend(db_session, tg
     fresh = _reload(db_session, _october(db_session, template))
     assert fresh.telegram_message_id is None
     assert _channel(db_session, fresh.id, "telegram") is not None
+    assert dispatch_due_reminders(db_session) == 1
+    assert len(tg_bot.sent) == 2
     assert dispatch_due_reminders(db_session) == 0
-    assert len(tg_bot.sent) == 1
+    assert len(tg_bot.sent) == 2
 
 
 def test_not_modified_is_success(db_session, tg_bot):
@@ -521,7 +529,7 @@ def test_api_shows_reminder_and_button_leaves_inbox(client, db_session, tg_bot):
     assert paid["note"] is None
 
 
-def test_personal_reminder_dedup_and_toggle(db_session, tg_bot):
+def test_responsible_dm_ignores_toggle_and_dedups(db_session, tg_bot):
     template = _template(db_session, title="Сервер", day=26)
     ivan = User(
         email="ivan@invoice.local",
@@ -536,15 +544,8 @@ def test_personal_reminder_dedup_and_toggle(db_session, tg_bot):
     template.responsible_user_id = ivan.id
     db_session.commit()
 
-    assert dispatch_due_reminders(db_session) == 1
-    assert [item["chat_id"] for item in tg_bot.sent] == [CHAT]
-    assert _reload(db_session, _october(db_session, template)).dm_message_id is None
-
-    ivan.telegram_reminders = True
-    db_session.commit()
-    assert dispatch_due_reminders(db_session) == 1
-    assert tg_bot.sent[-1]["chat_id"] == "777"
-    assert "Оплачено" in tg_bot.sent[-1]["reply_markup"]["inline_keyboard"][0][0]["text"]
+    assert dispatch_due_reminders(db_session) == 2
+    assert {item["chat_id"] for item in tg_bot.sent} == {CHAT, "777"}
     fresh = _reload(db_session, _october(db_session, template))
     assert fresh.dm_chat_id == "777"
     assert fresh.telegram_chat_id == CHAT

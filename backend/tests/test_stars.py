@@ -365,11 +365,11 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
     payment_id = _template(client, headers, title="Сервер Aeza", amount="40.00", currency="USD", day_of_month=1)
     db = SessionLocal()
     try:
-        assert dispatch_due_reminders(db) == 2
+        assert dispatch_due_reminders(db) == 3
         db.commit()
     finally:
         db.close()
-    assert len(messages) == 1
+    assert len(messages) == 2
     text = messages[0].get_content()
     assert "Сервер Aeza" in text
     assert "40.00" in text
@@ -378,8 +378,8 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
     assert "https://rekeeper.ru" in text
     assert len(posts) == 1
     reminder = json.loads(posts[0][0].decode())
-    assert reminder["event"] == "occurrence.reminder"
-    assert posts[0][1]["X-Rekeeper-Event"] == "occurrence.reminder"
+    assert reminder["event"] == "occurrence.overdue"
+    assert posts[0][1]["X-Rekeeper-Event"] == "occurrence.overdue"
     import hashlib
     import hmac
 
@@ -392,7 +392,7 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
         db.commit()
     finally:
         db.close()
-    assert len(messages) == 1
+    assert len(messages) == 2
     assert len(posts) == 1
 
     far_id = _template(client, headers, title="Далеко", day_of_month=31, amount="3.00", currency="EUR")
@@ -402,7 +402,7 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
         db.commit()
     finally:
         db.close()
-    assert len(messages) == 1
+    assert len(messages) == 2
 
     archived = client.delete(f"/api/v1/recurring-payments/{payment_id}", headers=headers)
     assert archived.status_code == 200
@@ -417,7 +417,7 @@ def test_notify_channels_share_one_rule(client, monkeypatch, settings_guard):
         db.commit()
     finally:
         db.close()
-    assert len(messages) == 1
+    assert len(messages) == 2
 
     october = next(item for item in _periods(client, headers, far_id) if item["period"] == "2026-10")
     paid = client.post(
@@ -576,7 +576,7 @@ def test_telegram_hook_skipped_until_implemented(client, monkeypatch, settings_g
     def ready(text, *, chat_id, occurrence_id, event, slot="team"):
         calls["n"] += 1
         assert chat_id == "100"
-        assert event == "occurrence.reminder"
+        assert event == "occurrence.overdue"
         assert slot == "team"
         assert "Ждёт бота" in text
 
