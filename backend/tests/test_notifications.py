@@ -247,11 +247,14 @@ def test_connect_sends_summary_not_cards(db_session, tg_bot, monkeypatch):
     assert len(direct) == 2
 
     monkeypatch.setattr("app.services.time.today", lambda: date(2026, 10, 24))
-    assert dispatch_due_reminders(db_session) == 2
+    # «Потом» за 7 дней и ежедневный повтор просрочки «Долг», в чат и в личку
+    assert dispatch_due_reminders(db_session) == 4
     group_cards = [item for item in tg_bot.sent if item["chat_id"] == "-100500" and item["reply_markup"]["inline_keyboard"]]
-    assert len(group_cards) == 1
-    assert "Потом" in group_cards[0]["text"]
-    assert "31.10.2026" in group_cards[0]["text"]
+    assert len(group_cards) == 2
+    later = [item for item in group_cards if "Потом" in item["text"]]
+    assert len(later) == 1
+    assert "31.10.2026" in later[0]["text"]
+    assert any("Долг" in item["text"] for item in group_cards)
     assert dispatch_due_reminders(db_session) == 0
 
 

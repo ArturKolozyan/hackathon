@@ -94,14 +94,18 @@ ssh -L 8080:127.0.0.1:80 root@217.144.184.232
 
 Push в `main`, pull request и ручной `workflow_dispatch` → [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml).
 
-Сначала три проверки, параллельно. SSH на VPS начинается только если все зелёные, и только для push в `main` или ручного запуска с `main`. Pull request на сервер не ходит.
+Три job по цепочке: `verify` → `deploy` → `healthcheck`. Первая упавшая проверка останавливает весь workflow. Новый запуск на той же ветке отменяет предыдущий. `deploy` только для push в `main` или ручного запуска с `main`. Pull request гоняет только `verify`.
 
-| Job | Что |
+`verify`, шаги по порядку:
+
+| Шаг | Что |
 |-----|-----|
-| `backend` | Python 3.12, `pytest` в `backend/`. Postgres 16 — service GitHub Actions, `127.0.0.1:5432`, пользователь `invoice` / `change-me`. Тесты сами создают базу `invoice_keeper_test` |
-| `web` | Node 22, `npm ci` и `npm run build` (`tsc --noEmit` и vite) в `frontend/` |
-| `backup-script` | `sh ops/backup/selftest.sh`: полночь МСК и ротация 7 файлов, без живой базы |
-| `smoke` | `sh ops/smoke.sh`: чистый `.env.example`, `docker compose up --build -d`, вход владельца, эндпоинты кейса, рестарт, остановленный `bot`, ассистент выключен без ключей и недоступен после `stop assistant` |
+| backup selftest | `sh ops/backup/selftest.sh`: полночь МСК и ротация 7 файлов, без живой базы |
+| pytest | Python 3.12, `pytest -x` в `backend/`. Postgres 16 — service GitHub Actions, `127.0.0.1:5433` (5432 занимает compose в smoke), пользователь `invoice` / `change-me`. Тесты сами создают базу `invoice_keeper_test` |
+| web build | Node 22, `npm ci` и `npm run build` (`tsc --noEmit` и vite) в `frontend/` |
+| smoke | `sh ops/smoke.sh`: чистый `.env.example`, `docker compose up --build -d`, вход владельца, эндпоинты кейса, рестарт, остановленный `bot`, ассистент выключен без ключей и недоступен после `stop assistant` |
+
+`healthcheck` после деплоя ждёт ответа `https://rekeeper.ru/api/v1/health` до двух минут.
 
 Деплой на сервере делает ровно то, что README: `git pull --ff-only origin main` и `docker compose up --build -d`. Отдельных `-f` нет.
 
