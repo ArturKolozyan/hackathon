@@ -1,6 +1,8 @@
 """Демо только если отделов ещё нет. Владелец уже создан ensure_owner.
 
-Три платежа кейса лежат в отделе «Бухгалтерия». Второй отдел пустой.
+Бухгалтерия: аренда и электричество в рублях, подписка в евро.
+Инфраструктура: сервер в долларах, домен раз в год, сертификат раз в квартал.
+Текущие точки каденции помечаются доставленными, пачки писем при старте нет.
 """
 
 import logging
@@ -12,21 +14,24 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
 from app.core.database import SessionLocal
-from app.models import PaymentOccurrence, RecurringPayment, User
+from app.models import PaymentOccurrence, RecurringPayment, Team, User
 from app.services import time as clock
-from app.models import Team
 from app.services.accounts import create_verified_user
 from app.services.budgets import add_budget
 from app.services.occurrences import ensure_template
+from app.services.org_settings import load_org
 from app.services.owner import ensure_owner
-from app.services.schedule import add_months
+from app.services.reminders import notification_events
 from app.services.teams import add_member, create_team
 
 log = logging.getLogger("invoice_keeper.seed")
 
 RENT_TITLE = "Аренда офиса"
+POWER_TITLE = "Электричество"
 SERVER_TITLE = "Сервер"
 SUB_TITLE = "Подписка"
+DOMAIN_TITLE = "Домен"
+SSL_TITLE = "Сертификат SSL"
 ACCOUNTING = "Бухгалтерия"
 INFRA = "Инфраструктура"
 
@@ -75,69 +80,125 @@ def _demo(db: Session, settings: Settings) -> None:
     owner.active_team_id = studio.id
 
     today = clock.today()
-    starts_on = add_months(date(today.year, today.month, 1), -3)
-    soon_day = (today + timedelta(days=settings.soon_days)).day
-    _story_template(
+    july = date(2026, 7, 1)
+    _story(
         db,
         team=studio,
         actor=owner,
-        key="rent",
         title=RENT_TITLE,
         description="Офис. Срок — 5-е число, валюта договора рубли.",
         amount=Decimal("85000.00"),
         currency="RUB",
-        day_of_month=5,
-        starts_on=starts_on,
+        day=5,
+        starts_on=july,
+        periodicity="monthly",
         responsible=ivan,
         today=today,
+        paid={(2026, 7): (None, None), (2026, 8): (None, None)},
     )
-    _story_template(
+    _story(
         db,
         team=studio,
         actor=owner,
-        key="server",
-        title=SERVER_TITLE,
-        description="VPS команды. Счёт в долларах, срок — 12-е.",
-        amount=Decimal("40.00"),
-        currency="USD",
-        day_of_month=12,
-        starts_on=starts_on,
-        responsible=maria,
+        title=POWER_TITLE,
+        description="Электричество. Сумма счёта плавает, в карточке — факт.",
+        amount=Decimal("12000.00"),
+        currency="RUB",
+        day=20,
+        starts_on=july,
+        periodicity="monthly",
+        responsible=ivan,
         today=today,
+        paid={
+            (2026, 7): (None, Decimal("14150.00")),
+            (2026, 8): (None, Decimal("9800.00")),
+        },
     )
-    _story_template(
+    _story(
         db,
         team=studio,
         actor=owner,
-        key="sub",
         title=SUB_TITLE,
-        description="Подписка на дизайн. Списание в евро, в ближайшие дни.",
+        description="Подписка на дизайн. Списание в евро.",
         amount=Decimal("15.00"),
         currency="EUR",
-        day_of_month=soon_day,
-        starts_on=starts_on,
+        day=26,
+        starts_on=july,
+        periodicity="monthly",
         responsible=ivan,
         today=today,
+        paid={(2026, 7): (None, None), (2026, 8): (None, None), (2026, 9): (None, None)},
     )
-    _plain(
+    _story(
         db,
         team=infra,
         actor=owner,
-        title="Домен",
-        description="Домен второго отдела.",
-        amount=Decimal("990.00"),
-        currency="RUB",
-        day=1,
-        starts_on=starts_on,
+        title=SERVER_TITLE,
+        description="VPS. Счёт в долларах, срок — 12-е.",
+        amount=Decimal("40.00"),
+        currency="USD",
+        day=12,
+        starts_on=july,
+        periodicity="monthly",
         responsible=maria,
         today=today,
+        paid={(2026, 7): (None, None), (2026, 8): (timedelta(days=3), None)},
+    )
+    _story(
+        db,
+        team=infra,
+        actor=owner,
+        title=DOMAIN_TITLE,
+        description="Домен отдела. Оплата раз в год.",
+        amount=Decimal("990.00"),
+        currency="RUB",
+        day=20,
+        starts_on=date(2025, 11, 20),
+        periodicity="yearly",
+        responsible=maria,
+        today=today,
+        paid={(2025, 11): (None, None)},
+    )
+    _story(
+        db,
+        team=infra,
+        actor=owner,
+        title=SSL_TITLE,
+        description="Сертификат. Раз в квартал.",
+        amount=Decimal("4500.00"),
+        currency="RUB",
+        day=15,
+        starts_on=date(2026, 4, 15),
+        periodicity="quarterly",
+        responsible=maria,
+        today=today,
+        paid={(2026, 4): (None, None), (2026, 7): (None, None)},
     )
     month_key = f"{today.year:04d}-{today.month:02d}"
     add_budget(db, studio.id, "month", month_key, "RUB", Decimal("200000.00"))
+    _silence(db, today)
     log.info("демо: %s, %s", ACCOUNTING, INFRA)
 
 
-def _open_template(db: Session, *, team, actor: User, title, description, amount, currency, day, starts_on, responsible, today):
+def _story(
+    db: Session,
+    *,
+    team: Team,
+    actor: User,
+    title: str,
+    description: str,
+    amount: Decimal,
+    currency: str,
+    day: int,
+    starts_on: date,
+    periodicity: str,
+    responsible: User,
+    today: date,
+    paid: dict[tuple[int, int], tuple[timedelta | None, Decimal | None]],
+) -> None:
+    from app.schemas.recurring import normalize_periodicity
+
+    kind, interval = normalize_periodicity(periodicity, None)
     template = RecurringPayment(
         team_id=team.id,
         title=title,
@@ -146,6 +207,8 @@ def _open_template(db: Session, *, team, actor: User, title, description, amount
         currency=currency,
         day_of_month=day,
         starts_on=starts_on,
+        periodicity=kind,
+        interval_months=interval,
         responsible_user_id=responsible.id,
         created_by_id=actor.id,
         is_archived=False,
@@ -164,63 +227,40 @@ def _open_template(db: Session, *, team, actor: User, title, description, amount
         team_id=team.id,
         meta={"title": title, "currency": currency, "amount": f"{amount:.2f}"},
     )
-    return template
-
-
-def _story_template(db, *, team, actor, key, title, description, amount, currency, day_of_month, starts_on, responsible, today):
-    template = _open_template(
-        db,
-        team=team,
-        actor=actor,
-        title=title,
-        description=description,
-        amount=amount,
-        currency=currency,
-        day=day_of_month,
-        starts_on=starts_on,
-        responsible=responsible,
-        today=today,
-    )
-    _apply_story(db, template, key, responsible.id, today)
-
-
-def _plain(db, *, team, actor, title, description, amount, currency, day, starts_on, responsible, today):
-    _open_template(
-        db,
-        team=team,
-        actor=actor,
-        title=title,
-        description=description,
-        amount=amount,
-        currency=currency,
-        day=day,
-        starts_on=starts_on,
-        responsible=responsible,
-        today=today,
-    )
-
-
-def _mark(occurrence: PaymentOccurrence, when: date, actor_id, note: str | None = None) -> None:
-    occurrence.paid_at = datetime(when.year, when.month, when.day, 12, 0, tzinfo=clock.zone())
-    occurrence.paid_by_id = actor_id
-    occurrence.note = note
-    occurrence.updated_at = clock.now()
-
-
-def _apply_story(db: Session, template: RecurringPayment, key: str, actor_id, today: date) -> None:
     rows = db.scalars(select(PaymentOccurrence).where(PaymentOccurrence.recurring_payment_id == template.id)).all()
-    current = today.year * 12 + today.month
     for occurrence in rows:
-        delta = occurrence.period_year * 12 + occurrence.period_month - current
-        if key == "sub":
-            if occurrence.due_date < today:
-                _mark(occurrence, occurrence.due_date, actor_id)
+        plan = paid.get((occurrence.period_year, occurrence.period_month))
+        if plan is None:
             continue
-        if key == "server" and delta == -2:
-            _mark(occurrence, occurrence.due_date + timedelta(days=3), actor_id, "Закрыли после напоминания")
+        shift, actual = plan
+        when = occurrence.due_date + (shift or timedelta())
+        occurrence.paid_at = datetime(when.year, when.month, when.day, 12, 0, tzinfo=clock.zone())
+        occurrence.paid_by_id = responsible.id
+        occurrence.paid_amount = actual if actual is not None else occurrence.amount
+        occurrence.updated_at = clock.now()
+
+
+def _silence(db: Session, today: date) -> None:
+    """Текущая точка каденции уже «доставлена»: первый тик воркера молчит."""
+    from app.services.notify import _mark, _plan
+
+    org = load_org(db)
+    rows = db.scalars(select(PaymentOccurrence)).all()
+    for row in rows:
+        if row.paid_at is not None:
             continue
-        if key == "server" and delta <= -3:
-            _mark(occurrence, occurrence.due_date, actor_id)
+        template = db.get(RecurringPayment, row.recurring_payment_id)
+        if template is None:
             continue
-        if key == "rent" and delta <= -2:
-            _mark(occurrence, occurrence.due_date, actor_id)
+        events = notification_events(
+            due=row.due_date,
+            paid_at=row.paid_at,
+            archived=template.is_archived,
+            today=today,
+            offsets=org.reminder_days,
+            overdue_repeat_days=org.overdue_repeat_days,
+            remind_archived_overdue=template.remind_archived_overdue,
+        )
+        for event in events:
+            for channel, recipient in _plan(db, row, event):
+                _mark(db, row.id, event, channel, recipient)

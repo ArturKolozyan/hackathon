@@ -11,11 +11,18 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expi
 
 
 def get_db():
+    from app.services.org_settings import load_org
+    from app.services.time import bind_zone, reset_zone
+
     db = SessionLocal()
+    token = None
     try:
+        token = bind_zone(load_org(db).timezone)
         yield db
     finally:
         db.close()
+        if token is not None:
+            reset_zone(token)
 
 
 def wait_for_db(timeout: int = 60) -> None:

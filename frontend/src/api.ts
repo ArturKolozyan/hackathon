@@ -87,6 +87,7 @@ export type Occurrence = {
   period_label: string;
   due_date: string;
   amount: string;
+  paid_amount: string | null;
   currency: string;
   status: "overdue" | "due_soon" | "upcoming" | "paid";
   bucket: "overdue" | "soon" | "rest" | "history";
@@ -257,11 +258,22 @@ export type Template = {
   starts_on: string;
   next_payment_date: string | null;
   periodicity: string;
+  interval_months: number | null;
+  remind_archived_overdue: boolean;
+  applies_from: string | null;
+  debt_count: number;
   is_archived: boolean;
   responsible: { id: string; full_name: string; email: string } | null;
   open_count: number;
   paid_count: number;
   created_at: string;
+};
+
+export type OrganizationSettings = {
+  timezone: string;
+  reminder_days: string;
+  overdue_repeat_days: number;
+  owner_overdue_copy: boolean;
 };
 
 export class ApiError extends Error {
@@ -374,6 +386,30 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   if (!response.ok) throw new ApiError(response.status, messageFrom(data, response.status));
   return data as T;
+}
+
+export async function downloadCsv(path: string, filename = "occurrences.csv"): Promise<void> {
+  const headers = new Headers();
+  const team = storedTeamId();
+  if (team) headers.set("X-Team-Id", team);
+  const response = await fetch(path, { credentials: "include", headers });
+  if (!response.ok) {
+    const raw = await response.text();
+    let data: unknown = null;
+    try {
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      data = null;
+    }
+    throw new ApiError(response.status, messageFrom(data, response.status));
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function parseSseBlock(block: string): { event: string; data: unknown } | null {

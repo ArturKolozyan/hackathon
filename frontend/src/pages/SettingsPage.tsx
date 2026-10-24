@@ -4,7 +4,7 @@ import { ApiError, api, type Me, type Sent } from "../api";
 import { useAuth } from "../auth";
 
 export function SettingsPage() {
-  const { setUser } = useAuth();
+  const { user, setUser } = useAuth();
   const navigate = useNavigate();
 
   return (
@@ -16,21 +16,42 @@ export function SettingsPage() {
         </div>
       </div>
       <div className="stack">
-        <ProfileCard
-          onPasswordChanged={() => {
-            setUser(null);
-            navigate("/login", { replace: true, state: { notice: "Пароль сменён. Войдите снова." } });
-          }}
-        />
+        {user?.is_owner ? (
+          <OwnerLocked />
+        ) : (
+          <ProfileCard
+            onPasswordChanged={() => {
+              setUser(null);
+              navigate("/login", { replace: true, state: { notice: "Пароль сменён. Войдите снова." } });
+            }}
+          />
+        )}
         <section className="panel settings-card">
           <h2>Уведомления</h2>
-          <p className="desc">Личный Telegram, почта и каналы команды настраиваются в отдельном разделе.</p>
+          <p className="desc">Личный Telegram, почта и каналы отдела настраиваются в отдельном разделе.</p>
           <Link className="outline" to="/notifications">
             Открыть уведомления
           </Link>
         </section>
       </div>
     </div>
+  );
+}
+
+function OwnerLocked() {
+  const { user } = useAuth();
+  return (
+    <section className="panel settings-card">
+      <div className="row-between">
+        <h2>Аккаунт владельца</h2>
+        <span className="muted">{user?.email}</span>
+      </div>
+      <p className="desc">
+        Имя, почта и пароль владельца из панели не меняются. Восстановление пароля — через .env: выставьте
+        OWNER_RESET_PASSWORD=true, задайте OWNER_PASSWORD и перезапустите API. После входа верните флаг в false.
+      </p>
+      <p className="caption">{user?.full_name}</p>
+    </section>
   );
 }
 

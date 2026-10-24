@@ -61,7 +61,7 @@ def wants_email(
     del db, team_id
     if not user.is_active or not user.email_reminders:
         return False
-    if event == "occurrence.overdue" and not user.notify_overdue:
+    if event.startswith("occurrence.overdue") and not user.notify_overdue:
         return False
     return _in_personal_scope(user, responsible)
 
@@ -77,7 +77,7 @@ def wants_telegram(
     del db, team_id
     if not user.is_active or user.telegram_user_id is None or not user.telegram_reminders:
         return False
-    if event == "occurrence.overdue" and not user.notify_overdue:
+    if event.startswith("occurrence.overdue") and not user.notify_overdue:
         return False
     return _in_personal_scope(user, responsible)
 
@@ -115,7 +115,7 @@ def save_personal(
         allowed = set(db.scalars(select(Team.id)).all())
     foreign = [team_id for team_id in [*email_team_ids, *telegram_team_ids] if team_id not in allowed]
     if foreign:
-        raise HTTPException(status_code=422, detail="Можно выбрать только свои команды")
+        raise HTTPException(status_code=422, detail="Можно выбрать только свои отделы")
     if notify_scope is not None and notify_scope not in {"mine", "department"}:
         raise HTTPException(status_code=422, detail="Скоуп: mine или department")
     user.email_reminders = email_enabled

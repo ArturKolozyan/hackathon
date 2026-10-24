@@ -224,7 +224,7 @@ def _apply_callback(db: Session, bot: BotSender, callback: dict[str, Any]) -> tu
 
     if not payer.is_owner and membership(db, row.team_id, payer.id) is None:
         _dm_hint(bot, sender, "Нет доступа к этому отделу. Попросите владельца добавить вас.")
-        return "Нет доступа к этой команде", True
+        return "Нет доступа к этому отделу", True
 
     if row.paid_at is None:
         _mark_paid(db, row, payer)

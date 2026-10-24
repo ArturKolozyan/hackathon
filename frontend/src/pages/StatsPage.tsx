@@ -67,7 +67,7 @@ export function StatsPage() {
       <div className="page-head">
         <div>
           <p className="kicker">Статистика</p>
-          <h1>Все ваши команды</h1>
+          <h1>Все ваши отделы</h1>
         </div>
       </div>
       <p className="caption">
@@ -187,7 +187,7 @@ export function StatsPage() {
           </section>
           <section className="group">
             <header>
-              <h2>По командам</h2>
+              <h2>По отделам</h2>
             </header>
             <div className="stat-grid">
               {stats.by_team.map((row) => (

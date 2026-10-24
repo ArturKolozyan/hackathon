@@ -8,6 +8,46 @@ from app.schemas.common import Money, UserBrief
 
 CURRENCIES = {"RUB", "USD", "EUR"}
 
+_PERIODS = {
+    "monthly": ("monthly", 1),
+    "ежемесячно": ("monthly", 1),
+    "quarterly": ("quarterly", 3),
+    "квартал": ("quarterly", 3),
+    "раз в квартал": ("quarterly", 3),
+    "ежеквартально": ("quarterly", 3),
+    "semiannual": ("semiannual", 6),
+    "полгода": ("semiannual", 6),
+    "раз в полгода": ("semiannual", 6),
+    "yearly": ("yearly", 12),
+    "ежегодно": ("yearly", 12),
+    "раз в год": ("yearly", 12),
+    "once": ("once", None),
+    "разово": ("once", None),
+    "один раз": ("once", None),
+    "every_n": ("every_n", None),
+    "каждые n месяцев": ("every_n", None),
+}
+
+
+def normalize_periodicity(label: str, interval: int | None) -> tuple[str, int | None]:
+    key = (label or "").strip().lower()
+    if key not in _PERIODS:
+        raise ValueError("Периодичность: ежемесячно, раз в N месяцев, ежегодно или разово")
+    kind, implied = _PERIODS[key]
+    if kind == "every_n":
+        if interval is None or interval < 1 or interval > 36:
+            raise ValueError("Укажите интервал от 1 до 36 месяцев")
+        if interval == 3:
+            return "quarterly", 3
+        if interval == 6:
+            return "semiannual", 6
+        if interval == 12:
+            return "yearly", 12
+        if interval == 1:
+            return "monthly", 1
+        return "every_n", interval
+    return kind, implied
+
 
 def _amount(value: Decimal) -> Decimal:
     quantized = value.quantize(Decimal("0.01"))
@@ -27,15 +67,14 @@ class RecurringCreate(BaseModel):
     starts_on: date | None = None
     next_payment_date: date | None = None
     periodicity: str = "monthly"
+    interval_months: int | None = Field(default=None, ge=1, le=36)
     responsible_user_id: UUID | None = None
 
     @model_validator(mode="after")
     def fill_schedule(self) -> "RecurringCreate":
-        label = (self.periodicity or "").strip().lower()
-        if label in {"ежемесячно", "monthly"}:
-            self.periodicity = "monthly"
-        else:
-            raise ValueError("Периодичность: ежемесячно")
+        kind, interval = normalize_periodicity(self.periodicity, self.interval_months)
+        self.periodicity = kind
+        self.interval_months = interval
         if self.next_payment_date is not None:
             self.day_of_month = self.next_payment_date.day
             self.starts_on = self.next_payment_date
@@ -82,8 +121,19 @@ class RecurringUpdate(BaseModel):
     starts_on: date | None = None
     next_payment_date: date | None = None
     periodicity: str | None = None
+    interval_months: int | None = Field(default=None, ge=1, le=36)
+    remind_archived_overdue: bool | None = None
     responsible_user_id: UUID | None = None
     is_archived: bool | None = None
+
+    @model_validator(mode="after")
+    def fill_periodicity(self) -> "RecurringUpdate":
+        if self.periodicity is None and self.interval_months is None:
+            return self
+        kind, interval = normalize_periodicity(self.periodicity or "every_n", self.interval_months)
+        self.periodicity = kind
+        self.interval_months = interval
+        return self
 
     @field_validator("title")
     @classmethod
@@ -120,17 +170,6 @@ class RecurringUpdate(BaseModel):
             raise ValueError("Валюта: RUB, USD или EUR")
         return normalized
 
-    @field_validator("periodicity")
-    @classmethod
-    def check_periodicity(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        label = value.strip().lower()
-        if label in {"ежемесячно", "monthly"}:
-            return "monthly"
-        raise ValueError("Периодичность: ежемесячно")
-
-
 class RecurringOut(BaseModel):
     id: UUID
     title: str
@@ -141,6 +180,10 @@ class RecurringOut(BaseModel):
     starts_on: date
     next_payment_date: date | None = None
     periodicity: str = "monthly"
+    interval_months: int | None = None
+    remind_archived_overdue: bool = True
+    applies_from: date | None = None
+    debt_count: int = 0
     is_archived: bool
     responsible: UserBrief | None = None
     open_count: int

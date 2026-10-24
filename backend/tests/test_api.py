@@ -49,16 +49,23 @@ def test_demo_inbox_buckets_and_summary(client):
     assert body["soon"][0]["amount"] == "15.00"
     assert body["soon"][0]["title"] == "Подписка"
     assert len(body["rest"]) == 6
-    assert {item["currency"] for item in body["overdue"]} == {"RUB", "USD"}
+    assert {item["currency"] for item in body["overdue"]} == {"RUB"}
     assert any(item["period_label"] == "сентябрь 2026" and item["title"] == "Аренда офиса" for item in body["overdue"])
+    assert any(item["title"] == "Электричество" for item in body["overdue"])
     summary = client.get("/api/v1/payments/summary", headers=headers).json()
     assert summary["counts"] == {"overdue": 4, "due_soon": 1, "upcoming": 6, "paid": 7}
     by_currency = {row["currency"]: row for row in summary["by_currency"]}
-    assert by_currency["RUB"]["overdue_amount"] == "170000.00"
-    assert by_currency["USD"]["overdue_amount"] == "80.00"
+    assert by_currency["RUB"]["overdue_amount"] == "194000.00"
+    assert "USD" not in by_currency
     assert by_currency["EUR"]["due_soon_amount"] == "15.00"
     assert by_currency["EUR"]["overdue_amount"] == "0.00"
-    history = client.get("/api/v1/payment-occurrences?view=history", headers=headers).json()["items"]
+    power = client.get("/api/v1/payment-occurrences?view=history", headers=headers).json()["items"]
+    july_power = next(item for item in power if item["title"] == "Электричество" and item["period"] == "2026-07")
+    assert july_power["paid_amount"] == "14150.00"
+    assert july_power["amount"] == "12000.00"
+    teams = client.get("/api/v1/teams", headers=headers).json()
+    infra = next(row["id"] for row in teams if row["name"] == "Инфраструктура")
+    history = client.get("/api/v1/payment-occurrences?view=history", headers={**headers, "X-Team-Id": infra}).json()["items"]
     late = [item for item in history if item["paid_on_time"] is False]
     assert len(late) == 1
     assert late[0]["title"] == "Сервер"
@@ -235,8 +242,12 @@ def test_paid_snapshot_and_archive(client, monkeypatch):
     assert refreshed["2026-08"]["amount"] == "100.00"
     assert refreshed["2026-08"]["title"] == "Снимок"
     assert refreshed["2026-08"]["due_date"] == "2026-08-12"
-    assert refreshed["2026-10"]["amount"] == "180.00"
-    assert refreshed["2026-10"]["title"] == "Снимок новый"
+    assert refreshed["2026-10"]["amount"] == "100.00"
+    assert refreshed["2026-10"]["title"] == "Снимок"
+    assert refreshed["2026-10"]["due_date"] == "2026-10-12"
+    assert refreshed["2026-11"]["amount"] == "180.00"
+    assert refreshed["2026-11"]["title"] == "Снимок новый"
+    assert renamed.json()["applies_from"] == "2026-11-12"
     moved = client.patch(
         f"/api/v1/recurring-payments/{tracked['id']}",
         headers=headers,
@@ -245,7 +256,8 @@ def test_paid_snapshot_and_archive(client, monkeypatch):
     assert moved.status_code == 200, moved.text
     after_day = {item["period"]: item for item in items_of(tracked["id"])}
     assert after_day["2026-08"]["due_date"] == "2026-08-12"
-    assert after_day["2026-10"]["due_date"] == "2026-10-03"
+    assert after_day["2026-10"]["due_date"] == "2026-10-12"
+    assert after_day["2026-11"]["due_date"] == "2026-11-03"
 
     archived = create("Архив", 10, "50.00")
     alive = create("Живой", 11, "50.00")

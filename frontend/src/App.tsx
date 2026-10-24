@@ -15,6 +15,7 @@ import { NotificationsPage } from "./pages/NotificationsPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { PeoplePage } from "./pages/PeoplePage";
 import { ResetPage } from "./pages/ResetPage";
+import { OrganizationPage } from "./pages/OrganizationPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StatsPage } from "./pages/StatsPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
@@ -38,6 +39,7 @@ export function App() {
             <Route path="/budget" element={<BudgetPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/organization" element={<OrganizationPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
             <Route element={<ManageOnly />}>
               <Route path="/templates" element={<TemplatesPage />} />

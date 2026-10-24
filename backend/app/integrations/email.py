@@ -90,7 +90,8 @@ def _compose_reminder(payload: dict, recipients: list[str]) -> EmailMessage:
     settings = get_settings()
     body = payload["occurrence"]
     status = _STATUS_RU.get(body["status"], body["status"])
-    overdue = payload.get("event") == "occurrence.overdue" or body.get("status") == "overdue"
+    overdue = str(payload.get("event", "")).startswith("occurrence.overdue") or body.get("status") == "overdue"
+    extra = payload.get("lines") if isinstance(payload.get("lines"), list) else None
     message = EmailMessage()
     if overdue:
         message["Subject"] = _header(f"rekeeper: просрочено — {body['title']}")
@@ -107,9 +108,12 @@ def _compose_reminder(payload: dict, recipients: list[str]) -> EmailMessage:
         f"Статус: {status}",
         "",
     ]
-    if overdue:
+    if extra:
+        lines.append("Периоды:")
+        lines.extend(str(item) for item in extra)
+    elif overdue:
         lines.append("Срок прошёл.")
-    lines.append("Напоминание об обязательстве команды. Оплату отмечайте в панели.")
+    lines.append("Напоминание об обязательстве отдела. Оплату отмечайте в панели.")
     panel = public_url()
     if panel:
         lines.append(panel)
@@ -154,7 +158,7 @@ def send_test_email(to: str) -> str:
         "rekeeper",
         "",
         "Это тестовое уведомление.",
-        "Письма о платежах выбранных команд будут приходить на этот адрес.",
+        "Письма о платежах выбранных отделов будут приходить на этот адрес.",
     ]
     panel = public_url()
     if panel:

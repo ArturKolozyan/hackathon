@@ -54,7 +54,8 @@ def test_reads_come_from_the_database(client, db_session):
     headers = _headers(client, "admin@invoice.local", "change-me")
     week = _say(client, headers, "Что горит на этой неделе?")
     assert "Аренда офиса" in week["content"]
-    assert "Сервер" in week["content"]
+    assert "Электричество" in week["content"]
+    assert "Сервер" not in week["content"]
     assert "Подписка" not in week["content"]
     assert week["action"] is None
 
@@ -66,7 +67,9 @@ def test_reads_come_from_the_database(client, db_session):
     assert "Уже оплачено: EUR 15.00" in september["content"]
     assert "Ещё не оплачено" in september["content"]
 
-    who = _say(client, headers, "Кто ответственный за сервер?")
+    infra = db_session.scalar(select(Team).where(Team.name == "Инфраструктура"))
+    assert infra is not None
+    who = _say(client, {**headers, "X-Team-Id": str(infra.id)}, "Кто ответственный за сервер?")
     assert "Мария Соколова" in who["content"]
     assert "Иван Петров" not in who["content"]
 
@@ -137,7 +140,10 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     admin = _headers(client, "admin@invoice.local", "change-me")
     ivan = _headers(client, "ivan@invoice.local", "change-me-user")
 
-    paid = _say(client, ivan, "Отметь сервер оплаченным")
+    infra = db_session.scalar(select(Team).where(Team.name == "Инфраструктура"))
+    studio = db_session.scalar(select(Team).where(Team.name == "Бухгалтерия"))
+    assert infra is not None and studio is not None
+    paid = _say(client, {**ivan, "X-Team-Id": str(infra.id)}, "Отметь сервер оплаченным")
     assert paid["action"]["kind"] == "mark_paid"
     assert "Сервер" in paid["action"]["summary"]
     server = db_session.scalar(select(RecurringPayment).where(RecurringPayment.title == "Сервер"))
@@ -147,7 +153,7 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     assert done.json()["action"]["status"] == "confirmed"
     assert "оплачен" in done.json()["message"]["content"]
 
-    update = _say(client, admin, "Измени сумму сервера на 45 долларов")
+    update = _say(client, {**admin, "X-Team-Id": str(infra.id)}, "Измени сумму сервера на 45 долларов")
     assert "40.00 USD → 45.00 USD" in update["action"]["summary"]
     db_session.expire_all()
     assert f"{server.amount:.2f}" == "40.00"
@@ -156,7 +162,7 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     db_session.expire_all()
     assert f"{server.amount:.2f}" == "45.00"
 
-    person = _say(client, admin, "Смени ответственного за подписку на Марию")
+    person = _say(client, {**admin, "X-Team-Id": str(studio.id)}, "Смени ответственного за подписку на Марию")
     assert "Мария Соколова" in person["action"]["summary"]
     sub = db_session.scalar(select(RecurringPayment).where(RecurringPayment.title == "Подписка"))
     assert sub is not None and sub.responsible.full_name == "Иван Петров"
@@ -164,7 +170,7 @@ def test_mark_paid_update_and_archive_need_confirmation(client, db_session):
     db_session.expire_all()
     assert sub.responsible.full_name == "Мария Соколова"
 
-    archived = _say(client, admin, "Архивируй платёж подписка")
+    archived = _say(client, {**admin, "X-Team-Id": str(studio.id)}, "Архивируй платёж подписка")
     assert archived["action"]["kind"] == "archive_payment"
     assert sub.is_archived is False
     _assistant_call(client, "post", f"/api/v1/assistant/actions/{archived['action']['id']}/confirm", headers=admin)

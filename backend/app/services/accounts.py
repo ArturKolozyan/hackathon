@@ -1,4 +1,4 @@
-"""Регистрация, коды, вход, профиль. Сессия по-прежнему кука и bearer."""
+"""Коды, вход, профиль. Сессия по-прежнему кука и bearer."""
 
 import hmac
 import secrets
@@ -6,7 +6,6 @@ from datetime import timedelta
 
 from fastapi import HTTPException
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, hash_token, revoke_user_sessions, verify_password, waste_password_check
@@ -169,81 +168,9 @@ def _find_user(db: Session, email: str) -> User | None:
     return db.scalar(select(User).where(User.email == email))
 
 
-def register_account(db: Session, *, email: str, full_name: str, password: str, invite_token: str | None) -> str:
-    if len(password) < 8:
-        raise HTTPException(status_code=422, detail="Пароль короче 8 символов")
-    user = _find_user(db, email)
-    if user is not None and user.email_verified_at is not None:
-        raise HTTPException(status_code=409, detail="Почта уже зарегистрирована")
-    if user is None:
-        user = User(
-            email=email,
-            full_name=full_name,
-            password_hash=hash_password(password),
-            is_active=True,
-            email_verified_at=None,
-        )
-        db.add(user)
-        try:
-            db.flush()
-        except IntegrityError:
-            db.rollback()
-            raise HTTPException(status_code=409, detail="Почта уже зарегистрирована") from None
-    else:
-        user.full_name = full_name
-        user.password_hash = hash_password(password)
-        user.updated_at = clock.now()
-        db.flush()
-    payload = {}
-    if invite_token:
-        payload["invite_token"] = invite_token.strip()
-    code = issue_code(db, email=email, purpose="register", user=user, payload=payload)
-    db.commit()
-    return send_code(email=email, purpose="register", code=code)
-
-
-def resend_registration(db: Session, email: str) -> str:
-    user = _find_user(db, email)
-    if user is None:
-        raise HTTPException(status_code=404, detail="Сначала зарегистрируйтесь")
-    if user.email_verified_at is not None:
-        raise HTTPException(status_code=409, detail="Почта уже подтверждена")
-    last = db.scalar(
-        select(EmailCode)
-        .where(EmailCode.email == email, EmailCode.purpose == "register")
-        .order_by(EmailCode.sent_at.desc())
-    )
-    payload = dict(last.payload) if last is not None and last.payload else {}
-    code = issue_code(db, email=email, purpose="register", user=user, payload=payload)
-    db.commit()
-    return send_code(email=email, purpose="register", code=code)
-
-
-def confirm_registration(db: Session, *, email: str, code: str) -> User:
-    from app.services.teams import accept_token
-
-    row = confirm_code(db, email=email, purpose="register", code=code)
-    user = _find_user(db, email)
-    if user is None:
-        raise HTTPException(status_code=400, detail=EXPIRED)
-    user.email_verified_at = clock.now()
-    user.updated_at = clock.now()
-    token = ""
-    if isinstance(row.payload, dict):
-        token = str(row.payload.get("invite_token") or "").strip()
-    if token:
-        try:
-            with db.begin_nested():
-                accept_token(db, user, token)
-        except HTTPException:
-            pass
-    db.flush()
-    return user
-
-
 def request_password_reset(db: Session, email: str) -> None:
     user = _find_user(db, email)
-    if user is None or user.email_verified_at is None:
+    if user is None or user.email_verified_at is None or user.is_owner:
         return
     code = issue_code(db, email=email, purpose="reset_password", user=user, payload={})
     db.commit()
@@ -257,6 +184,8 @@ def reset_password(db: Session, *, email: str, code: str, password: str) -> User
     user = _find_user(db, email)
     if user is None or user.email_verified_at is None:
         raise HTTPException(status_code=400, detail=EXPIRED)
+    if user.is_owner:
+        raise HTTPException(status_code=403, detail="Учётку владельца нельзя изменить")
     user.password_hash = hash_password(password)
     user.updated_at = clock.now()
     revoke_user_sessions(db, user.id)

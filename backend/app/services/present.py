@@ -33,6 +33,7 @@ def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, to
         period_label=period_label(occurrence.period_year, occurrence.period_month),
         due_date=occurrence.due_date,
         amount=occurrence.amount,
+        paid_amount=occurrence.paid_amount,
         currency=occurrence.currency,
         status=status,
         bucket=bucket_for(status),
@@ -52,15 +53,34 @@ def occurrence_out(occurrence: PaymentOccurrence, template: RecurringPayment, to
 
 
 def _next_due(template: RecurringPayment, occurrences: list[PaymentOccurrence], today: date) -> date:
-    from app.services.schedule import add_months, due_date
+    from app.services.occurrences import scheduled_periods
 
     open_dates = [row.due_date for row in occurrences if row.paid_at is None and row.due_date >= today]
     if open_dates:
         return min(open_dates)
-    candidate = due_date(today.year, today.month, template.day_of_month)
-    if candidate < today:
-        return add_months(candidate, 1)
-    return candidate
+    ahead = [due for _year, _month, due in scheduled_periods(template, today) if due >= today]
+    if ahead:
+        return min(ahead)
+    if occurrences:
+        return max(row.due_date for row in occurrences)
+    return template.starts_on
+
+
+def applies_from_date(template: RecurringPayment, occurrences: list[PaymentOccurrence], today: date) -> date | None:
+    """Ближайший будущий неоплаченный период: с него правка шаблона меняет снимок."""
+    future = [row.due_date for row in occurrences if row.paid_at is None and row.due_date >= today]
+    if future:
+        return min(future)
+    ahead = []
+    if not template.is_archived:
+        from app.services.occurrences import scheduled_periods
+
+        ahead = [due for _year, _month, due in scheduled_periods(template, today) if due >= today]
+    return min(ahead) if ahead else None
+
+
+def debt_count(occurrences: list[PaymentOccurrence], today: date) -> int:
+    return sum(1 for row in occurrences if row.paid_at is None and row.due_date < today)
 
 
 def recurring_out(template: RecurringPayment, occurrences: list[PaymentOccurrence]) -> RecurringOut:
@@ -84,6 +104,10 @@ def recurring_out(template: RecurringPayment, occurrences: list[PaymentOccurrenc
         starts_on=template.starts_on,
         next_payment_date=_next_due(template, occurrences, today),
         periodicity=template.periodicity,
+        interval_months=template.interval_months,
+        remind_archived_overdue=template.remind_archived_overdue,
+        applies_from=applies_from_date(template, occurrences, today),
+        debt_count=debt_count(occurrences, today),
         is_archived=template.is_archived,
         responsible=user_brief(template.responsible) if template.responsible is not None else None,
         open_count=open_count,

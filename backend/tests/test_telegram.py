@@ -192,7 +192,7 @@ def _channel(db, occurrence_id, channel: str) -> NotificationDelivery | None:
         select(NotificationDelivery).where(
             NotificationDelivery.occurrence_id == occurrence_id,
             NotificationDelivery.channel == channel,
-            NotificationDelivery.event == "occurrence.reminder",
+            NotificationDelivery.event.like("occurrence.reminder%"),
         )
     )
 
@@ -258,10 +258,12 @@ def test_force_ipv6_binds_v6_and_does_not_leak_token(monkeypatch):
 
 def test_remind_window_dedup_archive_and_paid(db_session, tg_bot):
     soon = _template(db_session, title="Сервер", day=26)
-    later = _template(db_session, title="Рано", day=27)
+    later = _template(db_session, title="Рано", day=31)
     late = _template(db_session, title="Аренда", day=20)
     closed = _template(db_session, title="Закрыт", day=26)
     archived = _template(db_session, title="Архив", day=20, archived=True)
+    archived.remind_archived_overdue = False
+    db_session.commit()
     paid = _october(db_session, closed)
     paid.paid_at = FROZEN
     db_session.commit()
@@ -435,6 +437,8 @@ def test_button_ignores_other_chat_bad_payload_and_missing_period(db_session, mo
 
 def test_archived_period_can_still_be_paid_from_the_button(db_session, tg_bot):
     template = _template(db_session, title="Архив", day=20, archived=True)
+    template.remind_archived_overdue = False
+    db_session.commit()
     row = _october(db_session, template)
     assert dispatch_due_reminders(db_session) == 0
     _bind(db_session, _admin(db_session))

@@ -82,6 +82,7 @@ function ShellView() {
           <NavLink to="/stats">Статистика</NavLink>
           <NavLink to="/notifications">Уведомления</NavLink>
           <NavLink to="/settings">Настройки</NavLink>
+          {user?.is_owner && <NavLink to="/organization">Организация</NavLink>}
           {manage && (
             <>
               <span className="nav-label">Админ</span>

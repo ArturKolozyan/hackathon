@@ -18,9 +18,11 @@ def serve() -> None:
 
     wait_for_db()
     migrate()
+    from app.services.org_settings import ensure_organization
     from app.services.owner import ensure_owner
 
     ensure_owner()
+    ensure_organization()
     from app.integrations.email import smtp_host_configured
 
     # fileConfig в alembic выключает логгеры, созданные до миграции, в том числе httpx.

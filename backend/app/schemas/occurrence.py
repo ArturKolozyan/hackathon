@@ -1,10 +1,22 @@
 from datetime import date, datetime
+from decimal import Decimal
 from urllib.parse import urlparse
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.common import Money, UserBrief
+
+
+def _money_or_none(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    quantized = value.quantize(Decimal("0.01"))
+    if value != quantized:
+        raise ValueError("Не больше двух знаков после запятой")
+    if quantized <= 0:
+        raise ValueError("Сумма должна быть больше нуля")
+    return quantized
 
 
 def clean_text(value: str | None) -> str | None:
@@ -33,6 +45,7 @@ class OccurrenceOut(BaseModel):
     period_label: str
     due_date: date
     amount: Money
+    paid_amount: Money | None = None
     currency: str
     status: str
     bucket: str
@@ -79,6 +92,7 @@ class InboxOut(BaseModel):
 
 class ConfirmIn(BaseModel):
     paid_at: str | None = None
+    paid_amount: Decimal | None = None
     note: str | None = Field(default=None, max_length=2000)
     receipt_url: str | None = Field(default=None, max_length=2000)
     receipt_note: str | None = Field(default=None, max_length=2000)
@@ -92,10 +106,20 @@ class ConfirmIn(BaseModel):
     @classmethod
     def clean_url(cls, value: str | None) -> str | None:
         return clean_receipt_url(value)
+
+    @field_validator("paid_amount")
+    @classmethod
+    def check_paid_amount(cls, value: Decimal | None) -> Decimal | None:
+        return _money_or_none(value)
 
 
 class OccurrencePatch(BaseModel):
     paid_at: str | None = None
+    paid_amount: Decimal | None = None
+    title: str | None = Field(default=None, max_length=200)
+    amount: Decimal | None = None
+    currency: str | None = None
+    due_date: date | None = None
     note: str | None = Field(default=None, max_length=2000)
     receipt_url: str | None = Field(default=None, max_length=2000)
     receipt_note: str | None = Field(default=None, max_length=2000)
@@ -109,3 +133,28 @@ class OccurrencePatch(BaseModel):
     @classmethod
     def clean_url(cls, value: str | None) -> str | None:
         return clean_receipt_url(value)
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Укажите название")
+        return cleaned
+
+    @field_validator("currency")
+    @classmethod
+    def check_currency(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        if normalized not in {"RUB", "USD", "EUR"}:
+            raise ValueError("Валюта: RUB, USD или EUR")
+        return normalized
+
+    @field_validator("amount", "paid_amount")
+    @classmethod
+    def check_amounts(cls, value: Decimal | None) -> Decimal | None:
+        return _money_or_none(value)

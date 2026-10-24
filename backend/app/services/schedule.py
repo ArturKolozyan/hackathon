@@ -24,6 +24,45 @@ def due_date(year: int, month: int, day_of_month: int) -> date:
     return date(year, month, min(day_of_month, last))
 
 
+def shift_month(year: int, month: int, steps: int) -> tuple[int, int]:
+    index = month - 1 + steps
+    return year + index // 12, index % 12 + 1
+
+
+def first_scheduled(starts_on: date, day_of_month: int, step: int | None) -> date:
+    due = due_date(starts_on.year, starts_on.month, day_of_month)
+    if due < starts_on:
+        year, month = shift_month(due.year, due.month, step or 1)
+        due = due_date(year, month, day_of_month)
+    return due
+
+
+def iter_schedule(
+    starts_on: date,
+    day_of_month: int,
+    step: int | None,
+    today: date,
+    horizon_months: int,
+) -> list[tuple[int, int, date]]:
+    """Периоды от первого срока. step=None — один период. Дальше горизонта берём ближайший будущий."""
+    first = first_scheduled(starts_on, day_of_month, step)
+    if step is None:
+        return [(first.year, first.month, first)]
+    end = add_months(today, horizon_months)
+    end_key = (end.year, end.month)
+    out: list[tuple[int, int, date]] = []
+    year, month = first.year, first.month
+    for _ in range(240):
+        due = due_date(year, month, day_of_month)
+        if (year, month) > end_key:
+            if not any(item >= today for *_, item in out):
+                out.append((year, month, due))
+            break
+        out.append((year, month, due))
+        year, month = shift_month(year, month, step)
+    return out
+
+
 def add_months(value: date, months: int) -> date:
     month_index = value.month - 1 + months
     year = value.year + month_index // 12

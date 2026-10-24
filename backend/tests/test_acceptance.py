@@ -80,10 +80,16 @@ def test_owner_account_is_immutable(client, db_session):
     assert client.delete(f"/api/v1/users/{owner.id}", headers=headers).status_code == 403
 
 
-def test_archived_payment_does_not_remind(db_session, tg_bot):
+def test_archived_overdue_reminds_until_silenced(db_session, tg_bot):
     _template(db_session, title="Архив", day=20, archived=True)
+    quiet = _template(db_session, title="Тихий", day=20, archived=True)
+    quiet.remind_archived_overdue = False
+    db_session.commit()
+    dispatch_due_reminders(db_session)
+    titles = {item["text"].splitlines()[0] for item in tg_bot.sent}
+    assert "Архив" in titles
+    assert "Тихий" not in titles
     assert dispatch_due_reminders(db_session) == 0
-    assert tg_bot.sent == []
 
 
 def test_reminder_is_once_and_create_inside_window_enqueues(client, db_session, tg_bot):
@@ -108,7 +114,7 @@ def test_reminder_is_once_and_create_inside_window_enqueues(client, db_session, 
     row = db_session.scalar(
         select(NotificationDelivery).where(
             NotificationDelivery.channel == "telegram",
-            NotificationDelivery.event == "occurrence.reminder",
+            NotificationDelivery.event == "occurrence.reminder.d3",
         )
     )
     assert row is not None

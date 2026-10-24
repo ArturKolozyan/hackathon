@@ -125,7 +125,7 @@ def test_telegram(ctx: TeamContext = Depends(get_team_context), db: Session = De
     return ProbeOut(ok=True, pending=True, detail="Сообщение уйдёт в личку в ближайшие секунды")
 
 
-@router.put("/notifications/team/webhook", response_model=NotificationsOut, summary="Webhook команды")
+@router.put("/notifications/team/webhook", response_model=NotificationsOut, summary="Webhook отдела")
 def save_webhook(
     payload: WebhookIn,
     ctx: TeamContext = Depends(require_manager),
@@ -135,7 +135,7 @@ def save_webhook(
     return _view(db, ctx)
 
 
-@router.post("/notifications/team/webhook/test", response_model=ProbeOut, summary="Проверить webhook команды")
+@router.post("/notifications/team/webhook/test", response_model=ProbeOut, summary="Проверить webhook отдела")
 def test_webhook(
     ctx: TeamContext = Depends(require_manager),
     db: Session = Depends(get_db),

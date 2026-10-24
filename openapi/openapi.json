@@ -390,6 +390,20 @@
             ],
             "title": "Note"
           },
+          "paid_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Amount"
+          },
           "paid_at": {
             "anyOf": [
               {
@@ -939,6 +953,17 @@
             ],
             "title": "Note"
           },
+          "paid_amount": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Amount"
+          },
           "paid_at": {
             "anyOf": [
               {
@@ -1083,6 +1108,43 @@
       },
       "OccurrencePatch": {
         "properties": {
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amount"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date"
+          },
           "note": {
             "anyOf": [
               {
@@ -1094,6 +1156,20 @@
               }
             ],
             "title": "Note"
+          },
+          "paid_amount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid Amount"
           },
           "paid_at": {
             "anyOf": [
@@ -1129,9 +1205,103 @@
               }
             ],
             "title": "Receipt Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
           }
         },
         "title": "OccurrencePatch",
+        "type": "object"
+      },
+      "OrganizationOut": {
+        "properties": {
+          "overdue_repeat_days": {
+            "title": "Overdue Repeat Days",
+            "type": "integer"
+          },
+          "owner_overdue_copy": {
+            "title": "Owner Overdue Copy",
+            "type": "boolean"
+          },
+          "reminder_days": {
+            "title": "Reminder Days",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timezone",
+          "reminder_days",
+          "overdue_repeat_days",
+          "owner_overdue_copy"
+        ],
+        "title": "OrganizationOut",
+        "type": "object"
+      },
+      "OrganizationPatch": {
+        "properties": {
+          "overdue_repeat_days": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overdue Repeat Days"
+          },
+          "owner_overdue_copy": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Overdue Copy"
+          },
+          "reminder_days": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reminder Days"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "title": "OrganizationPatch",
         "type": "object"
       },
       "PasswordIn": {
@@ -1395,6 +1565,19 @@
             ],
             "title": "Description"
           },
+          "interval_months": {
+            "anyOf": [
+              {
+                "maximum": 36.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Months"
+          },
           "next_payment_date": {
             "anyOf": [
               {
@@ -1457,6 +1640,18 @@
             "title": "Amount",
             "type": "string"
           },
+          "applies_from": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applies From"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1468,6 +1663,11 @@
           },
           "day_of_month": {
             "title": "Day Of Month",
+            "type": "integer"
+          },
+          "debt_count": {
+            "default": 0,
+            "title": "Debt Count",
             "type": "integer"
           },
           "description": {
@@ -1485,6 +1685,17 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "interval_months": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Months"
           },
           "is_archived": {
             "title": "Is Archived",
@@ -1514,6 +1725,11 @@
             "default": "monthly",
             "title": "Periodicity",
             "type": "string"
+          },
+          "remind_archived_overdue": {
+            "default": true,
+            "title": "Remind Archived Overdue",
+            "type": "boolean"
           },
           "responsible": {
             "anyOf": [
@@ -1602,6 +1818,19 @@
             ],
             "title": "Description"
           },
+          "interval_months": {
+            "anyOf": [
+              {
+                "maximum": 36.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Interval Months"
+          },
           "is_archived": {
             "anyOf": [
               {
@@ -1635,6 +1864,17 @@
               }
             ],
             "title": "Periodicity"
+          },
+          "remind_archived_overdue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind Archived Overdue"
           },
           "responsible_user_id": {
             "anyOf": [
@@ -2601,7 +2841,7 @@
   },
   "info": {
     "description": "Одна установка — одна организация. Владелец задаётся в .env, отделы ведёт он. Публичной регистрации нет. Вход — почта и пароль, сброс — код на почту. Шаблон регулярного платежа и период — разные сущности. Инбокс сортируется: просрочено, скоро, остальное. «Оплачено» — подтверждение человека, не банка. Суммы в итогах не конвертируются между валютами. Telegram-бот — отдельный процесс: long polling и отправка карточек из outbox. Напоминание уходит в чат отдела и ответственному, если личный канал включён. Кнопка «Оплачено» ставит paid_at = сейчас в TIMEZONE и paid_by = пользователя rekeeper, чей Telegram нажал и кто состоит в отделе. Непривязанный клик ничего не меняет. Заметка не меняется. Ассистент — отдельный процесс и пишет в базу только после подтверждения.",
-    "summary": "Инбокс обязательств команды",
+    "summary": "Инбокс обязательств отдела",
     "title": "Invoice Keeper API",
     "version": "1.0.0"
   },
@@ -3558,7 +3798,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Текущая команда",
+        "summary": "Текущий отдел",
         "tags": [
           "profile"
         ]
@@ -4396,7 +4636,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Webhook команды",
+        "summary": "Webhook отдела",
         "tags": [
           "notifications"
         ]
@@ -4467,9 +4707,125 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Проверить webhook команды",
+        "summary": "Проверить webhook отдела",
         "tags": [
           "notifications"
+        ]
+      }
+    },
+    "/api/v1/organization": {
+      "get": {
+        "operationId": "read_organization_api_v1_organization_get",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Настройки организации",
+        "tags": [
+          "organization"
+        ]
+      },
+      "patch": {
+        "operationId": "update_organization_api_v1_organization_patch",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrganizationPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Изменить настройки организации",
+        "tags": [
+          "organization"
         ]
       }
     },
@@ -4550,6 +4906,57 @@
             }
           },
           {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(RUB|USD|EUR)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Currency"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Team-Id",
             "required": false,
@@ -4616,6 +5023,198 @@
         ]
       }
     },
+    "/api/v1/payment-occurrences/export.csv": {
+      "get": {
+        "operationId": "export_csv_api_v1_payment_occurrences_export_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "view",
+            "required": false,
+            "schema": {
+              "default": "all",
+              "pattern": "^(inbox|history|all)$",
+              "title": "View",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "mine",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Mine",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "responsible_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Responsible Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "recurring_payment_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Recurring Payment Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(overdue|due_soon|upcoming|paid)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(RUB|USD|EUR)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Currency"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Team-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Team-Id"
+            }
+          },
+          {
+            "in": "cookie",
+            "name": "ik_session",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ik Session"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "CSV для бухгалтера",
+        "tags": [
+          "payment-occurrences"
+        ]
+      }
+    },
     "/api/v1/payment-occurrences/inbox": {
       "get": {
         "operationId": "inbox_api_v1_payment_occurrences_inbox_get",
@@ -4662,6 +5261,57 @@
                 }
               ],
               "title": "Recurring Payment Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "currency",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^(RUB|USD|EUR)$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Currency"
             }
           },
           {
@@ -5489,6 +6139,22 @@
             }
           },
           {
+            "in": "query",
+            "name": "remind_overdue",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Remind Overdue"
+            }
+          },
+          {
             "in": "header",
             "name": "X-Team-Id",
             "required": false,
@@ -5892,7 +6558,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Статистика по всем командам",
+        "summary": "Статистика по всем отделам",
         "tags": [
           "stats"
         ]
@@ -6012,7 +6678,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Создать команду",
+        "summary": "Создать отдел",
         "tags": [
           "teams"
         ]
@@ -6079,7 +6745,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Удалить команду",
+        "summary": "Удалить отдел",
         "tags": [
           "teams"
         ]
@@ -6496,7 +7162,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Чат команды в Telegram",
+        "summary": "Чат отдела в Telegram",
         "tags": [
           "telegram"
         ]
@@ -6567,7 +7233,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Отключить чат команды",
+        "summary": "Отключить чат отдела",
         "tags": [
           "telegram"
         ]
@@ -6638,7 +7304,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Ссылка для чата команды",
+        "summary": "Ссылка для чата отдела",
         "tags": [
           "telegram"
         ]
@@ -6709,7 +7375,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Тестовое сообщение в чат команды",
+        "summary": "Тестовое сообщение в чат отдела",
         "tags": [
           "telegram"
         ]

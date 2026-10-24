@@ -17,11 +17,13 @@ const ACTIONS: Record<string, string> = {
   "budget.create": "Бюджет задан",
   "budget.update": "Бюджет изменён",
   "budget.delete": "Бюджет удалён",
-  "telegram.team_connect": "Чат команды подключён",
-  "telegram.team_disconnect": "Чат команды отключён",
+  "telegram.team_connect": "Чат отдела подключён",
+  "telegram.team_disconnect": "Чат отдела отключён",
   "telegram.user_link": "Telegram привязан",
   "telegram.user_unlink": "Telegram отвязан",
-  "team.webhook": "Webhook команды",
+  "team.webhook": "Webhook отдела",
+  "organization.update": "Настройки организации",
+  "occurrence.update": "Период изменён",
 };
 
 const FIELDS: Record<string, string> = {
@@ -41,6 +43,11 @@ const FIELDS: Record<string, string> = {
   is_active: "доступ",
   note: "заметка",
   paid_at: "дата оплаты",
+  paid_amount: "фактическая сумма",
+  due_date: "срок",
+  periodicity: "периодичность",
+  interval_months: "интервал",
+  remind_archived_overdue: "напоминание просрочки архива",
 };
 
 export function actionLabel(action: string): string {
@@ -73,6 +80,13 @@ function phrase(key: string, value: unknown, meta: Record<string, unknown>): str
   if (key === "period_type") {
     const kind = value === "month" ? "месяц" : value === "year" ? "год" : String(value);
     return `тип периода: ${kind}`;
+  }
+  if (key === "changes" && value && typeof value === "object" && !Array.isArray(value)) {
+    const bits = Object.entries(value as Record<string, { was?: string; became?: string }>).map(([field, pair]) => {
+      const label = FIELDS[field] ?? field.replaceAll("_", " ");
+      return `${label}: ${pair?.was ?? "—"} → ${pair?.became ?? "—"}`;
+    });
+    return bits.join("; ");
   }
   if (key === "fields") return `что изменилось: ${fieldList(value)}`;
   if (key === "paid_on" && typeof value === "string") return `дата оплаты: ${datePhrase(value)}`;

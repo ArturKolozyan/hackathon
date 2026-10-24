@@ -14,6 +14,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
   const [open, setOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [paidOn, setPaidOn] = useState(mode === "history" ? item.paid_on ?? today : today);
+  const [paidAmount, setPaidAmount] = useState(item.paid_amount ?? item.amount);
   const [note, setNote] = useState("");
   const [receiptUrl, setReceiptUrl] = useState(item.receipt_url ?? "");
   const [receiptNote, setReceiptNote] = useState(item.receipt_note ?? "");
@@ -51,7 +52,9 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
       <div className="card-main">
         <div className="card-top">
           <h3>{item.title}</h3>
-          <strong className={mode === "inbox" ? "money rule" : "money"}>{formatMoney(item.amount, item.currency)}</strong>
+          <strong className={mode === "inbox" ? "money rule" : "money"}>
+            {formatMoney(item.status === "paid" && item.paid_amount ? item.paid_amount : item.amount, item.currency)}
+          </strong>
         </div>
         <div className="card-sub">
           <p className="phrase">
@@ -65,6 +68,9 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
           {item.template_archived && <span className="pill pill-neutral">шаблон снят</span>}
           {item.telegram_reminded_at && <span className="pill pill-neutral count">в Telegram</span>}
           {item.note && <span>{item.note}</span>}
+          {item.paid_amount && item.paid_amount !== item.amount && (
+            <span>план {formatMoney(item.amount, item.currency)}</span>
+          )}
           {item.paid_by && mode === "history" && <span>закрыл {item.paid_by.full_name}</span>}
         </p>
         {(item.receipt_url || item.receipt_note) && (
@@ -103,11 +109,15 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
                 if (mode === "history") {
                   await api(`/api/v1/payment-occurrences/${item.id}`, {
                     method: "PATCH",
-                    body: JSON.stringify({ paid_at: paidOn }),
+                    body: JSON.stringify({ paid_at: paidOn, paid_amount: paidAmount.replace(",", ".") }),
                   });
                   return;
                 }
-                const body: Record<string, string | null> = { paid_at: paidOn, note: note.trim() || null };
+                const body: Record<string, string | null> = {
+                  paid_at: paidOn,
+                  note: note.trim() || null,
+                  paid_amount: paidAmount.replace(",", "."),
+                };
                 if ((receiptUrl.trim() || null) !== (item.receipt_url || null)) body.receipt_url = receiptUrl.trim() || null;
                 if ((receiptNote.trim() || null) !== (item.receipt_note || null)) body.receipt_note = receiptNote.trim() || null;
                 await api(`/api/v1/payment-occurrences/${item.id}/confirm`, {
@@ -120,6 +130,10 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
             <label>
               Фактическая дата
               <input type="date" max={today} value={paidOn} onChange={(event) => setPaidOn(event.target.value)} required />
+            </label>
+            <label>
+              Фактическая сумма
+              <input value={paidAmount} onChange={(event) => setPaidAmount(event.target.value)} inputMode="decimal" required />
             </label>
             {mode === "inbox" && (
               <>
