@@ -19,9 +19,9 @@ def ensure_owner(settings: Settings | None = None) -> None:
     email = current.resolved_owner_email
     password = current.resolved_owner_password
     if not email or "@" not in email:
-        raise RuntimeError("Задайте OWNER_EMAIL или ADMIN_EMAIL")
+        raise RuntimeError("Задайте OWNER_EMAIL в .env")
     if len(password) < 8:
-        raise RuntimeError("Пароль владельца (OWNER_PASSWORD или ADMIN_PASSWORD) короче 8 символов")
+        raise RuntimeError("OWNER_PASSWORD короче 8 символов")
     db = SessionLocal()
     try:
         _apply(

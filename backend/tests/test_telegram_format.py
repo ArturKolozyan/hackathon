@@ -1,4 +1,4 @@
-"""Оформление Telegram: деньги и даты по-русски, HTML экранирован, markdown ассистента читается в чате."""
+"""Оформление Telegram: деньги и даты по-русски, HTML экранирован."""
 
 from datetime import date
 from decimal import Decimal
@@ -31,27 +31,3 @@ def test_user_text_is_escaped():
     assert "R&amp;D &lt;b&gt;" in card
     assert card.startswith("🔴 <b>Просрочено</b>")
     assert "·" not in card
-
-
-def test_markdown_becomes_telegram_html():
-    html = tg.markdown_to_html(
-        "### Открытые платежи\n\n"
-        "| Валюта | Просрочено | Всего |\n|---|---|---|\n| RUB | — | **5\u00a0₽** |\n\n"
-        "Просрочено\n\n"
-        "**Аренда <офис>** — 85\u00a0000\u00a0₽\nдо 5 сентября, просрочено, ответственный: Иван\n\n"
-        "- [Справка](https://rekeeper.ru/help) и `код`"
-    )
-    assert html.startswith("<b>Открытые платежи</b>")
-    assert "• <b>RUB</b> — Всего: <b>5\u00a0₽</b>" in html
-    assert "Просрочено: —" not in html
-    assert "<b>Просрочено</b>" in html
-    assert "• <b>Аренда &lt;офис&gt;</b> — 85\u00a0000\u00a0₽" in html
-    assert "<i>до 5 сентября, просрочено, ответственный: Иван</i>" in html
-    assert '<a href="https://rekeeper.ru/help">Справка</a>' in html
-    assert "<code>код</code>" in html
-    assert "###" not in html and "|" not in html
-
-
-def test_markdown_link_cannot_break_out_of_href():
-    html = tg.markdown_to_html('[x](https://a.ru/"><b>y)')
-    assert '"><b>' not in html

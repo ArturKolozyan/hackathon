@@ -31,6 +31,8 @@ log = logging.getLogger("invoice_keeper.telegram")
 
 TEAM_RECIPIENT = "team"
 UNLINKED_ALERT = "Сначала привяжите Telegram в rekeeper: Настройки → Уведомления."
+NOTIFY_ONLY = "Я присылаю напоминания о платежах и сводки отдела, а кнопка «Оплачено» отмечает оплату. На вопросы отвечает помощник Кип в веб-версии rekeeper."
+OLD_ASSISTANT_BUTTON = "Кип теперь работает только в веб-версии rekeeper. Откройте карточку там."
 SETTINGS_PATH = "Настройки → Уведомления"
 BUSY_TELEGRAM = (
     "Этот Telegram уже привязан к другому аккаунту rekeeper. "
@@ -565,8 +567,6 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
         tg.bullet(tg.esc("личные напоминания о платежах будут приходить сюда")),
         tg.bullet(tg.esc("кнопка «Оплачено» в чате отдела записывает оплату на вас")),
     ]
-    if get_settings().assistant_configured:
-        lines.append(tg.bullet(tg.esc("сюда же можно писать Кипу, помощнику: «что горит на этой неделе?»")))
     return tg.compose("👋", f"Здравствуйте, {owner.full_name}!", lines)
 
 
@@ -580,3 +580,19 @@ def _display_name(sender: dict[str, Any]) -> str | None:
 
 def team_count(db: Session) -> int:
     return int(db.scalar(select(func.count()).select_from(Team)) or 0)
+
+
+def reply_private(bot: Any, message: dict[str, Any]) -> None:
+    """Любой текст или голосовое в личке: бот только уведомляет, Кип живёт в веб-версии."""
+    chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+    chat_id = chat.get("id")
+    if chat_id is None:
+        return
+    from app.integrations.email import public_url
+
+    url = public_url()
+    link = [f'<a href="{tg.esc(url)}">{tg.esc(url)}</a>'] if url else None
+    try:
+        bot.send_message(str(chat_id), tg.compose("🔔", "Это бот уведомлений rekeeper", [tg.esc(NOTIFY_ONLY)], link), {"inline_keyboard": []})
+    except TelegramError as exc:
+        log.warning("private reply failed (%s)", exc.description)

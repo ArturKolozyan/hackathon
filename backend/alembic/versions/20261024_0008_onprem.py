@@ -1,7 +1,7 @@
 """on-prem: владелец, отделы, периодичность, outbox, пульс бота
 
 Существующая команда остаётся отделом. Членство owner становится admin.
-Если OWNER_EMAIL или ADMIN_EMAIL совпадает с человеком — он владелец,
+Если OWNER_EMAIL совпадает с человеком — он владелец,
 пароль не трогаем. Иначе создаём владельца. Платежи, периоды и привязки
 Telegram не переписываются.
 """
@@ -84,9 +84,9 @@ def upgrade() -> None:
 
 
 def _promote_or_create_owner() -> None:
-    email = (os.environ.get("OWNER_EMAIL") or os.environ.get("ADMIN_EMAIL") or "").strip().lower()
-    password = os.environ.get("OWNER_PASSWORD") or os.environ.get("ADMIN_PASSWORD") or ""
-    name = (os.environ.get("OWNER_NAME") or os.environ.get("ADMIN_NAME") or "Владелец").strip() or "Владелец"
+    email = (os.environ.get("OWNER_EMAIL") or "").strip().lower()
+    password = os.environ.get("OWNER_PASSWORD") or ""
+    name = (os.environ.get("OWNER_NAME") or "Владелец").strip() or "Владелец"
     if "@" not in email or len(password) < 8:
         return
     bind = op.get_bind()

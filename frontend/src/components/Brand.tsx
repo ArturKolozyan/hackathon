@@ -5,7 +5,9 @@ import { THEMES, useTheme, type Theme } from "../theme";
 
 export function Wordmark({ to }: { to?: string }) {
   const { theme } = useTheme();
-  const src = theme === "dark" ? "/brand/rekeeper-dark.svg" : "/brand/rekeeper-light.svg";
+  // Ссылка-логотип живёт в сайдбаре; в «Аезе» он голубой, и «re» там белое.
+  const src =
+    theme === "dark" ? "/brand/rekeeper-dark.svg" : theme === "aeza" && to ? "/brand/rekeeper-aeza.svg" : "/brand/rekeeper-light.svg";
   const image = <img src={src} alt="rekeeper" />;
   if (to) {
     return (

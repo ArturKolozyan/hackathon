@@ -25,7 +25,7 @@ Swagger: http://localhost:8080/api/v1/docs
 
 | Кто | Почта | Пароль |
 |---|---|---|
-| Владелец | admin@invoice.local | change-me |
+| Владелец | owner@invoice.local | change-me |
 | Админ отдела | maria@invoice.local | change-me-user |
 | Пользователь | ivan@invoice.local | change-me-user |
 
@@ -85,8 +85,7 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 
 | Переменная | | Что включает |
 |---|---|---|
-| `POSTGRES_*`, `DATABASE_URL`, `SECRET_KEY`, `OWNER_EMAIL`, `OWNER_PASSWORD` | обязательны | база и владелец. `ADMIN_EMAIL` / `ADMIN_PASSWORD` — те же поля, если `OWNER_*` пустые |
-| `TIMEZONE` | обязательна | сроки и «сегодня», пока владелец не сохранил пояс в «Организации» |
+| `POSTGRES_*`, `DATABASE_URL`, `SECRET_KEY`, `OWNER_EMAIL`, `OWNER_PASSWORD` | обязательны | база и владелец — единственный человек из `.env` |
 | `OWNER_OVERDUE_COPY` | нет | копия просрочки владельцу, пока не переопределено в «Организации» |
 | `OWNER_RESET_PASSWORD` | нет | `true` на один запуск API записывает `OWNER_PASSWORD` текущему владельцу и пишет это в лог. Второго владельца не создаёт. После входа верните `false` |
 | `DOMAIN` | нет | пусто — HTTP. Задан — сертификат Let's Encrypt |
@@ -102,7 +101,7 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 | `TELEGRAM_CHAT_ID` | нет | запасной чат, только если отдел в базе один |
 | `SMTP_*`, `EMAIL_ENABLED` | нет | почта. Без `SMTP_HOST` коды сброса пишутся в лог API |
 | `WEBHOOK_*` | нет | webhook установки. Адрес отдела задаётся в панели |
-| `GIGACHAT_AUTH_KEY` и `COMPOSE_PROFILES=assistant` | нет | контейнер и помощник Кип в панели и в боте |
+| `GIGACHAT_AUTH_KEY` и `COMPOSE_PROFILES=assistant` | нет | контейнер и помощник Кип в панели (в Telegram его нет) |
 | `YANDEX_SPEECHKIT_API_KEY`, `YANDEX_FOLDER_ID` | нет | голос, только вместе с ассистентом |
 
 `COMPOSE_PROFILES` читает сам `docker compose` из `.env`. Отдельный флаг в команде запуска не нужен. Пустой профиль — контейнер `assistant` не создаётся и не крутится в рестартах.
@@ -133,7 +132,7 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 
 Запись в базу — только после «Подтвердить» и теми же функциями, что обычные эндпоинты (`create_payment`, `update_payment`, `confirm`). Роль проверяется ещё раз в этот момент.
 
-`GET /api/v1/features` говорит интерфейсу, включён ли ассистент и отвечает ли он. Если процесс упал или GigaChat молчит, панель и API кейса работают, чат пишет «Кип временно недоступен», бот отвечает то же.
+`GET /api/v1/features` говорит интерфейсу, включён ли ассистент и отвечает ли он. Если процесс упал или GigaChat молчит, панель и API кейса работают, чат пишет «Кип временно недоступен».
 
 ## Требование кейса → где сделано
 
@@ -141,7 +140,7 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 |---|---|
 | Вход, без сессии данные закрыты | `POST /api/v1/auth/login`, `GET /auth/me`, `POST /auth/logout` |
 | Список: сумма, валюта, срок, статус, дата оплаты, просрочка | инбокс и `GET /payment-occurrences` |
-| Админ из `.env`, пользователи через панель | владелец из `OWNER_*` / `ADMIN_*`, `GET/POST/PATCH/DELETE /users` |
+| Админ из `.env`, пользователи через панель | владелец из `OWNER_*`, `GET/POST/PATCH/DELETE /users` |
 | Учётку админа из env нельзя менять в панели | `PATCH/DELETE /users/{id}` для владельца → 403 |
 | Пользователь отмечает оплату и дату, границы есть в API | `PATCH /payment-occurrences/{id}`, `POST .../confirm`, `POST .../revoke` |
 | Напоминание за 3 дня: название, сумма, валюта, дата, без дублей | тумблеры «За 7 дней», «За 3 дня», «За 1 день», «О просрочке» в «Организации» (по умолчанию все включены), worker + outbox |
@@ -170,7 +169,7 @@ backup ── служебный pg_dump рядом, в продукт кейс�
 
 ```bash
 curl -s -c /tmp/cj -H 'Content-Type: application/json' \
-  -d '{"email":"admin@invoice.local","password":"change-me"}' \
+  -d '{"email":"owner@invoice.local","password":"change-me"}' \
   http://localhost:8080/api/v1/auth/login
 
 curl -s -b /tmp/cj http://localhost:8080/api/v1/auth/me

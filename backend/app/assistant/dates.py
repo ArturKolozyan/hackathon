@@ -88,3 +88,75 @@ def parse_explicit_start(text: str, today: date) -> date | None:
     year, month = extract_month(match.group(2), today)
     last = calendar.monthrange(year, month)[1]
     return date(year, month, min(day, last))
+
+
+_PERIODS = (
+    "today", "tomorrow", "yesterday", "this_week", "next_week", "last_week",
+    "this_month", "last_month", "next_month", "this_quarter", "last_quarter", "this_year", "last_year", "all",
+)
+
+
+def _month_span(year: int, month: int) -> tuple[date, date]:
+    return date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
+
+
+def _shift_month(year: int, month: int, delta: int) -> tuple[int, int]:
+    index = year * 12 + (month - 1) + delta
+    return index // 12, index % 12 + 1
+
+
+def resolve_period(period: str | None, today: date) -> tuple[date | None, date | None]:
+    """Ключ периода → границы включительно. Неизвестное — (None, None), значит без фильтра по дате."""
+    key = (period or "").strip().lower()
+    if not key or key == "all":
+        return None, None
+    if key == "today":
+        return today, today
+    if key == "tomorrow":
+        day = today + timedelta(days=1)
+        return day, day
+    if key == "yesterday":
+        day = today - timedelta(days=1)
+        return day, day
+    if key in {"this_week", "next_week", "last_week"}:
+        start, end = week_bounds(today)
+        shift = {"this_week": 0, "next_week": 7, "last_week": -7}[key]
+        return start + timedelta(days=shift), end + timedelta(days=shift)
+    if key in {"this_month", "last_month", "next_month"}:
+        delta = {"this_month": 0, "last_month": -1, "next_month": 1}[key]
+        return _month_span(*_shift_month(today.year, today.month, delta))
+    if key in {"this_quarter", "last_quarter"}:
+        first = ((today.month - 1) // 3) * 3 + 1
+        year, month = _shift_month(today.year, first, -3 if key == "last_quarter" else 0)
+        start, _ = _month_span(year, month)
+        _, end = _month_span(*_shift_month(year, month, 2))
+        return start, end
+    if key == "this_year":
+        return date(today.year, 1, 1), date(today.year, 12, 31)
+    if key == "last_year":
+        return date(today.year - 1, 1, 1), date(today.year - 1, 12, 31)
+    if re.fullmatch(r"\d{4}-\d{2}", key):
+        year, month = int(key[:4]), int(key[5:])
+        if 1 <= month <= 12:
+            return _month_span(year, month)
+    if re.fullmatch(r"\d{4}", key):
+        return date(int(key), 1, 1), date(int(key), 12, 31)
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", key):
+        try:
+            day = date.fromisoformat(key)
+        except ValueError:
+            return None, None
+        return day, day
+    return None, None
+
+
+def parse_day(value: object) -> date | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return date.fromisoformat(value.strip()[:10])
+    except ValueError:
+        return None
+
+
+WEEKDAYS = ("понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье")

@@ -22,7 +22,7 @@ web
 
 ## Operating Context
 
-Веб-кабинет и Telegram: чат команды плюс личка ответственного. Демо-вход `admin@invoice.local`. Живой адрес https://rekeeper.ru.
+Веб-кабинет и Telegram: чат команды плюс личка ответственного. Демо-вход `owner@invoice.local`. Живой адрес https://rekeeper.ru.
 
 ## Capabilities and Constraints
 

@@ -18,6 +18,9 @@ import { HintLayer } from "./components/Tooltip";
 import { ToastProvider } from "./components/ui";
 import { ThemeProvider } from "./theme";
 import "./styles.css";
+import { trackVisualViewport } from "./viewport";
+
+trackVisualViewport();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

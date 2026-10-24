@@ -1,6 +1,5 @@
 from sqlalchemy import func, select
 
-from app.assistant.gigachat import Completion, ToolCall
 from app.core.config import get_settings
 from app.models import RecurringPayment, Team
 from app.seed import seed
@@ -49,31 +48,26 @@ def _say(client, headers, text: str) -> dict:
     return response.json()
 
 
-def test_reads_come_from_the_database(client, db_session):
+def test_reads_come_from_the_database(client, db_session, monkeypatch):
+    from tests.kip_fake import FakeGigaChat, ToolCall, use
+
     seed(demo=True)
     headers = _headers(client, "admin@invoice.local", "change-me")
+    fake = use(monkeypatch, FakeGigaChat(ToolCall("query_operations", {"period": "this_week", "status": ["unpaid"], "include_rows": True}), "### На этой неделе\n\n- Подписка"))
     week = _say(client, headers, "Что горит на этой неделе?")
-    assert "Аренда офиса" in week["content"]
-    assert "Электричество" in week["content"]
-    assert "Сервер" not in week["content"]
-    assert "Подписка" not in week["content"]
+    rows = fake.function_results()[0]["rows"]
+    assert {row["title"] for row in rows} == {"Электричество"}
+    assert week["content"].startswith("### На этой неделе")
     assert week["action"] is None
-
-    overdue = _say(client, headers, "Что просрочено?")
-    assert overdue["content"].startswith("### Просрочено")
-    assert "999" not in overdue["content"]
-
-    september = _say(client, headers, "Сколько потратили за сентябрь?")
-    assert september["content"].startswith("### Сентябрь 2026")
-    assert "| EUR | 15\u00a0€ |" in september["content"]
-    assert "Ещё не оплачено" in september["content"]
 
     infra = db_session.scalar(select(Team).where(Team.name == "Инфраструктура"))
     assert infra is not None
-    who = _say(client, {**headers, "X-Team-Id": str(infra.id)}, "Кто ответственный за сервер?")
-    assert "Мария Соколова" in who["content"]
-    assert "Иван Петров" not in who["content"]
+    fake = use(monkeypatch, FakeGigaChat(ToolCall("get_payment", {"query": "сервер"}), "Мария Соколова"))
+    _say(client, {**headers, "X-Team-Id": str(infra.id)}, "Кто ответственный за сервер?")
+    card = fake.function_results()[0]
+    assert card["responsible"] == "Мария Соколова" and card["department"] == "Инфраструктура"
 
+    use(monkeypatch, FakeGigaChat("### Просрочено"))
     streamed = _assistant_call(
         client,
         "post",
@@ -88,6 +82,7 @@ def test_reads_come_from_the_database(client, db_session):
     history = _assistant_call(client, "get", "/api/v1/assistant/messages", headers=headers)
     assert history.status_code == 200
     assert len(history.json()) >= 4
+    get_settings.cache_clear()
 
 
 def test_create_waits_for_confirm_and_checks_role(client, db_session):
@@ -215,7 +210,9 @@ def test_member_cannot_confirm_a_forged_template_change(client, db_session):
     assert _count(db_session) == before
 
 
-def test_answers_and_history_follow_the_active_team(client, db_session):
+def test_answers_and_history_follow_the_active_team(client, db_session, monkeypatch):
+    from tests.kip_fake import FakeGigaChat, ToolCall, use
+
     seed(demo=True)
     token = _headers(client, "ivan@invoice.local", "change-me-user")
     studio_team = db_session.scalar(select(Team).where(Team.name == "Бухгалтерия"))
@@ -224,17 +221,22 @@ def test_answers_and_history_follow_the_active_team(client, db_session):
     studio_headers = {**token, "X-Team-Id": str(studio_team.id)}
     aeza_headers = {**token, "X-Team-Id": str(aeza.id)}
 
+    open_call = ToolCall("query_operations", {"status": ["unpaid"], "include_rows": True, "limit": 30})
+    fake = use(monkeypatch, FakeGigaChat(open_call, "Аренда офиса, Электричество"))
     studio = _say(client, studio_headers, "Покажи открытые платежи")
+    titles = {row["title"] for row in fake.function_results()[0]["rows"]}
+    assert "Аренда офиса" in titles and "Домен" not in titles
     assert "Аренда офиса" in studio["content"]
-    assert "Домен" not in studio["content"]
-    assert "Домен" not in studio["content"]
 
-    missing = _say(client, studio_headers, "Кто ответственный за домен?")
-    assert "не нашёл" in missing["content"].lower()
+    fake = use(monkeypatch, FakeGigaChat(ToolCall("get_payment", {"query": "домен", "department": "Бухгалтерия"}), "Не нашёл."))
+    _say(client, studio_headers, "Кто ответственный за домен?")
+    assert "error" in fake.function_results()[0]
 
-    other = _say(client, aeza_headers, "Покажи открытые платежи")
-    assert "Домен" in other["content"]
-    assert "Аренда офиса" not in other["content"]
+    fake = use(monkeypatch, FakeGigaChat(open_call, "Домен, Сервер"))
+    _say(client, aeza_headers, "Покажи открытые платежи")
+    titles = {row["title"] for row in fake.function_results()[0]["rows"]}
+    assert "Домен" in titles and "Аренда офиса" not in titles
+    get_settings.cache_clear()
 
     maria = _headers(client, "maria@invoice.local", "change-me-user")
     owned = _say(
@@ -287,41 +289,21 @@ def test_confirm_does_not_touch_another_teams_payment(client, db_session):
     assert f"{fresh.amount:.2f}" == "990.00"
 
 
-class _Scripted:
-    def __init__(self, completion: Completion) -> None:
-        self.completion = completion
-        self.calls = 0
+def test_tool_data_reaches_the_model_and_chat_can_be_cleared(client, db_session, monkeypatch):
+    from tests.kip_fake import FakeGigaChat, ToolCall, use
 
-    def complete(self, messages, functions=None):
-        self.calls += 1
-        self.messages = messages
-        assert functions
-        assert any(item["role"] == "system" for item in messages)
-        return self.completion
-
-
-def test_model_cannot_invent_numbers_and_tools_use_the_database(client, db_session, monkeypatch):
     seed(demo=True)
-    monkeypatch.setenv("GIGACHAT_AUTH_KEY", "test-key")
-    get_settings.cache_clear()
     headers = _headers(client, "admin@invoice.local", "change-me")
-    invented = _Scripted(Completion(content="Вы должны 999 рублей", tool_call=None, model="test"))
-    monkeypatch.setattr("app.assistant.chat.GigaChatClient", lambda *args, **kwargs: invented)
-    answer = _say(client, headers, "какая сумма висит на сервере")
-    assert "999" not in answer["content"]
-    assert invented.calls == 1
-
-    tool = _Scripted(Completion(content="вот 999", tool_call=ToolCall("list_overdue", {}), model="test"))
-    monkeypatch.setattr("app.assistant.chat.GigaChatClient", lambda *args, **kwargs: tool)
-    listed = _say(client, headers, "какая сумма висит на сервере")
-    assert "999" not in listed["content"]
-    assert "Просрочено" in listed["content"]
-    assert "Аренда офиса" in listed["content"]
-    system = next(item["content"] for item in invented.messages if item["role"] == "system")
-    assert "markdown" in system.lower()
+    fake = use(monkeypatch, FakeGigaChat(ToolCall("query_operations", {"status": ["overdue"]}), "### Просрочено\n\n- 4 счёта на 194 000 ₽"))
+    answer = _say(client, headers, "какая сумма висит")
+    assert fake.function_results()[0]["totals"][0]["sum"] == "194000.00"
+    assert "194 000" in answer["content"]
+    assert "markdown" in fake.system().lower()
     wiped = _assistant_call(client, "delete", "/api/v1/assistant/messages", headers=headers)
     assert wiped.status_code == 204, wiped.text
     history = _assistant_call(client, "get", "/api/v1/assistant/messages", headers=headers)
     assert history.status_code == 200
     assert history.json() == []
+    cleared = _say(client, headers, "очисти чат")
+    assert "очищен" in cleared["content"] and len(cleared["suggestions"]) == 3
     get_settings.cache_clear()

@@ -1,17 +1,19 @@
 """Инструменты ассистента: роль и отдел те же, что у REST, ответы из базы, действия только после подтверждения."""
 
+import json
+
 from sqlalchemy import select
 
 from app.assistant import tools
 from app.assistant.gigachat import Completion, ToolCall
 from app.core.config import get_settings
-from app.models import AssistantAction, Membership, PaymentOccurrence, RecurringPayment, Team, User
+from app.models import AssistantAction, PaymentOccurrence, RecurringPayment, User
 from app.seed import seed
 from app.services.access import resolve_team
 from app.services.teams import create_team
 from tests.test_assistant_api import _assistant_call, _headers, _say
 
-ADMIN_TOOLS = {"list_people", "propose_create_payment", "propose_update_payment", "propose_archive_payment"}
+ADMIN_TOOLS = {"list_people", "get_audit", "propose_create_payment", "propose_update_payment", "propose_archive_payment"}
 
 
 def _ctx(db, email: str):
@@ -44,7 +46,7 @@ def test_tools_follow_the_role(db_session):
     member = {item["name"] for item in tools.functions_for(_ctx(db_session, "ivan@invoice.local"))}
     admin = {item["name"] for item in tools.functions_for(_ctx(db_session, "maria@invoice.local"))}
     assert not member & ADMIN_TOOLS
-    assert {"list_overdue", "budget_status", "monthly_stats", "product_help", "propose_mark_paid", "propose_mark_unpaid"} <= member
+    assert {"query_operations", "get_payment", "get_budget", "product_help", "propose_mark_paid", "propose_mark_unpaid"} <= member
     assert ADMIN_TOOLS <= admin
     text, action = tools.run(db_session, _ctx(db_session, "ivan@invoice.local"), "list_people", {})
     assert text == tools.ADMIN_ONLY and action is None
@@ -77,12 +79,18 @@ def test_model_reads_only_departments_of_the_user(client, db_session, monkeypatc
     )
     assert created.status_code == 201, created.text
     headers = _headers(client, "ivan@invoice.local", "change-me-user")
-    _with_model(monkeypatch, ToolCall("payment_details", {"query": "Тайный сервер"}))
-    details = _say(client, headers, "что с тайным сервером")
-    assert "777" not in details["content"]
-    _with_model(monkeypatch, ToolCall("departments_stats", {}))
-    stats = _say(client, headers, "статистика по отделам")
-    assert "Закрытый" not in stats["content"] and "777" not in stats["content"]
+    from tests.kip_fake import FakeGigaChat, use
+
+    fake = use(monkeypatch, FakeGigaChat(ToolCall("get_payment", {"query": "Тайный сервер"}), "нет"))
+    _say(client, headers, "что с тайным сервером")
+    assert "777" not in json.dumps(fake.function_results(), ensure_ascii=False)
+    fake = use(monkeypatch, FakeGigaChat(ToolCall("query_operations", {"department": ["all"], "group_by": "department", "include_rows": True}), "ок"))
+    _say(client, headers, "статистика по отделам")
+    seen = json.dumps(fake.function_results(), ensure_ascii=False)
+    assert "Закрытый" not in seen and "777" not in seen
+    fake = use(monkeypatch, FakeGigaChat(ToolCall("get_budget", {"department": "Закрытый"}), "нет доступа"))
+    _say(client, headers, "бюджет Закрытого")
+    assert fake.function_results()[0]["denied"] == ["Закрытый"]
     forced = _assistant_call(
         client,
         "post",
@@ -113,18 +121,20 @@ def test_mark_unpaid_needs_confirmation(client, db_session):
 
 def test_reads_are_structured(client, db_session):
     seed(demo=True)
+    admin_ctx = _ctx(db_session, "admin@invoice.local")
+    member_ctx = _ctx(db_session, "ivan@invoice.local")
     admin = _headers(client, "admin@invoice.local", "change-me")
     assert _say(client, admin, "Что вы умеете?")["content"].startswith("### Чем могу помочь")
-    budget = _say(client, admin, "бюджет на октябрь")["content"]
-    assert budget.startswith("### Бюджет: октябрь 2026") and "| Валюта | План |" in budget
-    stats = _say(client, admin, "статистика за 3 месяца")["content"]
-    assert "| Месяц |" in stats and "Сентябрь 2026" in stats
-    people = _say(client, admin, "кто в отделе")["content"]
-    assert people.startswith("### Люди отдела") and "Иван Петров" in people
-    how = _say(client, admin, "как выгрузить CSV?")["content"]
-    assert how.startswith("### Выгрузка CSV") and "«Выгрузить CSV»" in how
-    member = _headers(client, "ivan@invoice.local", "change-me-user")
-    assert _say(client, member, "кто в отделе")["content"] == tools.ADMIN_ONLY
-    own = {row.team.name for row in db_session.scalars(select(Membership).join(Team)).all() if row.user.email == "ivan@invoice.local"}
-    table = _say(client, member, "статистика по отделам")["content"]
-    assert all(name in table for name in own)
+    budget, _ = tools.call(tools.Turn(db_session, admin_ctx), "get_budget", {"period": "2026-10"})
+    line = budget["departments"][0]["lines"][0]
+    assert line["currency"] == "RUB" and line["plan"] == "200000.00" and "left" in line
+    people, _ = tools.call(tools.Turn(db_session, admin_ctx), "list_people", {})
+    assert "Иван Петров" in {row["name"] for row in people["departments"][0]["people"]}
+    how, _ = tools.call(tools.Turn(db_session, member_ctx), "product_help", {"topic": "как выгрузить CSV?"})
+    assert how["markdown"].startswith("### История и выгрузка CSV") and "«Выгрузить CSV»" in how["markdown"]
+    denied, card = tools.call(tools.Turn(db_session, member_ctx), "list_people", {})
+    assert denied == {"denied_role": tools.ADMIN_ONLY} and card is None
+    audit, _ = tools.call(tools.Turn(db_session, admin_ctx), "get_audit", {"period": "today"})
+    assert "rows" in audit
+    payment, _ = tools.call(tools.Turn(db_session, member_ctx), "get_payment", {"query": "аренда"})
+    assert payment["title"] == "Аренда офиса" and payment["periods"]

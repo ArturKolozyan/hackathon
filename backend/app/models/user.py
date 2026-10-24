@@ -35,7 +35,7 @@ class User(Base):
     telegram_test_error: Mapped[str | None] = mapped_column(String(200), nullable=True)
     email_reminders: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     email_scope_set: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    # Владелец установки. Ровно один. Задаётся OWNER_EMAIL / ADMIN_EMAIL, не членством.
+    # Владелец установки. Ровно один. Задаётся OWNER_EMAIL, не членством.
     is_owner: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     must_change_password: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     telegram_onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")

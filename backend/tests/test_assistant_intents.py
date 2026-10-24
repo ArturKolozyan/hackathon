@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.assistant.dates import extract_month, first_due, week_bounds
+from app.assistant.dates import extract_month, first_due, resolve_period, week_bounds
 from app.assistant.intents import parse_intent
 
 TODAY = date(2026, 10, 23)
@@ -31,23 +31,40 @@ def test_first_due_skips_a_day_already_passed():
     assert first_due(TODAY, 26) == date(2026, 10, 26)
 
 
-def test_read_phrases():
-    assert _kind("Что горит на этой неделе?") == "week"
-    assert _kind("Что нужно оплатить на этой неделе?") == "week"
-    assert _kind("Что просрочено?") == "overdue"
-    assert _kind("Какие платежи просрочены?") == "overdue"
-    assert _kind("Сколько потратили за месяц?") == "spending"
-    assert _kind("Сколько потратили по валютам?") == "spending"
-    assert _kind("Расходы за этот месяц по валютам") == "spending"
-    assert _kind("Покажи открытые платежи") == "open"
-    assert _kind("Что уже оплачено за сентябрь?") == "paid_month"
-    september = parse_intent("Сколько потратили за сентябрь?", TODAY)
-    assert september is not None
-    assert september.slots["month"] == 9
-    assert _kind("Кто ответственный за сервер?") == "responsible"
-    assert _kind("Кто платит за аренду?") == "responsible"
-    assert _kind("Кто отвечает за подписку?") == "responsible"
-    assert _kind("Что у Марии?") == "person"
+def test_questions_go_to_the_model():
+    """Вопросы больше не перехватываются регулярками: их разбирает модель с инструментами."""
+    for text in (
+        "Что горит на этой неделе?",
+        "Что просрочено?",
+        "Сколько потратили за сентябрь?",
+        "Покажи открытые платежи",
+        "Кто ответственный за сервер?",
+        "Что у Марии?",
+        "Как работают напоминания?",
+        "Привет подскажи какие у нас операции были за прошлый месяц или сколько было просрочек",
+        "Что я могу делать как участник?",
+        "Что оплачено за сентябрь?",
+    ):
+        assert parse_intent(text, TODAY) is None, text
+
+
+def test_explicit_commands_stay_commands():
+    assert _kind("Что вы умеете?") == "capabilities"
+    assert _kind("очисти чат") == "clear"
+    assert _kind("Отметь сервер оплаченным") == "mark_paid"
+    assert _kind("верни аренду в неоплаченные") == "mark_unpaid"
+
+
+def test_resolve_period():
+    assert resolve_period("tomorrow", TODAY) == (date(2026, 10, 24), date(2026, 10, 24))
+    assert resolve_period("last_month", TODAY) == (date(2026, 9, 1), date(2026, 9, 30))
+    assert resolve_period("this_week", TODAY) == (date(2026, 10, 19), date(2026, 10, 25))
+    assert resolve_period("next_month", date(2026, 12, 5)) == (date(2027, 1, 1), date(2027, 1, 31))
+    assert resolve_period("last_year", TODAY) == (date(2025, 1, 1), date(2025, 12, 31))
+    assert resolve_period("2025-12", TODAY) == (date(2025, 12, 1), date(2025, 12, 31))
+    assert resolve_period("last_quarter", TODAY) == (date(2026, 7, 1), date(2026, 9, 30))
+    assert resolve_period("2026-10-27", TODAY) == (date(2026, 10, 27), date(2026, 10, 27))
+    assert resolve_period("", TODAY) == (None, None)
 
 
 def test_mutation_phrases_extract_slots_and_do_not_execute():
@@ -110,9 +127,3 @@ def test_incomplete_and_unsupported_do_not_look_like_chat():
     vague = parse_intent("Отметь оплаченным", TODAY)
     assert vague is not None and vague.kind == "clarify"
     assert parse_intent("Привет", TODAY) is None
-
-
-def test_responsible_query_drops_punctuation():
-    intent = parse_intent("Кто ответственный за сервер?", TODAY)
-    assert intent is not None
-    assert intent.slots["query"] == "сервер"

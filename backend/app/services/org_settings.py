@@ -1,4 +1,4 @@
-"""Настройки организации. Нет строки — часовой пояс и копия владельцу из .env, напоминания по умолчанию."""
+"""Настройки организации. Нет строки — пояс Москвы, копия владельцу из .env, напоминания по умолчанию."""
 
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, get_settings
+from app.core.timezones import CIS_TIMEZONES, DEFAULT_TIMEZONE
 from app.models.organization import OrganizationSettings
 from app.services import time as clock
 from app.services.reminders import DEFAULT_OFFSETS, REMINDER_CHOICES
@@ -40,7 +41,7 @@ def format_reminder_days(days: tuple[int, ...]) -> str:
 
 def _from_env(settings: Settings) -> OrgConfig:
     return OrgConfig(
-        timezone=settings.timezone,
+        timezone=DEFAULT_TIMEZONE,
         reminder_days=DEFAULT_OFFSETS,
         overdue_reminders=True,
         owner_overdue_copy=settings.owner_overdue_copy,
@@ -104,6 +105,8 @@ def save_org(
 ) -> OrgConfig:
     current = load_org(db)
     zone_name = (timezone or current.timezone).strip()
+    if timezone is not None and zone_name not in CIS_TIMEZONES:
+        raise HTTPException(status_code=422, detail="Выберите часовой пояс из списка")
     try:
         ZoneInfo(zone_name)
     except ZoneInfoNotFoundError:

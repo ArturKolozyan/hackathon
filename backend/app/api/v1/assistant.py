@@ -6,12 +6,13 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.assistant.actions import apply_patch, load_own, perform
+from app.assistant import suggestions as hints
 from app.assistant.chat import chunk_text, clear_messages, list_messages, run_turn
 from app.assistant.speech import SpeechError, recognize
 from app.core.database import get_db
 from app.core.deps import get_team_context
 from app.models import AssistantMessage
-from app.schemas.assistant import ActionOut, ActionPatch, ConfirmOut, MessageIn, MessageOut, SpeechOut
+from app.schemas.assistant import ActionOut, ActionPatch, ConfirmOut, MessageIn, MessageOut, SpeechOut, SuggestionsOut
 from app.services.access import TeamContext
 
 router = APIRouter(prefix="/assistant", tags=["assistant"])
@@ -35,6 +36,11 @@ def history(
 ) -> list[MessageOut]:
     bounded = min(max(limit, 1), 200)
     return [_message_out(row) for row in list_messages(db, ctx, bounded)]
+
+
+@router.get("/suggestions", response_model=SuggestionsOut, summary="Стартовые подсказки Кипа")
+def start_suggestions(ctx: TeamContext = Depends(get_team_context)) -> SuggestionsOut:
+    return SuggestionsOut(suggestions=hints.defaults(ctx.role))
 
 
 @router.delete("/messages", status_code=204, summary="Очистить чат отдела")
@@ -79,6 +85,7 @@ def confirm_action(
 ) -> ConfirmOut:
     action = load_own(db, ctx, action_id)
     message = perform(db, ctx, action)
+    message.suggestions = hints.defaults(ctx.role)
     db.refresh(action)
     return ConfirmOut(message=_message_out(message), action=ActionOut.model_validate(action))
 

@@ -3,7 +3,6 @@
 import pytest
 from sqlalchemy import select
 
-from app.assistant.telegram_bridge import OFF, UNAVAILABLE, handle_private_message
 from app.core.config import get_settings
 from app.models import NotificationDelivery, User
 from app.seed import seed
@@ -158,20 +157,20 @@ def test_public_config_hides_passwords_until_asked(client, monkeypatch):
         {"label": "Владелец", "email": "owner@invoice.local", "password": "owner-secret"}
     ]
 
-    monkeypatch.delenv("OWNER_EMAIL", raising=False)
-    monkeypatch.delenv("OWNER_PASSWORD", raising=False)
+    monkeypatch.setenv("OWNER_EMAIL", "admin@invoice.local")
+    monkeypatch.setenv("OWNER_PASSWORD", "change-me")
     monkeypatch.setenv("SEED_DEMO", "true")
     get_settings.cache_clear()
     try:
-        aliased = client.get("/api/v1/public-config").json()
+        with_demo = client.get("/api/v1/public-config").json()
     finally:
         get_settings.cache_clear()
-    assert aliased["accounts"][0] == {
+    assert with_demo["accounts"][0] == {
         "label": "Владелец",
         "email": "admin@invoice.local",
         "password": "change-me",
     }
-    assert aliased["accounts"][1:] == [
+    assert with_demo["accounts"][1:] == [
         {"label": "Пользователь", "email": "ivan@invoice.local", "password": "change-me-user"},
         {"label": "Админ отдела", "email": "maria@invoice.local", "password": "change-me-user"},
     ]
@@ -192,38 +191,29 @@ def test_features_report_assistant_down(client, db_session, monkeypatch):
     assert body.json()["assistant_available"] is False
 
 
-def test_bot_says_off_or_unavailable(db_session, monkeypatch):
-    seed(demo=True)
-    user = db_session.scalar(select(User).where(User.email == "ivan@invoice.local"))
-    assert user is not None
-    user.telegram_user_id = 42
-    db_session.commit()
-
-    class Bot:
-        def __init__(self) -> None:
-            self.sent: list[str] = []
-
-        def send_message(self, chat_id, text, reply_markup):
-            self.sent.append(text)
-            return 1
-
-    monkeypatch.delenv("GIGACHAT_AUTH_KEY", raising=False)
-    monkeypatch.setenv("GIGACHAT_AUTH_KEY", "")
-    get_settings.cache_clear()
-    bot = Bot()
-    handle_private_message(db_session, bot, {"text": "что горит", "chat": {"id": 42, "type": "private"}, "from": {"id": 42}})
-    assert bot.sent[-1] == OFF
+def test_bot_points_free_text_to_web(db_session, monkeypatch):
+    """Кип только в веб-версии: на любой текст в личке бот отвечает ссылкой, ассистента не зовёт."""
+    from app.services.telegram_links import NOTIFY_ONLY, OLD_ASSISTANT_BUTTON
+    from app.services.telegram_updates import handle_update
 
     monkeypatch.setenv("GIGACHAT_AUTH_KEY", "present")
-    monkeypatch.setenv("ASSISTANT_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("APP_PUBLIC_URL", "https://rekeeper.ru")
     get_settings.cache_clear()
+    bot = FakeBot()
     try:
-        handle_private_message(
-            db_session, bot, {"text": "что горит", "chat": {"id": 42, "type": "private"}, "from": {"id": 42}}
+        handle_update(db_session, bot, {"message": {"text": "что горит", "chat": {"id": 42, "type": "private"}, "from": {"id": 42}}})
+        handle_update(db_session, bot, {"message": {"voice": {"file_id": "x"}, "chat": {"id": 42, "type": "private"}, "from": {"id": 42}}})
+        handle_update(db_session, bot, {"message": {"text": "что горит", "chat": {"id": -100, "type": "group"}, "from": {"id": 42}}})
+        handle_update(
+            db_session,
+            bot,
+            {"callback_query": {"id": "c1", "data": "asst:ok:00000000-0000-0000-0000-000000000000", "message": {"chat": {"id": 42, "type": "private"}}}},
         )
     finally:
         get_settings.cache_clear()
-    assert bot.sent[-1] == UNAVAILABLE
+    assert [item["chat_id"] for item in bot.sent] == ["42", "42"]
+    assert all(NOTIFY_ONLY.split(".")[0] in item["text"] and 'href="https://rekeeper.ru"' in item["text"] for item in bot.sent)
+    assert bot.answers[-1][1] == OLD_ASSISTANT_BUTTON
 
 
 def test_dispatch_does_not_call_telegram(db_session, monkeypatch):

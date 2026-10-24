@@ -260,22 +260,6 @@ class TelegramClient:
             payload["show_alert"] = True
         self._call("answerCallbackQuery", payload, read_timeout=20)
 
-    def download_voice(self, file_id: str) -> bytes:
-        """Файл голосового. URL с токеном в лог не пишем."""
-        self._ensure_network()
-        result = self._call("getFile", {"file_id": file_id}, read_timeout=20)
-        path = result.get("file_path") if isinstance(result, dict) else None
-        if not isinstance(path, str) or not path or path.startswith("/") or ".." in path:
-            raise TelegramError("getFile", "no file_path")
-        url = f"https://{API_HOST}/file/bot{self._token}/{path}"
-        timeout = httpx.Timeout(connect=10.0, read=20.0, write=10.0, pool=10.0)
-        try:
-            response = self._http.get(url, timeout=timeout)
-        except httpx.HTTPError as exc:
-            raise TelegramError("getFile", _net_reason(exc)) from None
-        if response.status_code >= 400 or not response.content:
-            raise TelegramError("getFile", "download failed", response.status_code)
-        return response.content
 
 
 def deliver(text: str, *, chat_id: str, occurrence_id: str, event: str, slot: str = "team") -> None:

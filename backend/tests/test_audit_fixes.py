@@ -168,18 +168,20 @@ def test_patch_with_nulls_is_422(client, db_session):
 
 def test_organization_timezone_drives_paid_dates(client, db_session):
     headers = _owner(client)
-    assert client.patch("/api/v1/organization", headers=headers, json={"timezone": "Asia/Tokyo"}).status_code == 200
+    assert client.patch("/api/v1/organization", headers=headers, json={"timezone": "Asia/Yakutsk"}).status_code == 200
     created = _create(client, headers, next_date="2026-10-20")
     october = next(item for item in _periods(client, headers, created["id"]) if item["period"] == "2026-10")
     paid = client.post(
         f"/api/v1/payment-occurrences/{october['id']}/confirm", headers=headers, json={"paid_at": "2026-10-20T20:30:00+00:00"}
     )
     assert paid.status_code == 200, paid.text
-    # 20:30 UTC — в Москве ещё 20-е, в Токио уже 21 октября: оплата с опозданием на день.
+    # 20:30 UTC — в Москве ещё 20-е, в Якутске уже 21 октября: оплата с опозданием на день.
     assert paid.json()["paid_on"] == "2026-10-21"
     assert paid.json()["lateness_days"] == 1
     listed = client.get("/api/v1/payment-occurrences?view=history", headers=headers).json()
-    assert listed["timezone"] == "Asia/Tokyo"
+    assert listed["timezone"] == "Asia/Yakutsk"
+    rejected = client.patch("/api/v1/organization", headers=headers, json={"timezone": "Asia/Tokyo"})
+    assert rejected.status_code == 422
 
 
 def test_broken_team_webhook_backs_off_and_gives_up(client, db_session, monkeypatch):

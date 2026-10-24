@@ -18,7 +18,7 @@ router = APIRouter(prefix="/payments", tags=["payments"])
 def summary(
     as_of: date | None = Query(
         default=None,
-        description="Итоги на конец этого дня в TIMEZONE. Без параметра — текущий момент.",
+        description="Итоги на конец этого дня в часовом поясе организации. Без параметра — текущий момент.",
     ),
     ctx: TeamContext = Depends(get_team_context),
     db: Session = Depends(get_db),

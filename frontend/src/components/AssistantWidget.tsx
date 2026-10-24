@@ -20,8 +20,16 @@ import { RubHint } from "../rates";
 import { Kip, type KipState } from "./Kip";
 
 const MAX_SECONDS = 25;
-const SUGGESTIONS = ["Что просрочено?", "Итоги за месяц", "Как приложить чек?"];
-const MANAGER_SUGGESTIONS = [...SUGGESTIONS, "Кто в отделе?"];
+// Стартовые подсказки, пока не пришли с сервера (GET /assistant/suggestions). Ровно три, в рамках роли.
+const START_MEMBER = ["Что оплатить на этой неделе?", "Средний чек за прошлый месяц", "Сколько долга в рублях?"];
+const START_ADMIN = ["Что оплатить завтра?", "Средний чек за прошлый месяц", "Кто что менял сегодня?"];
+const START_OWNER = ["Сравни отделы за этот месяц", "Средний чек за прошлый месяц", "Сколько долга в рублях?"];
+
+function greeting(fullName: string | undefined): string {
+  const first = (fullName ?? "").trim().split(/\s+/)[0];
+  const hello = first ? `Привет, ${first}!` : "Привет!";
+  return `${hello} Я Кип, твой ассистент по rekeeper. Спрашивай про платежи, суммы, сроки и настройки, я готов помочь`;
+}
 
 type Draft = {
   title: string;
@@ -80,6 +88,8 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
   const features = useFeatures();
   const teamId = user?.active_team_id ?? "";
   const manager = canManage(user);
+  const fallbackStarters = user?.is_owner ? START_OWNER : manager ? START_ADMIN : START_MEMBER;
+  const [starters, setStarters] = useState<string[]>(fallbackStarters);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +131,12 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
     setReady(false);
     setError(null);
     setMessages([]);
+    setStarters(fallbackStarters);
+    api<{ suggestions: string[] }>("/api/v1/assistant/suggestions")
+      .then((data) => {
+        if (!cancelled && data.suggestions?.length === 3) setStarters(data.suggestions);
+      })
+      .catch(() => undefined);
     api<AssistantMessage[]>("/api/v1/assistant/messages")
       .then((rows) => {
         if (!cancelled) setMessages(rows);
@@ -437,7 +453,10 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
 
   const available = features.assistant && features.assistant_available;
   const kipState: KipState = pending && !live ? "thinking" : live ? "talking" : happy ? "happy" : "idle";
-  const suggestions = manager ? MANAGER_SUGGESTIONS : SUGGESTIONS;
+  const lastMessage = messages[messages.length - 1];
+  // Ровно три подсказки всегда: после ответа — его follow-up, иначе стартовые по роли.
+  const chips =
+    lastMessage?.role === "assistant" && lastMessage.suggestions?.length === 3 ? lastMessage.suggestions : starters;
   const canSend = Boolean(draft.trim()) && !pending && !transcribing;
 
   return (
@@ -452,7 +471,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
           data-hint={HINTS.assistant}
           onClick={() => onOpenChange(true)}
         >
-          <Kip state={kipState} size={46} />
+          <Kip state={kipState} size={72} />
           <span className="sr-only">Открыть Кипа, помощника</span>
         </button>
       )}
@@ -532,20 +551,11 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
           ) : (
             <>
               <div className="chat-log" ref={logRef} aria-live="polite">
-                {messages.length === 0 && !live && !pending && (
-                  <div className="chat-empty">
-                    <Kip state={kipState} size={104} />
-                    <p className="chat-greet">Привет! Я Кип, помогу разобраться в продукте</p>
-                    <p>
-                      Подскажу, что просрочено и сколько платим, отмечу оплату или заведу платёж. В базу всё попадёт только после
-                      вашего «Подтвердить».
-                    </p>
-                    <div className="chat-suggest">
-                      {suggestions.map((prompt) => (
-                        <button key={prompt} type="button" data-hint={HINTS.chatSuggest} onClick={() => void send(prompt)}>
-                          {prompt}
-                        </button>
-                      ))}
+                {messages.length === 0 && (
+                  <div className="msg msg-assistant chat-hello">
+                    <Kip state={kipState} size={36} className="msg-avatar" />
+                    <div className="bubble assistant-bubble">
+                      <MarkdownMessage text={greeting(user?.full_name)} />
                     </div>
                   </div>
                 )}
@@ -573,7 +583,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                 ))}
                 {live && (
                   <div className="msg msg-assistant">
-                    <Kip state="talking" size={28} className="msg-avatar" />
+                    <Kip state="talking" size={36} className="msg-avatar" />
                     <div className="bubble assistant-bubble">
                       <MarkdownMessage text={live} />
                       <span className="caret" aria-hidden="true" />
@@ -582,7 +592,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                 )}
                 {pending && !live && (
                   <div className="msg msg-assistant">
-                    <Kip state="thinking" size={28} className="msg-avatar" />
+                    <Kip state="thinking" size={36} className="msg-avatar" />
                     <div className="typing" role="status" aria-label="Кип думает">
                       <span />
                       <span />
@@ -591,6 +601,15 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                   </div>
                 )}
               </div>
+              {!pending && !recording && !transcribing && (
+                <div className="chat-chips" role="group" aria-label="Подсказки">
+                  {chips.slice(0, 3).map((prompt) => (
+                    <button key={prompt} type="button" className="chip" data-hint={HINTS.chatSuggest} onClick={() => void send(prompt)}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              )}
               {error && (
                 <p className="error chat-error" role="alert">
                   {error}
@@ -692,7 +711,7 @@ function MessageView({
   if (!action || action.status === "cancelled") {
     return (
       <div className="msg msg-assistant">
-<Kip quiet size={28} className="msg-avatar" />
+<Kip quiet size={36} className="msg-avatar" />
         <div className="bubble assistant-bubble">
           <MarkdownMessage text={message.content} />
         </div>
@@ -704,7 +723,7 @@ function MessageView({
   const body = action.status === "pending" ? action.summary : message.content;
   return (
     <div className="msg msg-assistant">
-<Kip quiet size={28} className="msg-avatar" />
+<Kip quiet size={36} className="msg-avatar" />
       <article className="card assistant-card">
         <MarkdownMessage text={body} />
         {pendingCard && editing && form && <EditForm action={action} form={form} onForm={onForm} />}

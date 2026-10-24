@@ -292,7 +292,7 @@ def _apply_receipt(occurrence: PaymentOccurrence, data: dict) -> list[str]:
     description=(
         "Веб: paid_by — текущий пользователь. "
         "Кнопка «Оплачено» в Telegram этот метод не вызывает; worker пишет тот же paid_at "
-        "(сейчас в TIMEZONE) и paid_by того пользователя rekeeper, чей Telegram нажал."
+        "(сейчас в часовом поясе организации) и paid_by того пользователя rekeeper, чей Telegram нажал."
     ),
 )
 def confirm(

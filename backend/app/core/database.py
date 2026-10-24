@@ -27,7 +27,7 @@ def _org_timezone() -> str | None:
         with SessionLocal() as db:
             return load_org(db).timezone
     except SQLAlchemyError:
-        # База недоступна: health ответит сам, пояс берётся из .env.
+        # База недоступна: health ответит сам, пояс по умолчанию — Москва.
         return None
 
 

@@ -3,9 +3,9 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 os.environ["SECRET_KEY"] = "test-secret-key"
-os.environ["ADMIN_EMAIL"] = "admin@invoice.local"
-os.environ["ADMIN_PASSWORD"] = "change-me"
-os.environ["ADMIN_NAME"] = "Админ"
+os.environ["OWNER_EMAIL"] = "admin@invoice.local"
+os.environ["OWNER_PASSWORD"] = "change-me"
+os.environ["OWNER_NAME"] = "Админ"
 os.environ["DEMO_USER_EMAIL"] = "ivan@invoice.local"
 os.environ["DEMO_USER_NAME"] = "Иван Петров"
 os.environ["DEMO_USER_TWO_EMAIL"] = "maria@invoice.local"

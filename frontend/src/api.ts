@@ -365,6 +365,8 @@ export type AssistantMessage = {
   content: string;
   created_at: string;
   action: AssistantAction | null;
+  /** Три вопроса-подсказки под свежим ответом Кипа; в истории пусто. */
+  suggestions?: string[];
 };
 
 export type Stats = {

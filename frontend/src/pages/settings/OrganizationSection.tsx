@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type OrganizationSettings } from "../../api";
-import { RowInput, SettingGroup, SettingRow, SwitchRow } from "../../components/SettingRow";
-import { ErrorState, LoadingBlock, SaveStatus, useDebounced, useSaveState } from "../../components/ui";
+import { SettingGroup, SettingRow, SwitchRow } from "../../components/SettingRow";
+import { TimezoneField } from "../../components/TimezoneField";
+import { ErrorState, LoadingBlock, SaveStatus, useSaveState } from "../../components/ui";
 import { useFresh } from "../../fresh";
 
 type ToggleKey = "remind_7_days" | "remind_3_days" | "remind_1_day" | "remind_overdue";
@@ -13,29 +14,15 @@ const SCHEDULE: { key: ToggleKey; title: string; description: string }[] = [
   { key: "remind_overdue", title: "О просрочке", description: "Каждый день, начиная со следующего после срока, пока платёж не оплачен" },
 ];
 
-function timezoneError(raw: string): string | null {
-  const value = raw.trim();
-  if (!value) return "Укажите часовой пояс, например Europe/Moscow";
-  try {
-    new Intl.DateTimeFormat("ru-RU", { timeZone: value });
-    return null;
-  } catch {
-    return "Такого часового пояса нет. Пример: Europe/Moscow";
-  }
-}
-
 /** Owner-only organization settings, saved instantly (no «Сохранить»). */
 export function OrganizationSection() {
   const [saved, setSaved] = useState<OrganizationSettings | null>(null);
-  const [timezone, setTimezone] = useState("");
-  const [tzError, setTzError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const save = useSaveState();
   const schedSave = useSaveState();
 
   const apply = useCallback((next: OrganizationSettings) => {
     setSaved(next);
-    setTimezone(next.timezone);
   }, []);
 
   const fresh = useFresh();
@@ -51,21 +38,13 @@ export function OrganizationSection() {
     setSaved(await api<OrganizationSettings>("/api/v1/organization", { method: "PATCH", body: JSON.stringify(body) }));
   }
 
-  function commitTimezone(raw: string) {
-    const problem = timezoneError(raw);
-    setTzError(problem);
-    if (problem || !saved || raw.trim() === saved.timezone) return;
-    void save.run(async () => {
-      try {
-        await patch({ timezone: raw.trim() });
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 422) setTzError(err.message);
-        throw err;
-      }
-    });
+  /** Пояс сохраняется сразу после выбора; если сервер откажет, вернётся прежний. */
+  function chooseTimezone(zone: string) {
+    if (!saved || zone === saved.timezone) return;
+    const before = saved;
+    setSaved({ ...saved, timezone: zone });
+    void save.run(() => patch({ timezone: zone }), () => setSaved(before));
   }
-
-  const tzSaver = useDebounced<string>(commitTimezone, 600);
 
   /** Optimistic toggle: flip now, roll back if the server refuses. */
   function toggle(key: ToggleKey | "owner_overdue_copy", next: boolean, state: typeof save) {
@@ -87,21 +66,8 @@ export function OrganizationSection() {
           title="Часовой пояс"
           description="По нему считаются сроки и время напоминаний"
           htmlFor="org-tz"
-          error={tzError}
-          control={
-            <RowInput
-              id="org-tz"
-              value={timezone}
-              placeholder="Europe/Moscow"
-              invalid={Boolean(tzError)}
-              onChange={(raw) => {
-                setTimezone(raw);
-                if (tzError) setTzError(timezoneError(raw));
-                tzSaver.schedule(raw);
-              }}
-              onBlur={() => tzSaver.flush()}
-            />
-          }
+          wide
+          control={<TimezoneField id="org-tz" value={saved.timezone} onChange={chooseTimezone} />}
         />
         <SwitchRow
           title="Копия просрочки владельцу"

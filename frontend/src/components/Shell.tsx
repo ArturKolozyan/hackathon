@@ -22,6 +22,7 @@ import { initials } from "../format";
 import { HINTS, NAV_HINTS } from "../hints";
 import { useMediaQuery } from "../useMediaQuery";
 import { AssistantWidget } from "./AssistantWidget";
+import { BottomNav } from "./BottomNav";
 import { TeamMark, ThemeSwitch, Wordmark } from "./Brand";
 import { SelectField } from "./fields";
 import { PageControlsSlot } from "./PageControls";
@@ -79,6 +80,7 @@ function ShellView() {
   const [slot, setSlot] = useState<HTMLDivElement | null>(null);
   const navRef = useRef<HTMLElement>(null);
   const burgerRef = useRef<HTMLButtonElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const manage = canManage(user);
   const role = roleOf(user);
 
@@ -92,11 +94,29 @@ function ShellView() {
 
   useEffect(() => {
     if (!menuOpen) return;
-    navRef.current?.querySelector<HTMLElement>("a.active, a, button")?.focus();
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    /* inert снимается эффектом ниже, но фокус нужен сразу. */
+    navRef.current?.removeAttribute("inert");
+    (navRef.current?.querySelector<HTMLElement>(".nav a.active") ?? navRef.current?.querySelector<HTMLElement>("a, button"))?.focus();
     function onKey(event: KeyboardEvent) {
+      if (event.key === "Tab") {
+        /* Фокус не уходит из открытого меню. */
+        const nodes = [...(navRef.current?.querySelectorAll<HTMLElement>("a[href], button:not(:disabled)") ?? [])];
+        if (nodes.length === 0) return;
+        const first = nodes[0];
+        const last = nodes[nodes.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
       if (event.key !== "Escape") return;
       setMenuOpen(false);
-      burgerRef.current?.focus();
+      (opener && opener.isConnected ? opener : burgerRef.current)?.focus();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -130,7 +150,8 @@ function ShellView() {
 
   useEffect(() => {
     navRef.current?.toggleAttribute("inert", drawerHidden);
-  }, [drawerHidden]);
+    workspaceRef.current?.toggleAttribute("inert", menuOpen);
+  }, [drawerHidden, menuOpen]);
 
   const section = sectionOf(location.pathname);
 
@@ -145,6 +166,8 @@ function ShellView() {
         id="app-nav"
         className={menuOpen ? "sidebar is-open" : "sidebar"}
         aria-label="Боковое меню"
+        role={collapsed ? "dialog" : undefined}
+        aria-modal={menuOpen || undefined}
         aria-hidden={drawerHidden || undefined}
       >
         <div className="sidebar-head">
@@ -205,7 +228,7 @@ function ShellView() {
           <TeamMark />
         </div>
       </aside>
-      <div className="workspace">
+      <div className="workspace" ref={workspaceRef}>
         <header className="topbar">
           {collapsed && (
             <>
@@ -231,6 +254,7 @@ function ShellView() {
             <Outlet key={user?.active_team_id ?? "none"} />
           </PageControlsSlot>
         </main>
+        {collapsed && <BottomNav menuOpen={menuOpen} onMore={() => setMenuOpen(true)} />}
       </div>
       {features.loaded && features.assistant && <AssistantWidget open={chatOpen} onOpenChange={setChatOpen} />}
     </div>

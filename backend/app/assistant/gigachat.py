@@ -40,6 +40,7 @@ class GigaChatError(Exception):
 class ToolCall:
     name: str
     arguments: dict[str, Any]
+    state_id: str | None = None
 
 
 @dataclass
@@ -122,7 +123,12 @@ def _message_of(payload: dict[str, Any]) -> tuple[str, ToolCall | None]:
     call = message.get("function_call")
     if not isinstance(call, dict) or not call.get("name"):
         return text, None
-    return text, ToolCall(name=str(call["name"]), arguments=_parse_arguments(call.get("arguments")))
+    state = message.get("functions_state_id")
+    return text, ToolCall(
+        name=str(call["name"]),
+        arguments=_parse_arguments(call.get("arguments")),
+        state_id=str(state) if state else None,
+    )
 
 
 class GigaChatClient:
@@ -259,7 +265,7 @@ class GigaChatClient:
         messages: list[dict[str, Any]],
         functions: list[dict[str, Any]] | None,
     ) -> httpx.Response:
-        payload: dict[str, Any] = {"model": model, "messages": messages, "temperature": 0.2}
+        payload: dict[str, Any] = {"model": model, "messages": messages, "temperature": 0.1}
         if functions:
             payload["functions"] = functions
             payload["function_call"] = "auto"

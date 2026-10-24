@@ -38,10 +38,6 @@ _PERIODICITY = (
     (re.compile(r"разово|один раз|однократно", re.IGNORECASE), "once", None),
 )
 _EVERY_N = re.compile(r"(?:раз в|кажд\w*)\s+(\d{1,2})\s+месяц", re.IGNORECASE)
-_HOWTO_RE = re.compile(
-    r"^(?:как|где|можно ли|подскаж\w*,? как)\b|как (?:мне )?(?:выгруз|экспорт|скача|привяз|подключ|добав|настро|задат|отмет|верн|созда)",
-    re.IGNORECASE,
-)
 
 
 @dataclass
@@ -135,54 +131,6 @@ def _split_period(fragment: str, today: date) -> tuple[str, tuple[int, int] | No
     return _query_tail(fragment[: match.start()]), extract_month(period_text, today)
 
 
-def _months_back(low: str) -> int:
-    found = re.search(r"(?:за|последн\w*)\s+(\d{1,2})\s+месяц", low)
-    if found:
-        return max(1, min(int(found.group(1)), 12))
-    if re.search(r"за (?:пол ?года|полгода)", low):
-        return 6
-    if re.search(r"за год", low):
-        return 12
-    return 6
-
-
-def _read_intent(raw: str, low: str, today: date) -> Intent | None:
-    """Вопросы без изменений: сводки, статистика, бюджет, справка."""
-    if re.fullmatch(r"(?:что (?:ты |вы )?(?:умеешь|умеете|можешь|можете)|помощь|help|справка|что ты такое|кто ты)", low):
-        return Intent("capabilities")
-    if _HOWTO_RE.search(low) and not re.match(r"(?:создай|добавь|заведи|отметь|закрой|верни)\b", low):
-        return Intent("help", {"topic": low})
-    if "бюджет" in low:
-        if re.search(r"(?:за|на) (?:\d{4} )?год|годов", low):
-            year = re.search(r"(20\d{2})", low)
-            return Intent("budget", {"year": int(year.group(1)) if year else today.year})
-        year, month = extract_month(low, today) if month_mentioned(low) else (today.year, today.month)
-        return Intent("budget", {"year": year, "month": month})
-    if re.search(r"по отделам|все отделы|сравни\w* отдел|какой отдел", low):
-        return Intent("departments")
-    if re.search(r"статистик|по месяцам|динамик|помесячн", low):
-        return Intent("stats", {"months": _months_back(low)})
-    if re.search(r"кто в отделе|люди отдела|людей отдела|сотрудник|участник|список людей|кто у нас", low):
-        return Intent("people")
-    if re.search(r"архив", low) and re.search(r"покажи|что в|какие|список", low):
-        return Intent("templates", {"archived": True})
-    if re.search(r"список платежей|какие (?:у нас |есть )*(?:регулярные )?платежи|все платежи|шаблон|регулярные платежи", low) and not re.search(
-        r"создай|добавь|заведи|измени|смени|поменяй|архивир|удали|убери", low
-    ):
-        return Intent("templates")
-    if re.search(r"сводк|итог|общая сумма|сколько всего", low):
-        return Intent("summary")
-    upcoming = re.search(r"(?:ближайшие|следующие)\s+(\d{1,2})\s+д", low)
-    if upcoming:
-        return Intent("upcoming", {"days": int(upcoming.group(1))})
-    if re.search(r"ближайш|что (?:будет|впереди)|на следующ\w* недел", low):
-        return Intent("upcoming", {"days": 14})
-    details = re.search(r"(?:истори\w*|подробн\w*|расскажи|карточк\w*)\s+(?:о\s+|об\s+|про\s+|по\s+)?(?:платеж\w*\s+)?(.+)$", raw, re.IGNORECASE)
-    if details and not re.search(r"истори\w* оплат$", low):
-        return Intent("details", {"query": _query_tail(details.group(1).rstrip("?!."))})
-    return None
-
-
 def _parse_unpaid(raw: str, today: date) -> Intent | None:
     match = re.match(
         r"(?:верни|отмени оплату|сними оплату|сними отметку(?: оплаты)?)\s+(?:с\s+|у\s+)?(?:период\s+)?(?:платеж\w*\s+)?(.+?)(?:\s+в\s+(?:неоплачен\w*|инбокс))?$",
@@ -201,39 +149,20 @@ def _parse_unpaid(raw: str, today: date) -> Intent | None:
 
 
 def parse_intent(text: str, today: date) -> Intent | None:
+    """Только явные команды. Вопросы о данных и продукте разбирает модель с инструментами."""
     raw, low = _pair(text)
     low = low.rstrip("?!., ")
     if not low:
         return None
+    if re.fullmatch(r"(?:что (?:ты |вы )?(?:умеешь|умеете|можешь|можете)|помощь|help|справка|что ты такое|кто ты)", low):
+        return Intent("capabilities")
+    if re.fullmatch(r"(?:очисти|очистить|сотри|удали)\s+(?:чат|историю|переписку)(?:\s+чата)?", low):
+        return Intent("clear")
     if _UNSUPPORTED_RE.search(low) and re.search(r"платеж|создай|добавь|заведи|новый", low):
         return Intent("unsupported_frequency")
-    if "просроч" in low and not _HOWTO_RE.search(low):
-        return Intent("overdue")
-    if re.search(r"горит|на этой неделе|до конца недели|горящ", low):
-        return Intent("week")
-    if re.search(r"сколько потрат|расход|по валютам|сколько ушло|сколько оплатил", low):
-        return Intent("spending", {"year": extract_month(low, today)[0], "month": extract_month(low, today)[1]})
-    if re.search(r"сколько (?:мы )?(?:должны|к оплате)|что в инбоксе|покажи открыт", low):
-        return Intent("open")
-    if re.search(r"что (?:уже )?оплач|какие оплач", low) and "неоплач" not in low:
-        year, month = extract_month(low, today)
-        return Intent("paid_month", {"year": year, "month": month})
-    responsible = re.search(
-        r"кто\s+(?:ответствен\w*|платит|отвечает)\s+за\s+(.+)$",
-        raw,
-        flags=re.IGNORECASE,
-    )
-    if responsible:
-        return Intent("responsible", {"query": _query_tail(responsible.group(1).rstrip("?!."))})
-    read = _read_intent(raw, low, today)
-    if read is not None:
-        return read
     unpaid = _parse_unpaid(raw, today)
     if unpaid is not None:
         return unpaid
-    person = re.search(r"(?:что у|платежи|задачи)\s+([A-Za-zА-ЯЁа-яё][\w\-]+)", raw, flags=re.IGNORECASE)
-    if person and not re.search(r"создай|добавь|отметь|измени", low):
-        return Intent("person", {"name": person.group(1).strip("?!.,")})
     updated = _parse_update(raw)
     if updated is not None:
         return updated

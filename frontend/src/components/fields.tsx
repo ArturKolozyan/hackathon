@@ -60,7 +60,7 @@ function inRange(iso: string, min?: string, max?: string): boolean {
   return true;
 }
 
-function useDismiss(open: boolean, root: RefObject<HTMLElement | null>, close: () => void) {
+export function useDismiss(open: boolean, root: RefObject<HTMLElement | null>, close: () => void) {
   useEffect(() => {
     if (!open) return;
     const onPointer = (event: MouseEvent) => {
@@ -78,7 +78,7 @@ function useDismiss(open: boolean, root: RefObject<HTMLElement | null>, close: (
   }, [open, root, close]);
 }
 
-function useFixedBox(open: boolean, anchor: RefObject<HTMLElement | null>, align: "start" | "end") {
+export function useFixedBox(open: boolean, anchor: RefObject<HTMLElement | null>, align: "start" | "end") {
   const [box, setBox] = useState<{ top: number; left: number; width: number } | null>(null);
   useEffect(() => {
     if (!open) return;
@@ -195,6 +195,7 @@ export function SelectField({
       {required && (
         <input className="field-proxy" tabIndex={-1} aria-hidden value={value} required onChange={() => undefined} />
       )}
+      {open && box && <div className="field-scrim" aria-hidden="true" onClick={close} />}
       {open && box && (
         <div
           ref={listRef}
@@ -347,6 +348,7 @@ export function MultiSelectField({
         <span>{summary}</span>
         <ChevronDown size={16} strokeWidth={1.75} aria-hidden />
       </button>
+      {open && box && <div className="field-scrim" aria-hidden="true" onClick={close} />}
       {open && box && (
         <div
           ref={listRef}
@@ -484,6 +486,7 @@ export function DateField({
       {required && (
         <input className="field-proxy" tabIndex={-1} aria-hidden value={value} required onChange={() => undefined} />
       )}
+      {open && box && <div className="field-scrim" aria-hidden="true" onClick={close} />}
       {open && box && (
         <div className="field-pop date-pop" role="dialog" aria-label={ariaLabel ?? "Дата"} style={{ top: box.top, left: box.left, width: Math.max(box.width, 280) }}>
           <div className="date-nav">

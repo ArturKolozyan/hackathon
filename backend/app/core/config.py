@@ -4,22 +4,20 @@ from zoneinfo import ZoneInfo
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.core.timezones import DEFAULT_TIMEZONE
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=(".env", "../.env"), extra="ignore")
 
     database_url: str = "postgresql+psycopg://invoice:change-me@localhost:5432/invoice_keeper"
     secret_key: str = "change-me-not-a-secret"
-    # Владелец установки. OWNER_* — канон кейса «администратор из .env».
-    # ADMIN_* оставлены алиасами: старый .env и демо жюри продолжают работать.
+    # Владелец установки — единственный человек из .env (кейс «администратор из .env»). Обязателен.
     owner_email: str = ""
     owner_password: str = ""
     owner_name: str = ""
     # true на один запуск: записать OWNER_PASSWORD владельцу и залогировать. Потом вернуть false.
     owner_reset_password: bool = False
-    admin_email: str = "admin@invoice.local"
-    admin_password: str = "change-me"
-    admin_name: str = "Админ"
     demo_user_email: str = "ivan@invoice.local"
     demo_user_name: str = "Иван Петров"
     demo_user_two_email: str = "maria@invoice.local"
@@ -30,7 +28,6 @@ class Settings(BaseSettings):
     seed_demo: bool = True
     # Пароли на странице входа. По умолчанию выключено: ответ публичный.
     show_demo_credentials: bool = False
-    timezone: str = "Europe/Moscow"
     soon_days: int = 3
     owner_overdue_copy: bool = False
     horizon_months: int = 2
@@ -68,7 +65,7 @@ class Settings(BaseSettings):
     webhook_secret: str = ""
     webhook_attempts: int = 3
     webhook_backoff_seconds: float = 0.4
-    # Пустой ключ — ассистент выключен в /features и в боте. Контейнер — профиль compose.
+    # Пустой ключ — ассистент выключен в /features. В боте ассистента нет. Контейнер — профиль compose.
     gigachat_auth_key: str = ""
     gigachat_scope: str = "GIGACHAT_API_PERS"
     gigachat_model: str = "GigaChat-2-Max"
@@ -84,15 +81,15 @@ class Settings(BaseSettings):
 
     @property
     def resolved_owner_email(self) -> str:
-        return (self.owner_email or self.admin_email).strip().lower()
+        return self.owner_email.strip().lower()
 
     @property
     def resolved_owner_password(self) -> str:
-        return self.owner_password or self.admin_password
+        return self.owner_password
 
     @property
     def resolved_owner_name(self) -> str:
-        return (self.owner_name or self.admin_name or "Владелец").strip() or "Владелец"
+        return (self.owner_name or "Владелец").strip() or "Владелец"
 
     @property
     def resolved_telegram_network(self) -> str:
@@ -117,7 +114,8 @@ class Settings(BaseSettings):
 
     @property
     def zone(self) -> ZoneInfo:
-        return ZoneInfo(self.timezone)
+        # Запасной пояс, пока не прочитана база. Рабочий пояс — в настройках организации, не в .env.
+        return ZoneInfo(DEFAULT_TIMEZONE)
 
 
 @lru_cache

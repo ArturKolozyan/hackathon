@@ -51,11 +51,11 @@ auth() {
   python3 -c 'import json; print(json.load(open("/tmp/rekeeper-login.json"))["access_token"])'
 }
 
-login admin@invoice.local change-me
+login owner@invoice.local change-me
 token=$(auth)
 hdr="Authorization: Bearer $token"
 
-curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/auth/me" | grep -q admin@invoice.local
+curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/auth/me" | grep -q owner@invoice.local
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/recurring-payments" | grep -q 'Подписка'
 curl -fsS --max-time 10 -H "$hdr" "$base/api/v1/teams" >/tmp/rekeeper-teams.json
@@ -97,7 +97,7 @@ for _ in $(seq 1 40); do
   sleep 5
 done
 test "$ok" = 1
-login admin@invoice.local change-me
+login owner@invoice.local change-me
 token=$(auth)
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" -H "X-Team-Id: $accounting" "$base/api/v1/recurring-payments" | grep -q 'Аренда офиса'
 
@@ -120,7 +120,7 @@ for _ in $(seq 1 40); do
   sleep 3
 done
 test "$ok" = 1
-login admin@invoice.local change-me
+login owner@invoice.local change-me
 token=$(auth)
 curl -fsS --max-time 10 -H "Authorization: Bearer $token" "$base/api/v1/features" >/tmp/rekeeper-features.json
 python3 - <<'PY'

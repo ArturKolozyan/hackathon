@@ -23,6 +23,10 @@ class MessageOut(BaseModel):
     content: str
     created_at: datetime
     action: ActionOut | None = None
+    suggestions: list[str] = Field(
+        default_factory=list,
+        description="Ровно три коротких вопроса-подсказки под ответом. Только у свежего ответа; в истории пусто.",
+    )
 
 
 class MessageIn(BaseModel):
@@ -46,3 +50,7 @@ class SpeechOut(BaseModel):
 class ConfirmOut(BaseModel):
     message: MessageOut
     action: ActionOut
+
+
+class SuggestionsOut(BaseModel):
+    suggestions: list[str] = Field(description="Три стартовых вопроса по роли человека в открытом отделе.")
