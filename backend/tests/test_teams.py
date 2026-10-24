@@ -194,3 +194,14 @@ def test_stats_and_demo_isolation(client):
     switched = client.post("/api/v1/me/active-team", headers=headers, json={"team_id": studio})
     assert switched.status_code == 200
     assert switched.json()["active_team_id"] == studio
+
+
+def test_owner_stats_cover_every_department(client):
+    seed(demo=True)
+    admin = _login(client, "admin@invoice.local", "change-me")
+    body = client.get("/api/v1/stats", headers=_auth(admin["access_token"])).json()
+    teams = client.get("/api/v1/teams", headers=_auth(admin["access_token"]))
+    names = {row["team_name"] for row in body["by_team"]}
+    assert {"Бухгалтерия", "Инфраструктура"} <= names
+    assert {row["role"] for row in body["by_team"]} == {"owner"}
+    assert any(row["count"] > 0 for row in body["to_pay"]), teams.text

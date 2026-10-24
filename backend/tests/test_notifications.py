@@ -59,7 +59,9 @@ def test_events_split_reminder_and_overdue():
     assert notification_events(due=date(2026, 10, 21), **base) == ["occurrence.overdue.r1"]
     assert notification_events(due=date(2026, 10, 25), paid_at=None, archived=False, today=today) == ["occurrence.reminder.d3"]
     assert notification_events(due=date(2026, 10, 30), paid_at=None, archived=False, today=today) == ["occurrence.reminder.d7"]
-    assert notification_events(due=date(2026, 10, 1), **base, overdue_repeat_days=3) == ["occurrence.overdue.r7"]
+    assert notification_events(due=date(2026, 10, 1), **base, overdue=False) == []
+    assert notification_events(due=date(2026, 10, 24), paid_at=None, archived=False, today=today) == ["occurrence.reminder.d1"]
+    assert notification_events(due=date(2026, 10, 24), **base, offsets=()) == []
     assert notification_events(due=date(2026, 10, 26), paid_at=object(), archived=False, today=today, soon_days=3) == []
     assert (
         notification_events(
@@ -278,7 +280,7 @@ def test_unlinked_and_outsider_cannot_mark_paid(db_session, monkeypatch):
     assert bot.answers[-1][1] == "Нет доступа к этому отделу"
     handle_callback(db_session, bot, _callback(row.id, sender=909))
     assert _reload(db_session, row).paid_at is None
-    assert "привяжи Telegram" in bot.answers[-1][1]
+    assert "привяжите Telegram" in bot.answers[-1][1]
     get_settings.cache_clear()
 
 
@@ -408,3 +410,29 @@ def test_smtp_2525_uses_starttls(monkeypatch):
         assert "smtp" not in calls
     finally:
         get_settings.cache_clear()
+
+
+def test_org_reminder_toggles_drive_dispatch(client, db_session, tg_bot):
+    bootstrap_owner()
+    owner = _headers(client, "admin@invoice.local", "change-me")
+    shown = client.get("/api/v1/organization", headers=owner).json()
+    assert [shown[key] for key in ("remind_7_days", "remind_3_days", "remind_1_day", "remind_overdue")] == [True] * 4
+    _template(db_session, title="Через три", day=26)
+    _template(db_session, title="Завтра", day=24)
+    _template(db_session, title="Долг", day=22)
+    db_session.commit()
+
+    response = client.patch(
+        "/api/v1/organization",
+        headers=owner,
+        json={"remind_7_days": False, "remind_3_days": False, "remind_overdue": False},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["remind_1_day"] is True
+    db_session.expire_all()
+    assert dispatch_due_reminders(db_session) == 1  # только «за 1 день»
+
+    client.patch("/api/v1/organization", headers=owner, json={"remind_overdue": True})
+    db_session.expire_all()
+    assert dispatch_due_reminders(db_session) == 1  # просрочка, один раз за день
+    assert dispatch_due_reminders(db_session) == 0

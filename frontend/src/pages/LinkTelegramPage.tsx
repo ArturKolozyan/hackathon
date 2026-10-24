@@ -1,38 +1,30 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ApiError, api, type TelegramLink } from "../api";
+import { ApiError, api } from "../api";
 import { useAuth } from "../auth";
+import { useTelegramLink } from "../useTelegramLink";
 
 export function LinkTelegramPage() {
   const { refresh } = useAuth();
   const navigate = useNavigate();
-  const [link, setLink] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  async function openLink() {
-    setBusy(true);
-    setError(null);
-    try {
-      const body = await api<TelegramLink>("/api/v1/me/telegram/link", { method: "POST" });
-      setLink(body.url);
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Ссылку получить не удалось");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const [skipError, setSkipError] = useState<string | null>(null);
+  const [skipping, setSkipping] = useState(false);
+  const binding = useTelegramLink(() => {
+    void refresh().then(() => navigate("/", { replace: true }));
+  });
+  const busy = binding.busy || skipping;
+  const error = binding.error ?? skipError;
 
   async function skip() {
-    setBusy(true);
-    setError(null);
+    setSkipping(true);
+    setSkipError(null);
     try {
       await api("/api/v1/me/telegram/skip", { method: "POST" });
       await refresh();
       navigate("/", { replace: true });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Не получилось пропустить");
-      setBusy(false);
+      setSkipError(err instanceof ApiError ? err.message : "Не получилось пропустить");
+      setSkipping(false);
     }
   }
 
@@ -40,12 +32,13 @@ export function LinkTelegramPage() {
     <div className="login-page">
       <section className="panel login-form">
         <h1>Привяжите Telegram</h1>
-        <p className="desc">Одна привязка на всё: «Оплачено» в чате отдела записывается на вас, личные напоминания приходят в Telegram. Можно сделать позже: Настройки → Уведомления.</p>
-        {link && (
-          <p>
-            <a href={link} target="_blank" rel="noreferrer">
-              Открыть бота
-            </a>
+        <p className="desc">
+          Одна привязка на всё: «Оплачено» в чате отдела записывается на вас, личные напоминания приходят в Telegram.
+          Можно сделать позже: Настройки → Уведомления.
+        </p>
+        {binding.url && (
+          <p className="desc" role="status">
+            Откройте бота и нажмите «Старт». Страница обновится сама, как только привязка пройдёт.
           </p>
         )}
         {error && (
@@ -54,9 +47,15 @@ export function LinkTelegramPage() {
           </p>
         )}
         <div className="row-actions">
-          <button type="button" className="primary" disabled={busy} onClick={() => void openLink()}>
-            {busy ? "…" : "Получить ссылку"}
-          </button>
+          {binding.url ? (
+            <a className="primary" href={binding.url} target="_blank" rel="noreferrer">
+              Открыть бота
+            </a>
+          ) : (
+            <button type="button" className="primary" disabled={busy} onClick={() => void binding.request()}>
+              {binding.busy ? "Получаем ссылку…" : "Получить ссылку"}
+            </button>
+          )}
           <button type="button" className="ghost" disabled={busy} onClick={() => void skip()}>
             Пропустить
           </button>

@@ -34,7 +34,7 @@ function personalOf(view: NotificationsView): Personal {
 
 function personLabel(self: NotificationsView["telegram"]): string {
   if (self.username) return `@${self.username}`;
-  return self.display_name || "привязан";
+  return self.display_name || "аккаунт Telegram";
 }
 
 const timeFormat = new Intl.DateTimeFormat("ru-RU", {
@@ -189,7 +189,7 @@ export function NotificationsSection() {
           title="Привязка"
           description={
             data.telegram.linked
-              ? `${personLabel(data.telegram)} · «Оплачено» в чате отдела записывается на вас, личные напоминания приходят сюда`
+              ? `Привязан: ${personLabel(data.telegram)}. «Оплачено» в чате отдела записывается на вас, личные напоминания приходят сюда`
               : "Одна привязка на всё: «Оплачено» в чате отдела записывается на вас, личные напоминания приходят в Telegram"
           }
           hint={
@@ -357,7 +357,7 @@ export function NotificationsSection() {
 
       <SettingGroup
         id="team-chat"
-        title={`Чат отдела · ${data.team.team_name}`}
+        title={`Чат отдела «${data.team.team_name}»`}
         aside={
           <span className={`pill ${teamTg.status === "connected" ? "pill-paid" : "pill-neutral"}`}>
             {teamTg.status === "connected" ? "подключён" : teamTg.status === "disconnected" ? "отключён" : "не подключён"}
@@ -524,7 +524,7 @@ export function NotificationsSection() {
               data.team.webhook_check_error
                 ? `Не прошла: ${data.team.webhook_check_error}`
                 : data.team.webhook_checked_at
-                  ? `Прошла · ${timeFormat.format(new Date(data.team.webhook_checked_at))}`
+                  ? `Прошла ${timeFormat.format(new Date(data.team.webhook_checked_at))}`
                   : "Событий ещё не было. Отправьте тестовое, чтобы проверить"
             }
             control={

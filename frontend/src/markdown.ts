@@ -2,7 +2,7 @@ const MARKDOWN_HINT = /(^|\n)\s{0,3}(#{1,6}\s|[-*]\s|\d+\.\s)|\*\*|^\s*\|.+\|/m;
 
 const GROUPS = new Set(["Просрочено", "Скоро", "Впереди", "Оплачено", "Прочее"]);
 const ITEM_LINE = /^\*\*(.+?)\*\*\s+[—–-]\s+(.+)$/;
-const META_LINE = /^до\s+(\d{2}\.\d{2}\.\d{4})\s+·\s+(.+?)\s+·\s+(.+)$/;
+const META_LINE = /^до\s+(\d{2}\.\d{2}\.\d{4}),\s+(.+?),\s+ответственный:\s+(.+)$/;
 
 export type AssistantBlock =
   | { kind: "md"; text: string }
@@ -58,13 +58,9 @@ export function toStructuredMarkdown(source: string): string {
       out.push("");
       continue;
     }
-    const heading = line.endsWith(":") && line.length <= 90 && !line.includes("·");
+    const heading = line.endsWith(":") && line.length <= 90;
     if (heading) {
       out.push("", `**${line.slice(0, -1)}**`, "");
-      continue;
-    }
-    if (line.includes(" · ")) {
-      out.push(`- ${line}`);
       continue;
     }
     out.push(line, "");

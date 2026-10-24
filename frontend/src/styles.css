@@ -157,6 +157,7 @@ a { color: inherit; }
   padding: 0 6px;
 }
 
+.sidebar-head-tools { display: flex; align-items: center; gap: 4px; }
 .sidebar-close { width: 36px; min-height: 36px; border-radius: 10px; }
 
 .wordmark {
@@ -587,12 +588,17 @@ main {
 }
 
 .total .code {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
   font-size: var(--fs-label);
   font-weight: var(--fw-bold);
   letter-spacing: var(--track-label);
   text-transform: uppercase;
   color: var(--muted);
 }
+
+.total .code-cur { color: var(--text); }
 
 .money {
   font-weight: var(--fw-bold);
@@ -759,6 +765,8 @@ input:-webkit-autofill:focus {
 
 .error { color: var(--overdue-ink); font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
 .empty { padding: 28px 18px; text-align: center; color: var(--muted); }
+.hint-text { display: grid; gap: 4px; }
+.hint-text .desc { max-width: 68ch; }
 .note { padding: 20px; display: grid; gap: 8px; max-width: 560px; }
 
 .hint {
@@ -1022,6 +1030,18 @@ html { scrollbar-color: var(--border) var(--bg); }
 .empty-state { justify-items: center; text-align: center; padding: 28px 18px; }
 .empty-state h2, .error-state p, .inline-confirm p { margin: 0; }
 .empty-state h2 { font-size: var(--fs-title); }
+.empty-state.is-compact { padding: 20px 16px; gap: 8px; }
+.empty-state.is-compact h2 { font-size: var(--fs-body); }
+.empty-icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--neutral-soft);
+  color: var(--muted);
+}
+.empty-state.is-compact .empty-icon { width: 40px; height: 40px; border-radius: 12px; }
 .empty-state p { color: var(--muted); max-width: 52ch; }
 .error-state { border-color: color-mix(in srgb, var(--overdue) 45%, var(--border)); }
 .inline-confirm { width: 100%; padding: 0; }
@@ -2059,3 +2079,23 @@ h1, h2, .money, .login-copy h1 {
   font-family: var(--font-display);
   letter-spacing: 0;
 }
+
+/* Page filter bar: wraps instead of overflowing the top bar. */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.filter-bar > .field { width: auto; flex: 0 1 13rem; min-width: 10rem; }
+.filter-bar .field-btn { min-height: 38px; padding: 6px 10px; font-size: var(--fs-sm); }
+.filter-bar .ghost { min-height: 38px; }
+.date-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+.date-range .field { width: 9.5rem; flex: none; }
+.date-range-label { color: var(--muted); font-size: var(--fs-sm); }

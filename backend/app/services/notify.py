@@ -20,7 +20,7 @@ from app.services import time as clock
 from app.services.channels import wants_email, wants_telegram
 from app.services.org_settings import load_org
 from app.services.reminders import DIGEST, is_overdue, is_reminder, notification_events
-from app.services.schedule import classify, period_key
+from app.services.schedule import classify, period_key, period_label
 from app.services.telegram_links import TEAM_RECIPIENT, resolve_team_chat_id
 
 log = logging.getLogger("invoice_keeper.notify")
@@ -243,7 +243,7 @@ def digest_payload(items: list[tuple[PaymentOccurrence, str]]) -> dict:
     primary = min(items, key=lambda item: item[0].due_date)[0]
     payload = occurrence_payload(primary, DIGEST)
     lines = [
-        f"{row.title} · {row.period_year:04d}-{row.period_month:02d} · {row.amount:.2f} {row.currency} · до {row.due_date.isoformat()}"
+        f"{row.title}, {period_label(row.period_year, row.period_month)}: {row.amount:.2f} {row.currency}, до {row.due_date.strftime('%d.%m.%Y')}"
         for row, _event in sorted(items, key=lambda item: (item[0].due_date, item[0].title))
     ]
     payload["lines"] = lines
@@ -308,7 +308,7 @@ def dispatch_due_reminders(db: Session) -> int:
             archived=archived,
             today=today,
             offsets=org.reminder_days,
-            overdue_repeat_days=org.overdue_repeat_days,
+            overdue=org.overdue_reminders,
             remind_archived_overdue=remind_archived,
         )
         for event in events:
@@ -360,7 +360,7 @@ def connect_digest(rows: list[PaymentOccurrence]) -> str:
         return "Подключено. Сейчас открытых платежей нет."
     nearest = rows[:5]
     parts = [
-        f"{row.title} · {row.amount:.2f} {row.currency} · до {row.due_date.strftime('%d.%m.%Y')}"
+        f"{row.title}: {row.amount:.2f} {row.currency}, до {row.due_date.strftime('%d.%m.%Y')}"
         for row in nearest
     ]
     tail = f"; и ещё {len(rows) - len(nearest)}" if len(rows) > len(nearest) else ""
@@ -385,6 +385,6 @@ def acknowledge_team_backlog(db: Session, team_id: uuid.UUID, rows: list[Payment
             archived=False,
             today=today,
             offsets=org.reminder_days,
-            overdue_repeat_days=org.overdue_repeat_days,
+            overdue=org.overdue_reminders,
         ):
             _mark(db, row.id, event, "telegram", TEAM_RECIPIENT)

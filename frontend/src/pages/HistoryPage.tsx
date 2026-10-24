@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Download } from "lucide-react";
+import { Download, History as HistoryIcon, SearchX } from "lucide-react";
 import { ApiError, api, downloadCsv, type OccurrenceList } from "../api";
 import { OccurrenceCard } from "../components/OccurrenceCard";
 import { DateField, SelectField } from "../components/fields";
@@ -116,7 +116,23 @@ export function HistoryPage() {
       {error && <ErrorState message={error} onRetry={() => void load()} />}
       {!data && !error && <LoadingBlock label="Загружаем историю…" />}
       {data && data.items.length === 0 && (
-        <EmptyState title="Ничего не нашлось">По этим фильтрам периодов нет.</EmptyState>
+        dirty ? (
+          <EmptyState
+            icon={SearchX}
+            title="Ничего не нашлось"
+            action={
+              <button type="button" className="ghost" data-hint={HINTS.filtersReset} onClick={() => setFilters(emptyFilters)}>
+                Сбросить фильтры
+              </button>
+            }
+          >
+            Под эти фильтры платежей нет. Измените их или сбросьте.
+          </EmptyState>
+        ) : (
+          <EmptyState icon={HistoryIcon} title="Оплат пока нет">
+            Когда вы отметите платёж оплаченным, он появится здесь вместе с датой и суммой.
+          </EmptyState>
+        )
       )}
       {data && (
         <div className="cards">

@@ -282,8 +282,10 @@ export type Template = {
 
 export type OrganizationSettings = {
   timezone: string;
-  reminder_days: string;
-  overdue_repeat_days: number;
+  remind_7_days: boolean;
+  remind_3_days: boolean;
+  remind_1_day: boolean;
+  remind_overdue: boolean;
   owner_overdue_copy: boolean;
 };
 

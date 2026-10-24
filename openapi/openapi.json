@@ -1270,17 +1270,29 @@
       },
       "OrganizationOut": {
         "properties": {
-          "overdue_repeat_days": {
-            "title": "Overdue Repeat Days",
-            "type": "integer"
-          },
           "owner_overdue_copy": {
             "title": "Owner Overdue Copy",
             "type": "boolean"
           },
-          "reminder_days": {
-            "title": "Reminder Days",
-            "type": "string"
+          "remind_1_day": {
+            "description": "Напоминание за 1 день до срока",
+            "title": "Remind 1 Day",
+            "type": "boolean"
+          },
+          "remind_3_days": {
+            "description": "Напоминание за 3 дня до срока",
+            "title": "Remind 3 Days",
+            "type": "boolean"
+          },
+          "remind_7_days": {
+            "description": "Напоминание за 7 дней до срока",
+            "title": "Remind 7 Days",
+            "type": "boolean"
+          },
+          "remind_overdue": {
+            "description": "О просрочке каждый день, начиная со следующего после срока",
+            "title": "Remind Overdue",
+            "type": "boolean"
           },
           "timezone": {
             "title": "Timezone",
@@ -1289,8 +1301,10 @@
         },
         "required": [
           "timezone",
-          "reminder_days",
-          "overdue_repeat_days",
+          "remind_7_days",
+          "remind_3_days",
+          "remind_1_day",
+          "remind_overdue",
           "owner_overdue_copy"
         ],
         "title": "OrganizationOut",
@@ -1298,19 +1312,6 @@
       },
       "OrganizationPatch": {
         "properties": {
-          "overdue_repeat_days": {
-            "anyOf": [
-              {
-                "maximum": 90.0,
-                "minimum": 1.0,
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Overdue Repeat Days"
-          },
           "owner_overdue_copy": {
             "anyOf": [
               {
@@ -1322,17 +1323,49 @@
             ],
             "title": "Owner Overdue Copy"
           },
-          "reminder_days": {
+          "remind_1_day": {
             "anyOf": [
               {
-                "maxLength": 64,
-                "type": "string"
+                "type": "boolean"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Reminder Days"
+            "title": "Remind 1 Day"
+          },
+          "remind_3_days": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind 3 Days"
+          },
+          "remind_7_days": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind 7 Days"
+          },
+          "remind_overdue": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remind Overdue"
           },
           "timezone": {
             "anyOf": [

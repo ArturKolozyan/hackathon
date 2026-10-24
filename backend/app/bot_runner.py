@@ -22,6 +22,10 @@ from app.services import time as clock
 
 log = logging.getLogger("invoice_keeper.bot")
 
+# Апдейт, который падает снова и снова, не должен держать очередь: после стольких попыток он пропускается.
+MAX_UPDATE_ATTEMPTS = 3
+_attempts: dict[int, int] = {}
+
 
 def _beat(status: str, error: str | None = None) -> None:
     db = SessionLocal()
@@ -96,8 +100,13 @@ def _poll(bot: TelegramClient, offset: int | None) -> tuple[int | None, bool]:
             finally:
                 db.close()
         except Exception:
-            log.exception("telegram update %s failed", update_id)
-            break
+            tries = _attempts.get(update_id, 0) + 1
+            _attempts[update_id] = tries
+            log.exception("telegram update %s failed, attempt %s of %s", update_id, tries, MAX_UPDATE_ATTEMPTS)
+            if tries < MAX_UPDATE_ATTEMPTS:
+                break
+            log.error("telegram update %s skipped", update_id)
+        _attempts.pop(update_id, None)
         offset = update_id + 1
     return offset, False
 

@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.models import Membership, PaymentOccurrence, RecurringPayment, User
 from app.schemas.stats import MoneyBucket, StatsItem, StatsOut, StatsTeam
 from app.services import time as clock
-from app.services.access import memberships_of
+from app.services.access import department_access
 from app.services.occurrences import ensure_all
 from app.services.present import user_brief
 from app.services.schedule import classify
@@ -72,8 +72,8 @@ def build_stats(
     date_to: date | None,
     responsible_id: uuid.UUID | None,
 ) -> StatsOut:
-    rows_m = memberships_of(db, user)
-    allowed = {row.team_id: row for row in rows_m}
+    # Владелец видит все отделы без членства, остальные — свои.
+    allowed = {row.team_id: row for row in department_access(db, user)}
     if team_ids:
         if any(item not in allowed for item in team_ids):
             raise HTTPException(status_code=403, detail="Вы не в этом отделе")

@@ -29,7 +29,11 @@ from app.services.teams import membership
 log = logging.getLogger("invoice_keeper.telegram")
 
 TEAM_RECIPIENT = "team"
-UNLINKED_ALERT = "Сначала привяжи Telegram в rekeeper: раздел «Уведомления»."
+UNLINKED_ALERT = "Сначала привяжите Telegram в rekeeper: Настройки → Уведомления."
+BUSY_TELEGRAM = (
+    "Этот Telegram уже привязан к другому аккаунту rekeeper. "
+    "Отвяжите его там (Настройки → Уведомления) или откройте ссылку из другого Telegram."
+)
 _GONE = ("left", "kicked")
 _MANAGERS = {"owner", "admin"}
 
@@ -182,11 +186,29 @@ def disconnect_team(db: Session, *, actor: User | None, team_id: uuid.UUID) -> T
     return row
 
 
+def _revoke_user_tokens(db: Session, user: User) -> None:
+    db.execute(
+        update(TelegramLinkToken)
+        .where(
+            TelegramLinkToken.purpose == "user",
+            TelegramLinkToken.user_id == user.id,
+            TelegramLinkToken.used_at.is_(None),
+        )
+        .values(used_at=clock.now())
+    )
+
+
 def unlink_user(db: Session, user: User, *, actor: User | None = None) -> None:
+    """Сам или админ — одинаково. Выданные ссылки гаснут: следующая привязка — только по новой."""
     user.telegram_user_id = None
+    user.telegram_chat_id = None
     user.telegram_username = None
     user.telegram_display_name = None
+    user.telegram_test_requested_at = None
+    user.telegram_test_sent_at = None
+    user.telegram_test_error = None
     user.updated_at = clock.now()
+    _revoke_user_tokens(db, user)
     record(
         db,
         action="telegram.user_unlink",
@@ -401,12 +423,17 @@ def _consume_start(db: Session, payload: str, chat: dict[str, Any], sender: dict
     private = is_private_chat(chat)
     if payload == "":
         if private:
-            return "Привязка в rekeeper: Уведомления → Привязать Telegram."
-        return "Чат отдела подключается из rekeeper: Уведомления → Подключить чат отдела."
+            return "Привязка в rekeeper: Настройки → Уведомления → Привязать Telegram."
+        return "Чат отдела подключается из rekeeper: Настройки → Уведомления → Подключить чат отдела."
     token = db.scalar(select(TelegramLinkToken).where(TelegramLinkToken.token == payload))
     expired = token is not None and token.expires_at is not None and token.expires_at <= clock.now()
+    if token is not None and token.used_at is not None and token.purpose == "user" and private:
+        # Telegram повторяет /start, когда ссылку открывают ещё раз. Уже привязан — так и скажем.
+        holder = token.user
+        if holder is not None and holder.telegram_user_id is not None and holder.telegram_user_id == _sender_id(sender):
+            return f"Telegram уже привязан к {holder.full_name}. Ничего делать не нужно."
     if token is None or token.used_at is not None or expired:
-        return "Ссылка недействительна или истекла. Создайте новую в rekeeper."
+        return "Ссылка уже использована или заменена новой. Получите новую в rekeeper: Настройки → Уведомления."
     if token.purpose == "team":
         if private:
             return "Эту ссылку откройте как добавление бота в группу, не в личном чате."
@@ -415,7 +442,14 @@ def _consume_start(db: Session, payload: str, chat: dict[str, Any], sender: dict
         if not private:
             return "Привязка человека — в личном чате с ботом. Откройте ссылку ещё раз."
         return _connect_user(db, token, sender)
-    return "Ссылка недействительна или истекла. Создайте новую в rekeeper."
+    return "Ссылка недействительна. Получите новую в rekeeper: Настройки → Уведомления."
+
+
+def _sender_id(sender: dict[str, Any]) -> int | None:
+    try:
+        return int(sender.get("id"))
+    except (TypeError, ValueError):
+        return None
 
 
 def _connect_team(db: Session, token: TelegramLinkToken, chat: dict[str, Any]) -> str:
@@ -456,13 +490,12 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
     owner = token.user
     if owner is None or not owner.is_active:
         return "Пользователь rekeeper не найден или отключён."
-    try:
-        tg_id = int(sender.get("id"))
-    except (TypeError, ValueError):
+    tg_id = _sender_id(sender)
+    if tg_id is None:
         return "Не вижу аккаунт Telegram. Откройте ссылку ещё раз."
     other = db.scalar(select(User).where(User.telegram_user_id == tg_id, User.id != owner.id))
     if other is not None:
-        return "Этот Telegram уже привязан к другому человеку. Сначала отвяжите его в том профиле."
+        return BUSY_TELEGRAM
     username = sender.get("username")
     owner.telegram_user_id = tg_id
     owner.telegram_username = str(username).lstrip("@")[:32] if isinstance(username, str) and username else None
@@ -476,7 +509,7 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
         db.flush()
     except IntegrityError:
         db.rollback()
-        return "Этот Telegram уже привязан к другому человеку. Сначала отвяжите его в том профиле."
+        return BUSY_TELEGRAM
     record(
         db,
         action="telegram.user_link",
@@ -487,7 +520,7 @@ def _connect_user(db: Session, token: TelegramLinkToken, sender: dict[str, Any])
     )
     db.commit()
     return (
-        f"Привет, {owner.full_name}! Telegram привязан: «Оплачено» в чате отдела записывается на тебя, "
+        f"Здравствуйте, {owner.full_name}! Telegram привязан: «Оплачено» в чате отдела записывается на вас, "
         "личные напоминания приходят сюда."
     )
 

@@ -148,11 +148,14 @@ function ShellView() {
       >
         <div className="sidebar-head">
           <Wordmark to="/" />
-          {collapsed && (
-            <button type="button" className="icon-btn sidebar-close" aria-label="Закрыть меню" data-hint={HINTS.menuClose} onClick={() => setMenuOpen(false)}>
-              <X size={18} strokeWidth={1.75} aria-hidden />
-            </button>
-          )}
+          <div className="sidebar-head-tools">
+            <ThemeToggle />
+            {collapsed && (
+              <button type="button" className="icon-btn sidebar-close" aria-label="Закрыть меню" data-hint={HINTS.menuClose} onClick={() => setMenuOpen(false)}>
+                <X size={18} strokeWidth={1.75} aria-hidden />
+              </button>
+            )}
+          </div>
         </div>
         {user && user.memberships.length > 1 && (
           <SelectField
@@ -189,7 +192,6 @@ function ShellView() {
               </span>
               <span className="pill pill-neutral profile-role">{roleName(role, Boolean(user?.is_owner))}</span>
             </div>
-            <ThemeToggle />
           </div>
           <button type="button" className="nav-logout" data-hint={HINTS.logout} onClick={() => void logout()}>
             <LogOut size={18} strokeWidth={1.75} aria-hidden />

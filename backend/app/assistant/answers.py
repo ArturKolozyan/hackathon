@@ -36,7 +36,7 @@ def _item_md(item) -> str:
     who = item.responsible.full_name if item.responsible is not None else "не назначен"
     title = str(item.title).replace("*", "").replace("\n", " ").strip()
     status = STATUS_WORD.get(item.status, item.status)
-    return f"**{title}** — {_money(item.amount)} {item.currency}\nдо {due} · {status} · {who}"
+    return f"**{title}** — {_money(item.amount)} {item.currency}\nдо {due}, {status}, ответственный: {who}"
 
 
 def _grouped(items) -> str:

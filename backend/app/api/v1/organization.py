@@ -7,7 +7,7 @@ from app.models import User
 from app.schemas.organization import OrganizationOut, OrganizationPatch
 from app.services import time as clock
 from app.services.audit import record
-from app.services.org_settings import format_reminder_days, load_org, save_org
+from app.services.org_settings import load_org, save_org
 
 router = APIRouter(prefix="/organization", tags=["organization"])
 
@@ -18,13 +18,25 @@ def require_installation_owner(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+DAY_FIELDS = {7: "remind_7_days", 3: "remind_3_days", 1: "remind_1_day"}
+
+
 def _out(config) -> OrganizationOut:
     return OrganizationOut(
         timezone=config.timezone,
-        reminder_days=format_reminder_days(config.reminder_days),
-        overdue_repeat_days=config.overdue_repeat_days,
+        **{field: day in config.reminder_days for day, field in DAY_FIELDS.items()},
+        remind_overdue=config.overdue_reminders,
         owner_overdue_copy=config.owner_overdue_copy,
     )
+
+
+def _onoff(value: bool) -> str:
+    return "вкл" if value else "выкл"
+
+
+def _flags(config) -> dict[str, bool]:
+    shown = _out(config).model_dump()
+    return {key: value for key, value in shown.items() if isinstance(value, bool)}
 
 
 @router.get("", response_model=OrganizationOut, summary="Настройки организации")
@@ -43,25 +55,28 @@ def update_organization(
 ) -> OrganizationOut:
     before = load_org(db)
     data = payload.model_dump(exclude_unset=True)
-    saved = save_org(db, **data)
+    days = None
+    if any(field in data for field in DAY_FIELDS.values()):
+        days = tuple(
+            day
+            for day, field in DAY_FIELDS.items()
+            if (data[field] if data.get(field) is not None else day in before.reminder_days)
+        )
+    saved = save_org(
+        db,
+        timezone=data.get("timezone"),
+        reminder_days=days,
+        overdue_reminders=data.get("remind_overdue"),
+        owner_overdue_copy=data.get("owner_overdue_copy"),
+    )
     clock.bind_zone(saved.timezone)
     changes = {}
     if before.timezone != saved.timezone:
         changes["timezone"] = {"was": before.timezone, "became": saved.timezone}
-    before_days = format_reminder_days(before.reminder_days)
-    after_days = format_reminder_days(saved.reminder_days)
-    if before_days != after_days:
-        changes["reminder_days"] = {"was": before_days, "became": after_days}
-    if before.overdue_repeat_days != saved.overdue_repeat_days:
-        changes["overdue_repeat_days"] = {
-            "was": str(before.overdue_repeat_days),
-            "became": str(saved.overdue_repeat_days),
-        }
-    if before.owner_overdue_copy != saved.owner_overdue_copy:
-        changes["owner_overdue_copy"] = {
-            "was": str(before.owner_overdue_copy).lower(),
-            "became": str(saved.owner_overdue_copy).lower(),
-        }
+    was, became = _flags(before), _flags(saved)
+    for key in was:
+        if was[key] != became[key]:
+            changes[key] = {"was": _onoff(was[key]), "became": _onoff(became[key])}
     record(
         db,
         action="organization.update",

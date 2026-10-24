@@ -32,9 +32,6 @@ class Settings(BaseSettings):
     show_demo_credentials: bool = False
     timezone: str = "Europe/Moscow"
     soon_days: int = 3
-    # Каденция по умолчанию, пока организация не переопределила её в базе.
-    reminder_days: str = "7,3"
-    overdue_repeat_days: int = 1
     owner_overdue_copy: bool = False
     horizon_months: int = 2
     session_days: int = 14

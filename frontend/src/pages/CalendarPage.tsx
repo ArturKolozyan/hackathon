@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { CalendarCheck, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ApiError, api, type CalendarMonth, type Occurrence } from "../api";
 import { OccurrenceCard } from "../components/OccurrenceCard";
 import { PageControls } from "../components/PageControls";
@@ -310,7 +310,9 @@ export function CalendarPage() {
             <section className="cal-agenda" aria-label={longDue(agenda)}>
               <h2>{longDue(agenda)}</h2>
               {(byDate.get(agenda) ?? []).length === 0 ? (
-                <p className="muted">В этот день платежей нет.</p>
+                <EmptyState compact icon={CalendarCheck} title="Платежей нет">
+                  В этот день сроков нет. Выберите другую дату.
+                </EmptyState>
               ) : (
                 (byDate.get(agenda) ?? []).map((item) => (
                   <OperationCard key={item.id} item={item} iso={agenda} onOpen={setPicked} />
@@ -361,7 +363,9 @@ export function CalendarPage() {
           </header>
           <div className="day-body">
             {dayItems.length === 0 && !loading && (
-              <EmptyState title="В этот день пусто">Периодов с таким сроком нет. Листайте день или откройте месяц.</EmptyState>
+              <EmptyState icon={CalendarCheck} title="В этот день платежей нет">
+                Перейдите на соседний день или откройте месяц целиком.
+              </EmptyState>
             )}
             {dayItems.map((item) => (
               <OperationCard key={item.id} item={item} iso={anchor} onOpen={setPicked} />
@@ -421,7 +425,7 @@ function OperationCard({
     >
       <span className={`pill pill-${tone}`}>{statusShort(item.status)}</span>
       <span className="op-meta">
-        {shortDue(iso)} · {formatMoney(item.amount, item.currency)}
+        {formatMoney(item.amount, item.currency)}, до {shortDue(iso)}
       </span>
       <span className="op-title">{item.title}</span>
       {!compact && item.responsible && <span className="op-who">{item.responsible.full_name}</span>}

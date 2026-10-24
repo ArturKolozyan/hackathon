@@ -14,6 +14,7 @@ from app.models import AuditLog, NotificationDelivery, PaymentOccurrence, Recurr
 from app.services.notify import dispatch_due_reminders
 from app.services.occurrences import ensure_template
 from app.services.telegram_cards import handle_callback, sync_telegram_cards
+from app.services.telegram_links import UNLINKED_ALERT
 from app.worker import tick
 
 CHAT = "-100"
@@ -406,7 +407,7 @@ def test_unlinked_click_does_not_pay(db_session, monkeypatch):
     fresh = _reload(db_session, row)
     assert fresh.paid_at is None
     assert fresh.paid_by_id is None
-    assert bot.answers[-1][1] == "Сначала привяжи Telegram в rekeeper: раздел «Уведомления»."
+    assert bot.answers[-1][1] == UNLINKED_ALERT
     assert bot.alerts[-1] is True
     assert bot.edits == []
     get_settings.cache_clear()

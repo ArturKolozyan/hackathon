@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, ScrollText, SearchX, X } from "lucide-react";
 import { ApiError, api, type AuditItem, type AuditList, type DirectoryUser } from "../api";
 import { ACTION_GROUPS, actionLabel, metaPhrase } from "../auditCopy";
 import { DateField, SelectField } from "../components/fields";
@@ -166,6 +166,7 @@ export function AuditPage() {
       {data && data.items.length === 0 && !error && (
         filtered ? (
           <EmptyState
+            icon={SearchX}
             title="Ничего не нашлось"
             action={
               <button type="button" className="ghost" onClick={reset}>
@@ -173,10 +174,12 @@ export function AuditPage() {
               </button>
             }
           >
-            Под эти фильтры записей нет.
+            Под эти фильтры записей нет. Измените их или сбросьте.
           </EmptyState>
         ) : (
-          <EmptyState title="Пока пусто">Входы, шаблоны, люди, оплаты и бюджет появятся здесь.</EmptyState>
+          <EmptyState icon={ScrollText} title="Записей пока нет">
+            Здесь появятся входы, изменения шаблонов, людей и бюджета, а также оплаты.
+          </EmptyState>
         )
       )}
       {data && data.items.length > 0 && (

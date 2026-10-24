@@ -15,6 +15,7 @@ from app.integrations.telegram import TelegramError
 from app.models import NotificationDelivery, PaymentOccurrence, RecurringPayment
 from app.services import time as clock
 from app.services.reminders import DIGEST, is_reminder, is_overdue
+from app.services.schedule import period_label
 from app.services.telegram_links import TEAM_RECIPIENT, move_chat, resolve_team_chat_id
 
 log = logging.getLogger("invoice_keeper.outbox")
@@ -105,7 +106,7 @@ def _outgoing_text(db: Session, occurrence: PaymentOccurrence, event: str, today
     lines = [f"Просрочено периодов: {len(siblings)}", occurrence.title]
     for row in siblings:
         lines.append(
-            f"{row.period_year:04d}-{row.period_month:02d} · {row.amount:.2f} {row.currency} · до {row.due_date.strftime('%d.%m.%Y')}"
+            f"{period_label(row.period_year, row.period_month)}: {row.amount:.2f} {row.currency}, до {row.due_date.strftime('%d.%m.%Y')}"
         )
     lines.append("Отметьте каждый период в панели.")
     return "\n".join(lines)

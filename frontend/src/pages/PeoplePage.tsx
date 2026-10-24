@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, UserPlus } from "lucide-react";
+import { Search, SearchX, UserPlus, Users } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ApiError, api, type DirectoryUser, type InviteLink, type TelegramLink } from "../api";
 import { PageControls } from "../components/PageControls";
@@ -149,8 +149,24 @@ export function PeoplePage() {
       {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
       {!ready && <LoadingBlock label="Загружаем людей…" />}
       {ready && list.length === 0 && (
-        <EmptyState title={query ? "Никого не нашли" : "Пока никого"}>
-          {query ? "Попробуйте другое имя или почту." : "Добавьте первого человека кнопкой справа сверху."}
+        <EmptyState
+          icon={query ? SearchX : Users}
+          title={query ? "Никого не нашли" : "Людей пока нет"}
+          action={
+            query ? (
+              <button type="button" className="ghost" onClick={() => setQuery("")}>
+                Очистить поиск
+              </button>
+            ) : (
+              <button type="button" className="primary" data-hint={HINTS.personNew} onClick={() => navigate("/people/new")}>
+                Добавить человека
+              </button>
+            )
+          }
+        >
+          {query
+            ? "Проверьте имя или почту."
+            : "Пригласите коллег: они получат доступ к отделу и смогут отмечать оплаты."}
         </EmptyState>
       )}
       <div className="row-list">
@@ -167,8 +183,9 @@ export function PeoplePage() {
                   <span className="pill pill-neutral">{roleText(person)}</span>
                   {!person.is_active && <span className="pill pill-overdue">отключён</span>}
                 </div>
+                <p className="row-meta">{person.email}</p>
                 <p className="row-meta">
-                  {[person.email, person.departments.map((row) => row.name).join(", ") || "без отдела"].join(" · ")}
+                  {person.departments.length ? `Отделы: ${person.departments.map((row) => row.name).join(", ")}` : "Без отдела"}
                 </p>
               </div>
               <span className={`pill pill-${pill.tone} row-value`}>{pill.text}</span>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { BarChart3, CalendarCheck, SearchX } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, type Stats } from "../api";
 import { useAuth } from "../auth";
@@ -55,6 +56,14 @@ export function StatsPage() {
   }
 
   const people = stats?.people ?? [];
+  const filtered = teams.length > 0 || Boolean(status || currency || responsible);
+
+  function resetFilters() {
+    setTeams([]);
+    setStatus("");
+    setCurrency("");
+    setResponsible("");
+  }
   const empty =
     stats &&
     stats.to_pay.length === 0 &&
@@ -65,65 +74,6 @@ export function StatsPage() {
   return (
     <div className="page">
       <PageControls
-        left={
-          <>
-            {(user?.memberships ?? []).length > 1 && (
-              <MultiSelectField
-                className="tb-field"
-                label="Отделы"
-                value={teams}
-                onChange={setTeams}
-                options={(user?.memberships ?? []).map((row) => ({ value: row.team_id, label: row.team_name }))}
-              />
-            )}
-            <SelectField
-              className="tb-field"
-              ariaLabel="Статус"
-              value={status}
-              onChange={setStatus}
-              options={[
-                { value: "", label: "Все статусы" },
-                { value: "overdue", label: "Просрочено" },
-                { value: "due_soon", label: "Скоро" },
-                { value: "upcoming", label: "Впереди" },
-                { value: "paid", label: "Оплачено" },
-              ]}
-            />
-            <SelectField
-              className="tb-field"
-              ariaLabel="Валюта"
-              value={currency}
-              onChange={setCurrency}
-              options={[
-                { value: "", label: "Все валюты" },
-                { value: "RUB", label: "RUB" },
-                { value: "USD", label: "USD" },
-                { value: "EUR", label: "EUR" },
-              ]}
-            />
-            <SelectField
-              className="tb-field"
-              ariaLabel="Ответственный"
-              value={responsible}
-              onChange={setResponsible}
-              options={[
-                { value: "", label: "Все ответственные" },
-                ...people.map((person) => ({ value: person.id, label: person.full_name })),
-              ]}
-            />
-            {period === "month" ? (
-            <DateField mode="month" value={month} onChange={setMonth} ariaLabel="Месяц" />
-          ) : period === "range" ? (
-            <div className="tb-group tb-range">
-              <DateField value={dateFrom} onChange={setDateFrom} ariaLabel="С" placeholder="С" max={dateTo || undefined} />
-              <span className="tb-dash" aria-hidden="true">
-                –
-              </span>
-              <DateField value={dateTo} onChange={setDateTo} ariaLabel="По" placeholder="по" min={dateFrom || undefined} />
-            </div>
-          ) : null}
-          </>
-        }
         center={
           <Segmented
             label="Период"
@@ -137,9 +87,84 @@ export function StatsPage() {
           />
         }
       />
+      <div className="filter-bar" role="group" aria-label="Фильтры статистики">
+        {(user?.memberships ?? []).length > 1 && (
+          <MultiSelectField
+            label="Отделы"
+            value={teams}
+            onChange={setTeams}
+            options={(user?.memberships ?? []).map((row) => ({ value: row.team_id, label: row.team_name }))}
+          />
+        )}
+        <SelectField
+          ariaLabel="Статус"
+          value={status}
+          onChange={setStatus}
+          options={[
+            { value: "", label: "Все статусы" },
+            { value: "overdue", label: "Просрочено" },
+            { value: "due_soon", label: "Скоро" },
+            { value: "upcoming", label: "Впереди" },
+            { value: "paid", label: "Оплачено" },
+          ]}
+        />
+        <SelectField
+          ariaLabel="Валюта"
+          value={currency}
+          onChange={setCurrency}
+          options={[
+            { value: "", label: "Все валюты" },
+            { value: "RUB", label: "RUB" },
+            { value: "USD", label: "USD" },
+            { value: "EUR", label: "EUR" },
+          ]}
+        />
+        <SelectField
+          ariaLabel="Ответственный"
+          value={responsible}
+          onChange={setResponsible}
+          options={[
+            { value: "", label: "Все ответственные" },
+            ...people.map((person) => ({ value: person.id, label: person.full_name })),
+          ]}
+        />
+        {period === "month" && <DateField mode="month" value={month} onChange={setMonth} ariaLabel="Месяц" />}
+        {period === "range" && (
+          <div className="date-range" role="group" aria-label="Диапазон дат">
+            <span className="date-range-label">с</span>
+            <DateField value={dateFrom} onChange={setDateFrom} ariaLabel="Дата с" placeholder="дд.мм.гггг" max={dateTo || undefined} />
+            <span className="date-range-label">по</span>
+            <DateField value={dateTo} onChange={setDateTo} ariaLabel="Дата по" placeholder="дд.мм.гггг" min={dateFrom || undefined} />
+          </div>
+        )}
+        {filtered && (
+          <button type="button" className="ghost" data-hint={HINTS.filtersReset} onClick={resetFilters}>
+            Сбросить
+          </button>
+        )}
+      </div>
+      {period === "range" && (!dateFrom || !dateTo) && (
+        <p className="caption">Выберите обе даты: пока показаны открытые платежи и оплаты этого месяца.</p>
+      )}
       {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
       {!stats && !error && <LoadingBlock label="Загружаем статистику…" />}
-      {empty && <EmptyState title="Пусто">По этим фильтрам ничего нет.</EmptyState>}
+      {empty && (
+        <EmptyState
+          icon={filtered || period !== "open" ? SearchX : BarChart3}
+          title={filtered || period !== "open" ? "Ничего не нашлось" : "Статистики пока нет"}
+          action={
+            filtered ? (
+              <button type="button" className="ghost" data-hint={HINTS.filtersReset} onClick={resetFilters}>
+                Сбросить фильтры
+              </button>
+            ) : undefined
+          }
+        >
+          {filtered || period !== "open"
+            ? "За этот период и с этими фильтрами платежей нет."
+            : "Цифры появятся, когда в отделах будут регулярные платежи."}
+        </EmptyState>
+      )}
       {stats && !empty && (
         <>
           <div className="stat-grid">
@@ -152,7 +177,9 @@ export function StatsPage() {
               <h2>Ближайшие сроки</h2>
             </header>
             {stats.nearest.length === 0 ? (
-              <p className="panel empty">Открытых сроков нет.</p>
+              <EmptyState compact icon={CalendarCheck} title="Открытых сроков нет">
+                Все платежи по этим фильтрам оплачены.
+              </EmptyState>
             ) : (
               <div className="cards">
                 {stats.nearest.map((item) => (
@@ -189,11 +216,11 @@ export function StatsPage() {
                   <p className="meta">
                     {row.to_pay.length === 0
                       ? "к оплате ничего"
-                      : row.to_pay.map((bucket) => formatMoney(bucket.amount, bucket.currency)).join(" · ")}
+                      : row.to_pay.map((bucket) => formatMoney(bucket.amount, bucket.currency)).join(", ")}
                   </p>
                   {row.overdue.length > 0 && (
                     <p className="meta">
-                      просрочено {row.overdue.map((bucket) => formatMoney(bucket.amount, bucket.currency)).join(" · ")}
+                      просрочено: {row.overdue.map((bucket) => formatMoney(bucket.amount, bucket.currency)).join(", ")}
                     </p>
                   )}
                 </button>

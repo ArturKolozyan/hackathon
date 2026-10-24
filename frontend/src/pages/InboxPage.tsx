@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { X } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { CircleCheck, Inbox as InboxIcon, X } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ApiError, api, type Inbox, type Occurrence, type Summary, type TeamTelegram, type TelegramSelf } from "../api";
 import { canManage, useAuth } from "../auth";
 import { DateField } from "../components/fields";
@@ -9,11 +9,13 @@ import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { chipTone, formatMoney } from "../format";
 import { HINTS } from "../hints";
+import { useTelegramLink } from "../useTelegramLink";
 
 export function InboxPage() {
   const { user } = useAuth();
   const manage = canManage(user);
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const mine = params.get("mine") === "1";
   const [asOf, setAsOf] = useState("");
   const [inbox, setInbox] = useState<Inbox | null>(null);
@@ -21,6 +23,7 @@ export function InboxPage() {
   const [selfTg, setSelfTg] = useState<TelegramSelf | null>(null);
   const [teamTg, setTeamTg] = useState<TeamTelegram | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const binding = useTelegramLink(() => setSelfTg((self) => (self ? { ...self, linked: true } : self)));
 
   const load = useCallback(async () => {
     setError(null);
@@ -53,6 +56,7 @@ export function InboxPage() {
   }, [manage]);
 
   const totalOpen = inbox ? inbox.overdue.length + inbox.soon.length + inbox.rest.length : 0;
+  const paidBefore = (summary?.counts.paid ?? 0) > 0;
 
   return (
     <div className="page">
@@ -94,7 +98,8 @@ export function InboxPage() {
               return (
                 <article key={row.currency} className="total">
                   <span className="code">
-                    {closed ? "Закрыто" : "К оплате"} · {row.currency}
+                    {closed ? "Закрыто" : "К оплате"}
+                    <span className="code-cur">{row.currency}</span>
                   </span>
                   <strong className="money rule">{formatMoney(closed ? row.paid_amount : row.open_amount, row.currency)}</strong>
                   <span className={`pill pill-${tone}`}>{closed ? "закрыто" : slice}</span>
@@ -116,45 +121,76 @@ export function InboxPage() {
             {!mine && (
               <>
                 {" "}
-                {summary.counts.overdue} просрочено · {summary.counts.due_soon} скоро · {summary.counts.upcoming} ещё не скоро ·{" "}
-                {summary.counts.paid} в истории
+                Просрочено: {summary.counts.overdue}, скоро: {summary.counts.due_soon}, позже: {summary.counts.upcoming}, в
+                истории: {summary.counts.paid}.
               </>
             )}
           </p>
         </>
       )}
-      {manage && teamTg && teamTg.status !== "connected" && (
+      {selfTg && !selfTg.linked && selfTg.bot_ready && (
         <aside className="panel hint">
-          <p>Подключи Telegram, чтобы получать напоминания.</p>
-          <Link className="outline" to="/settings#notifications" data-hint={HINTS.toNotifications}>
-            Подключить
-          </Link>
-        </aside>
-      )}
-      {selfTg && !selfTg.linked && (
-        <aside className="panel hint">
-          <p>Привяжи Telegram, чтобы кнопка «Оплачено» была твоей.</p>
-          <Link className="outline" to="/settings#notifications" data-hint={HINTS.toNotifications}>
-            Привязать
-          </Link>
+          <div className="hint-text">
+            <strong>Подключите Telegram</strong>
+            <span className="desc">
+              {binding.url
+                ? "Откройте бота и нажмите «Старт». Карточка исчезнет сама, как только привязка пройдёт."
+                : "Напоминания будут приходить вам в личные сообщения, а «Оплачено» в чате отдела запишется на вас."}
+              {manage && teamTg && teamTg.status !== "connected" && !binding.url && " Чат отдела подключается в настройках."}
+            </span>
+            {binding.error && (
+              <span className="field-error" role="alert">
+                {binding.error}
+              </span>
+            )}
+          </div>
+          <div className="row-actions">
+            {binding.url ? (
+              <a className="primary" href={binding.url} target="_blank" rel="noreferrer">
+                Открыть бота
+              </a>
+            ) : (
+              <button type="button" className="primary" disabled={binding.busy} data-hint={HINTS.tgLink} onClick={() => void binding.request()}>
+                Привязать
+              </button>
+            )}
+            {manage && teamTg && teamTg.status !== "connected" && (
+              <Link className="ghost" to="/settings#team-chat" data-hint={HINTS.toNotifications}>
+                Чат отдела
+              </Link>
+            )}
+          </div>
         </aside>
       )}
       {error && <ErrorState message={error} onRetry={() => void load()} />}
       {!inbox && !error && <LoadingBlock label="Загружаем очередь…" />}
       {inbox && totalOpen === 0 && (
         <EmptyState
-          title={mine ? "У вас в очереди пусто" : "В очереди пусто"}
+          icon={mine || paidBefore ? CircleCheck : InboxIcon}
+          title={mine ? "На вас сейчас ничего нет" : paidBefore ? "Всё оплачено" : "Платежей пока нет"}
           action={
             mine ? (
               <button type="button" className="ghost" data-hint={HINTS.scopeAll} onClick={() => setParams({})}>
                 Показать весь отдел
               </button>
+            ) : paidBefore ? (
+              <Link className="ghost" to="/history">
+                Открыть историю
+              </Link>
+            ) : manage ? (
+              <button type="button" className="primary" data-hint={HINTS.templateNew} onClick={() => navigate("/templates/new")}>
+                Создать шаблон
+              </button>
             ) : undefined
           }
         >
           {mine
-            ? "Чужие платежи скрыты фильтром. Снимите его или закройте свои, когда появятся."
-            : "Либо всё закрыто, либо шаблонов ещё нет. История хранит то, что уже оплатили."}
+            ? "Открытых платежей, где вы ответственный, нет. Остальные платежи отдела видны во вкладке «Весь отдел»."
+            : paidBefore
+              ? "Открытых платежей нет. Оплаченные хранятся в истории."
+              : manage
+                ? "Добавьте регулярный платёж, и его периоды появятся в этой очереди."
+                : "Когда администратор отдела добавит платежи, они появятся здесь."}
         </EmptyState>
       )}
       {inbox && (

@@ -50,6 +50,12 @@ const FIELDS: Record<string, string> = {
   periodicity: "периодичность",
   interval_months: "интервал",
   remind_archived_overdue: "напоминание просрочки архива",
+  timezone: "часовой пояс",
+  remind_7_days: "напоминание за 7 дней",
+  remind_3_days: "напоминание за 3 дня",
+  remind_1_day: "напоминание за 1 день",
+  remind_overdue: "напоминание о просрочке",
+  owner_overdue_copy: "копия просрочки владельцу",
 };
 
 /** Action kinds for the Логи filter, grouped by category. */
@@ -68,7 +74,7 @@ export const ACTION_GROUPS: { value: string; label: string; actions: string[] }[
 ];
 
 export function actionLabel(action: string): string {
-  return ACTIONS[action] ?? action.replaceAll(".", " · ").replaceAll("_", " ");
+  return ACTIONS[action] ?? action.replaceAll(".", " ").replaceAll("_", " ");
 }
 
 function fieldList(value: unknown): string {
@@ -128,5 +134,5 @@ export function metaPhrase(meta: Record<string, unknown>): string {
     const line = phrase(key, value, meta);
     if (line) parts.push(line);
   }
-  return parts.join(" · ") || "—";
+  return parts.join("; ") || "—";
 }

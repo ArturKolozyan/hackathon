@@ -331,7 +331,7 @@ def wipe(db: Session) -> None:
 def silence(db: Session, today: date, *, keep_today: bool) -> None:
     """Уже наступившие точки каденции — «доставлены», первый тик воркера их не шлёт.
 
-    keep_today — точка, которая наступила именно сегодня (T-7, T-3, повтор просрочки),
+    keep_today — точка, которая наступила именно сегодня (T-7, T-3, T-1, просрочка),
     остаётся воркеру.
     """
     org = load_org(db)
@@ -346,20 +346,21 @@ def silence(db: Session, today: date, *, keep_today: bool) -> None:
             archived=template.is_archived,
             today=today,
             offsets=org.reminder_days,
-            overdue_repeat_days=org.overdue_repeat_days,
+            overdue=org.overdue_reminders,
             remind_archived_overdue=template.remind_archived_overdue,
         )
         days_until = (row.due_date - today).days
         for event in events:
-            if keep_today and _fresh(event, days_until, org.overdue_repeat_days):
+            if keep_today and _fresh(event, days_until):
                 continue
             for channel, recipient in _plan(db, row, event):
                 _mark(db, row.id, event, channel, recipient)
 
 
-def _fresh(event: str, days_until: int, every: int) -> bool:
+def _fresh(event: str, days_until: int) -> bool:
+    """Точка наступила именно сегодня. Просрочка напоминает каждый день."""
     if days_until < 0:
-        return (-days_until - 1) % max(every, 1) == 0
+        return True
     return event.endswith(f".d{days_until}")
 
 

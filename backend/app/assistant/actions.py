@@ -296,8 +296,8 @@ def plan_mark_paid(db: Session, ctx: TeamContext, slots: dict) -> tuple[str, Ass
     }
     summary = (
         f"Отметить оплаченным: {target.title}\n"
-        f"{target.period_label} · {fields['amount']} {target.currency} · "
-        f"до {target.due_date.strftime('%d.%m.%Y')} · {fields['status']}"
+        f"{target.period_label}: {fields['amount']} {target.currency}, "
+        f"до {target.due_date.strftime('%d.%m.%Y')}, {fields['status']}"
     )
     summary = summary.replace(fields["status"], {"overdue": "просрочено", "due_soon": "скоро", "upcoming": "впереди"}.get(fields["status"], fields["status"]))
     return summary, _stage(
@@ -441,7 +441,7 @@ def apply_patch(db: Session, ctx: TeamContext, action: AssistantAction, patch: d
         action.payload = {**action.payload, "fields": fields}
         action.summary = (
             f"Отметить оплаченным: {fields['title']}\n"
-            f"{fields['period_label']} · {fields['amount']} {fields['currency']} · до "
+            f"{fields['period_label']}: {fields['amount']} {fields['currency']}, до "
             f"{date.fromisoformat(fields['due_date']).strftime('%d.%m.%Y')}"
         )
     else:

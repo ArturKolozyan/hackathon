@@ -70,7 +70,7 @@ def test_personal_link_greeting_and_one_account(db_session):
     bot = FakeBot()
     token = issue_token(db_session, purpose="user", user=ivan)
     handle_update(db_session, bot, _message(f"/start {token.token}", chat_id=42, chat_type="private", sender=42))
-    assert bot.sent[-1]["text"].startswith("Привет, Иван! Telegram привязан")
+    assert bot.sent[-1]["text"].startswith("Здравствуйте, Иван! Telegram привязан")
     db_session.refresh(ivan)
     assert ivan.telegram_user_id == 42
     assert ivan.telegram_username == "art"
@@ -98,13 +98,13 @@ def test_expired_and_replayed_token_are_rejected(db_session):
         bot,
         _message(f"/start {expired.token}", chat_id=-100, chat_type="group", title="Чат"),
     )
-    assert "истекла" in bot.sent[-1]["text"]
+    assert "заменена" in bot.sent[-1]["text"]
     assert resolve_team_chat_id(db_session)[0] in (None, "")
 
     fresh = issue_token(db_session, purpose="user", user=admin)
     handle_update(db_session, bot, _message(f"/start {fresh.token}", chat_id=7, chat_type="private", sender=7))
     handle_update(db_session, bot, _message(f"/start {fresh.token}", chat_id=8, chat_type="private", sender=8))
-    assert "истекла" in bot.sent[-1]["text"] or "недействительна" in bot.sent[-1]["text"]
+    assert "использована" in bot.sent[-1]["text"]
     db_session.refresh(admin)
     assert admin.telegram_user_id == 7
 
@@ -305,3 +305,27 @@ def test_link_rows_do_not_require_telegram_for_seed(db_session):
     assert db_session.get(TelegramIntegration, 1) is None
     assert db_session.scalar(select(PaymentOccurrence).limit(1)) is not None
     assert resolve_team_chat_id(db_session) == (None, "none")
+
+
+def test_unlink_then_relink_right_away(db_session):
+    from app.services.telegram_links import current_user_token, unlink_user
+
+    admin = _admin(db_session)
+    bot = FakeBot()
+    first = current_user_token(db_session, admin)
+    handle_update(db_session, bot, _message(f"/start {first.token}", chat_id=7, chat_type="private", sender=7))
+    db_session.refresh(admin)
+    assert admin.telegram_user_id == 7
+    handle_update(db_session, bot, _message(f"/start {first.token}", chat_id=7, chat_type="private", sender=7))
+    assert "уже привязан" in bot.sent[-1]["text"]
+
+    unlink_user(db_session, admin)
+    db_session.commit()
+    handle_update(db_session, bot, _message(f"/start {first.token}", chat_id=7, chat_type="private", sender=7))
+    assert "использована" in bot.sent[-1]["text"]
+    second = current_user_token(db_session, admin)
+    assert second.token != first.token
+    handle_update(db_session, bot, _message(f"/start {second.token}", chat_id=7, chat_type="private", sender=7))
+    db_session.refresh(admin)
+    assert admin.telegram_user_id == 7
+    assert bot.sent[-1]["text"].startswith("Здравствуйте")

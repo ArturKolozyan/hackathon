@@ -25,7 +25,7 @@ from app.services.telegram_links import UNLINKED_ALERT
 log = logging.getLogger("invoice_keeper.assistant")
 
 EMPTY: dict[str, Any] = {"inline_keyboard": []}
-LINK_HINT = "Привязка в rekeeper: Уведомления → Привязать Telegram."
+LINK_HINT = "Привязка в rekeeper: Настройки → Уведомления → Привязать Telegram."
 VOICE_LONG = "Голосовое длиннее 30 секунд. Скажи короче или напиши текстом."
 VOICE_BIG = "Голосовое больше 1 МБ. Скажи короче или напиши текстом."
 EDIT_HINT = "Напиши, что поменять: сумму, день, название или ответственного. Карточка ждёт подтверждения."

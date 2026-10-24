@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { createContext, useContext } from "react";
-import { Check } from "lucide-react";
+import { Check, type LucideIcon } from "lucide-react";
 import { HINTS } from "../hints";
 
 const ToastContext = createContext<{ push: (message: string) => void } | null>(null);
@@ -41,12 +41,28 @@ export function LoadingBlock({ label = "Загрузка…" }: { label?: string
   );
 }
 
-export function EmptyState({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {
+/** Empty page or list: icon, short title, one line on what to do, and the action if the role allows it. */
+export function EmptyState({
+  icon: Icon,
+  title,
+  children,
+  action,
+  compact,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: ReactNode;
+  action?: ReactNode;
+  compact?: boolean;
+}) {
   return (
-    <div className="panel empty-state">
+    <div className={compact ? "panel empty-state is-compact" : "panel empty-state"}>
+      <span className="empty-icon" aria-hidden="true">
+        <Icon size={compact ? 20 : 24} strokeWidth={1.75} />
+      </span>
       <h2>{title}</h2>
       <p>{children}</p>
-      {action}
+      {action && <div className="row-actions">{action}</div>}
     </div>
   );
 }
