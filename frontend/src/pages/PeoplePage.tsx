@@ -1,6 +1,7 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ApiError, api, type DirectoryUser } from "../api";
 import { useAuth } from "../auth";
+import { SelectField } from "../components/fields";
 import { ErrorState, LoadingBlock } from "../components/ui";
 
 const empty = { email: "", full_name: "", password: "", role: "user" };
@@ -77,12 +78,6 @@ export function PeoplePage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Люди</p>
-          <h1>Кто в организации</h1>
-        </div>
-      </div>
       {error && <ErrorState message={error} />}
       {notice && <p className="caption">{notice}</p>}
       <form className="panel form-grid" onSubmit={submit}>
@@ -101,10 +96,14 @@ export function PeoplePage() {
         </label>
         <label>
           Роль
-          <select value={draft.role} onChange={(event) => setDraft({ ...draft, role: event.target.value })}>
-            <option value="user">Пользователь</option>
-            {user?.is_owner && <option value="admin">Админ отдела</option>}
-          </select>
+          <SelectField
+            value={draft.role}
+            onChange={(role) => setDraft({ ...draft, role })}
+            options={[
+              { value: "user", label: "Пользователь" },
+              ...(user?.is_owner ? [{ value: "admin", label: "Админ отдела" }] : []),
+            ]}
+          />
         </label>
         <div className="span-2">
           <button type="submit" className="primary" disabled={busy}>

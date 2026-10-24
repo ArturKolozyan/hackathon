@@ -8,6 +8,7 @@ import {
   type TelegramLink,
   type TelegramSelf,
 } from "../api";
+import { SelectField } from "../components/fields";
 import { ErrorState, LoadingBlock, useToast } from "../components/ui";
 
 function personLabel(self: NotificationsView["telegram"]): string {
@@ -136,12 +137,6 @@ export function NotificationsPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Уведомления</p>
-          <h1>Каналы</h1>
-        </div>
-      </div>
       {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
       <div className="stack">
         <section className="panel settings-card">
@@ -245,10 +240,14 @@ export function NotificationsPage() {
           </div>
           <label>
             Какие платежи
-            <select value={scope} onChange={(event) => setScope(event.target.value as "mine" | "department")}>
-              <option value="mine">Только мои</option>
-              <option value="department">Все платежи отдела</option>
-            </select>
+            <SelectField
+              value={scope}
+              onChange={(value) => setScope(value as "mine" | "department")}
+              options={[
+                { value: "mine", label: "Только мои" },
+                { value: "department", label: "Все платежи отдела" },
+              ]}
+            />
           </label>
           <div className="check-row">
             <label>

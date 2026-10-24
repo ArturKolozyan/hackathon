@@ -8,7 +8,7 @@ import uuid
 from datetime import date
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session, joinedload
 
 from app.assistant.actions import READ_KINDS, pending_for, plan
@@ -27,6 +27,28 @@ log = logging.getLogger("invoice_keeper.assistant")
 
 FALLBACK = "Сейчас отвечаю на команды по платежам. Например: что горит на этой неделе?"
 UNBACKED = "Не буду называть цифры без данных. Спроси, что горит, что просрочено или сколько потратили за месяц."
+
+
+def clear_messages(db: Session, ctx: TeamContext) -> None:
+    """Стирает историю этого человека в отделе и гасит висящие карточки, чтобы следующий ход не правил скрытый черновик."""
+    if not ctx.user.is_active:
+        raise HTTPException(status_code=403, detail="Недостаточно прав")
+    db.execute(
+        update(AssistantAction)
+        .where(
+            AssistantAction.user_id == ctx.user.id,
+            AssistantAction.team_id == ctx.team.id,
+            AssistantAction.status == "pending",
+        )
+        .values(status="cancelled", resolved_at=clock.now())
+    )
+    db.execute(
+        delete(AssistantMessage).where(
+            AssistantMessage.user_id == ctx.user.id,
+            AssistantMessage.team_id == ctx.team.id,
+        )
+    )
+    db.commit()
 
 
 def list_messages(db: Session, ctx: TeamContext, limit: int = 50) -> list[AssistantMessage]:

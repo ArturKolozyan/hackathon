@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type BudgetLine, type BudgetReport } from "../api";
 import { canManage, useAuth } from "../auth";
+import { DateField } from "../components/fields";
 import { ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { formatMoney } from "../format";
 
@@ -69,11 +70,7 @@ export function BudgetPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Бюджет</p>
-          <h1>План и факт</h1>
-        </div>
+      <div className="page-toolbar">
         <Segmented
           label="Масштаб плана"
           value={kind}
@@ -84,14 +81,11 @@ export function BudgetPage() {
           onChange={setKind}
         />
       </div>
-      <p className="caption">
-        Факт — закрытые периоды этого {kind === "month" ? "месяца" : "года"}. Ожидается — ещё открытые. Валюты не смешиваем.
-      </p>
       <div className="head-actions period-pick">
         {kind === "month" ? (
           <label>
             Месяц
-            <input type="month" value={monthKey} onChange={(event) => setMonthKey(event.target.value)} />
+            <DateField mode="month" value={monthKey} onChange={setMonthKey} />
           </label>
         ) : (
           <label>

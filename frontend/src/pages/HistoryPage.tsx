@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, downloadCsv, type OccurrenceList } from "../api";
 import { OccurrenceCard } from "../components/OccurrenceCard";
+import { DateField, SelectField } from "../components/fields";
 import { EmptyState, ErrorState, LoadingBlock } from "../components/ui";
 
 type Filters = {
@@ -53,45 +54,46 @@ export function HistoryPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">История</p>
-          <h1>Периоды для бухгалтерии</h1>
-        </div>
+      <div className="page-toolbar">
         <button type="button" className="primary" onClick={() => void exportCsv()}>
           Выгрузить CSV
         </button>
       </div>
-      <p className="caption">
-        Правка фактической даты не меняет, кто оплатил. Фактическая сумма периода считается в бюджете отдельно от плана. Итоги по валютам не смешиваются.
-      </p>
       <form className="panel form-grid" onSubmit={(event) => event.preventDefault()}>
         <label>
           Статус
-          <select value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}>
-            <option value="">Оплаченные</option>
-            <option value="paid">Оплачен</option>
-            <option value="overdue">Просрочен</option>
-            <option value="due_soon">Скоро</option>
-            <option value="upcoming">Не наступил</option>
-          </select>
+          <SelectField
+            value={filters.status}
+            onChange={(status) => setFilters({ ...filters, status })}
+            options={[
+              { value: "", label: "Оплаченные" },
+              { value: "paid", label: "Оплачен" },
+              { value: "overdue", label: "Просрочен" },
+              { value: "due_soon", label: "Скоро" },
+              { value: "upcoming", label: "Не наступил" },
+            ]}
+          />
         </label>
         <label>
           Валюта
-          <select value={filters.currency} onChange={(event) => setFilters({ ...filters, currency: event.target.value })}>
-            <option value="">Все</option>
-            <option value="RUB">RUB</option>
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-          </select>
+          <SelectField
+            value={filters.currency}
+            onChange={(currency) => setFilters({ ...filters, currency })}
+            options={[
+              { value: "", label: "Все" },
+              { value: "RUB", label: "RUB" },
+              { value: "USD", label: "USD" },
+              { value: "EUR", label: "EUR" },
+            ]}
+          />
         </label>
         <label>
           Срок с
-          <input type="date" value={filters.date_from} onChange={(event) => setFilters({ ...filters, date_from: event.target.value })} />
+          <DateField value={filters.date_from} onChange={(date_from) => setFilters({ ...filters, date_from })} />
         </label>
         <label>
           Срок по
-          <input type="date" value={filters.date_to} onChange={(event) => setFilters({ ...filters, date_to: event.target.value })} />
+          <DateField value={filters.date_to} onChange={(date_to) => setFilters({ ...filters, date_to })} />
         </label>
       </form>
       {exportError && <p className="error">{exportError}</p>}

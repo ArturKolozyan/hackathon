@@ -101,6 +101,66 @@ export function statusPill(item: Occurrence): { tone: "overdue" | "soon" | "paid
   return { tone: "neutral", label };
 }
 
+export function statusShort(status: Occurrence["status"]): string {
+  if (status === "overdue") return "Просрочено";
+  if (status === "due_soon") return "Скоро";
+  if (status === "paid") return "Оплачено";
+  return "Впереди";
+}
+
+export function capitalMonth(year: number, month: number): string {
+  const title = monthTitle(year, month);
+  return title.charAt(0).toUpperCase() + title.slice(1);
+}
+
+export function isoParts(iso: string): { year: number; month: number; day: number } {
+  const [year, month, day] = iso.slice(0, 10).split("-").map(Number);
+  return { year, month, day };
+}
+
+export function addIsoDays(iso: string, delta: number): string {
+  const { year, month, day } = isoParts(iso);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + delta);
+  const y = date.getUTCFullYear();
+  const m = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(date.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function weekStart(iso: string): string {
+  const { year, month, day } = isoParts(iso);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const offset = (date.getUTCDay() + 6) % 7;
+  return addIsoDays(iso, -offset);
+}
+
+export function isWeekend(iso: string): boolean {
+  const { year, month, day } = isoParts(iso);
+  const dow = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return dow === 0 || dow === 6;
+}
+
+export function shiftAnchorMonth(iso: string, delta: number): string {
+  const { year, month, day } = isoParts(iso);
+  const next = shiftMonth(year, month, delta);
+  const last = new Date(Date.UTC(next.year, next.month, 0)).getUTCDate();
+  const clamped = Math.min(day, last);
+  return `${next.year}-${String(next.month).padStart(2, "0")}-${String(clamped).padStart(2, "0")}`;
+}
+
+export function weekLabel(startIso: string, endIso: string): string {
+  const start = isoParts(startIso);
+  const end = isoParts(endIso);
+  if (start.year === end.year && start.month === end.month) {
+    return `${start.day}–${end.day} ${MONTHS_GENITIVE[start.month - 1]} ${start.year}`;
+  }
+  if (start.year === end.year) {
+    return `${start.day} ${MONTHS_GENITIVE[start.month - 1]} – ${end.day} ${MONTHS_GENITIVE[end.month - 1]} ${start.year}`;
+  }
+  return `${start.day} ${MONTHS_GENITIVE[start.month - 1]} ${start.year} – ${end.day} ${MONTHS_GENITIVE[end.month - 1]} ${end.year}`;
+}
+
 export function chipTone(row: CurrencyTotals): { amount: string; label: string; tone: string } {
   const overdue = Number(row.overdue_amount);
   const soon = Number(row.due_soon_amount);

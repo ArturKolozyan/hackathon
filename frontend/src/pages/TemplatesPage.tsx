@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ApiError, api, type DirectoryUser, type Template } from "../api";
+import { DateField, SelectField } from "../components/fields";
 import { EmptyState, ErrorState, InlineConfirm, LoadingBlock } from "../components/ui";
 import { formatMoney } from "../format";
 
@@ -114,11 +115,7 @@ export function TemplatesPage() {
 
   return (
     <div className="page">
-      <div className="page-head">
-        <div>
-          <p className="kicker">Шаблоны</p>
-          <h1>Что платим регулярно</h1>
-        </div>
+      <div className="page-toolbar">
         <button type="button" className="ghost" onClick={() => setShowArchived((value) => !value)}>
           {showArchived ? "Скрыть архив" : "Показать архив"}
         </button>
@@ -139,20 +136,19 @@ export function TemplatesPage() {
         </label>
         <label>
           Валюта
-          <select value={draft.currency} onChange={(event) => update("currency", event.target.value)}>
-            <option value="RUB">RUB</option>
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-          </select>
+          <SelectField
+            value={draft.currency}
+            onChange={(currency) => update("currency", currency)}
+            options={[
+              { value: "RUB", label: "RUB" },
+              { value: "USD", label: "USD" },
+              { value: "EUR", label: "EUR" },
+            ]}
+          />
         </label>
         <label>
           Дата ближайшей оплаты
-          <input
-            type="date"
-            value={draft.next_payment_date}
-            onChange={(event) => update("next_payment_date", event.target.value)}
-            required
-          />
+          <DateField required value={draft.next_payment_date} onChange={(value) => update("next_payment_date", value)} />
         </label>
         <label>
           Периодичность
@@ -180,17 +176,14 @@ export function TemplatesPage() {
         )}
         <label className="span-2">
           Ответственный
-          <select
+          <SelectField
             value={draft.responsible_user_id}
-            onChange={(event) => update("responsible_user_id", event.target.value)}
-          >
-            <option value="">Без ответственного</option>
-            {people.map((person) => (
-              <option key={person.id} value={person.id}>
-                {person.full_name}
-              </option>
-            ))}
-          </select>
+            onChange={(id) => update("responsible_user_id", id)}
+            options={[
+              { value: "", label: "Без ответственного" },
+              ...people.map((person) => ({ value: person.id, label: person.full_name })),
+            ]}
+          />
         </label>
         {editing && draft.applies_from && (
           <p className="caption span-2">Изменения применятся с периода {draft.applies_from}.</p>
