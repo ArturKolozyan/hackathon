@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-24T06:10:00Z",
+  "title": "Design System: rekeeper",
+  "extensions": {
+    "colorMeta": {
+      "accent": { "role": "primary", "displayName": "Сигнальный оранжевый", "canonical": "#FF6B1A" },
+      "bg-dark": { "role": "neutral", "displayName": "Ночной фон", "canonical": "#0E0E0E" },
+      "surface-dark": { "role": "neutral", "displayName": "Ночная карточка", "canonical": "#1A1A1A" },
+      "bg-light": { "role": "neutral", "displayName": "Слоновая кость", "canonical": "#FAF6EC" },
+      "surface-light": { "role": "neutral", "displayName": "Белая карточка", "canonical": "#FFFFFF" },
+      "text-light": { "role": "neutral", "displayName": "Текст на кости", "canonical": "#1F1B16" },
+      "muted-light": { "role": "neutral", "displayName": "Приглушённый на кости", "canonical": "#7A7266" },
+      "overdue": { "role": "status", "displayName": "Просрочено", "canonical": "#E5483D" },
+      "soon": { "role": "status", "displayName": "Скоро", "canonical": "#E0A100" },
+      "paid": { "role": "status", "displayName": "Оплачено", "canonical": "#22A35A" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Только обещание на экране входа." },
+      "headline": { "displayName": "Headline", "purpose": "Заголовок экрана." },
+      "title": { "displayName": "Title", "purpose": "Имя периода, шаблона, человека." },
+      "body": { "displayName": "Body", "purpose": "Пояснения, около 68ch." },
+      "label": { "displayName": "Label", "purpose": "Кикер и подпись итога." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "skeleton-pulse", "value": "opacity 1.4s ease-in-out", "purpose": "Скелет загрузки. При reduced-motion анимации нет." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "390px" },
+      { "name": "stack", "value": "640px" },
+      { "name": "nav", "value": "860px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Единственная заливка акцента. Текст белый.",
+      "html": "<button class=\"ds-btn-primary\">Оплачено</button>",
+      "css": ".ds-btn-primary { background: #FF6B1A; color: #fff; border: 1px solid transparent; border-radius: 12px; min-height: 44px; padding: 8px 14px; font-family: Inter, system-ui, sans-serif; font-weight: 600; } .ds-btn-primary:hover { background: #FF8A47; } .ds-btn-primary:focus-visible { outline: 2px solid #FF6B1A; outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Отмена и тихие действия. Без заливки.",
+      "html": "<button class=\"ds-btn-ghost\">Отмена</button>",
+      "css": ".ds-btn-ghost { background: transparent; color: #fff; border: 1px solid #2A2A2A; border-radius: 12px; min-height: 44px; padding: 8px 14px; font-family: Inter, system-ui, sans-serif; font-weight: 600; } .ds-btn-ghost:hover { background: rgba(255,255,255,0.06); } .ds-btn-ghost:focus-visible { outline: 2px solid #FF6B1A; outline-offset: 2px; }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Поле на --field, фокус — обводка акцента.",
+      "html": "<label class=\"ds-field\">Почта<input class=\"ds-input\" value=\"admin@invoice.local\" /></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: #A3A3A3; font-family: Inter, system-ui, sans-serif; font-size: 14px; } .ds-input { background: #121212; color: #fff; border: 1px solid #2A2A2A; border-radius: 10px; min-height: 44px; padding: 10px 12px; font: inherit; } .ds-input:focus { outline: none; border-color: #FF6B1A; }"
+    },
+    {
+      "name": "Status pill",
+      "kind": "chip",
+      "refersTo": "pill-overdue",
+      "description": "Мягкая пилюля, не кнопка. Фон 16% канона.",
+      "html": "<span class=\"ds-pill\">просрочено</span>",
+      "css": ".ds-pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px; background: color-mix(in srgb, #E5483D 16%, transparent); color: #E5483D; font-family: Inter, system-ui, sans-serif; font-size: 12px; font-weight: 600; } .ds-pill::before { content: \"\"; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }"
+    },
+    {
+      "name": "Occurrence card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Карточка периода. Линейка суммы только в инбоксе.",
+      "html": "<article class=\"ds-card\"><div><h3>Аренда офиса</h3><p>ноябрь · до 12.11</p></div><strong>85 000 ₽</strong></article>",
+      "css": ".ds-card { display: flex; justify-content: space-between; gap: 16px; background: #1A1A1A; color: #fff; border: 1px solid #2A2A2A; border-radius: 16px; padding: 14px 16px; font-family: Inter, system-ui, sans-serif; } .ds-card h3 { margin: 0; font-size: 1.05rem; } .ds-card p { margin: 8px 0 0; color: #A3A3A3; } .ds-card strong { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 5px; } .ds-card strong::after { content: \"\"; width: 36px; height: 3px; border-radius: 999px; background: #FF6B1A; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Очередь на тёмном столе",
+    "overview": "Кабинет плотный: поверхности близко к фону, воздух даёт шаг 8px. Один оранжевый отмечает действие и сумму. Инбокс читается сверху вниз: просрочено, скоро, остальное. Канон для людей — docs/design.md.",
+    "keyCharacteristics": [
+      "Один акцент #FF6B1A на обе темы",
+      "Очередь карточек, не таблица платежей",
+      "Мягкие пилюли статусов, без заливки кнопки",
+      "Inter, wordmark rekeeper, знак команды мелко",
+      "Без теней"
+    ],
+    "rules": [
+      { "name": "The One Orange Rule", "body": "#FF6B1A только у CTA и у линейки суммы.", "section": "colors" },
+      { "name": "The Soft Status Rule", "body": "Пилюля — 16% канона, не залитая кнопка.", "section": "colors" },
+      { "name": "The Inter Rule", "body": "Семейство зафиксировано. Замена Inter ломает бриф.", "section": "typography" },
+      { "name": "The Flat Rule", "body": "Нет теней у карточек, меню и тостов.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do держать один #FF6B1A, тёмный дефолт и очередь просрочено → скоро → остальное.",
+      "Do брать скелет, пусто, ошибку, тост, подтверждение и сегмент только из этих токенов."
+    ],
+    "donts": [
+      "Don't менять hex, Inter, радиусы 16/12/10/999, шаг 8 и запрет теней.",
+      "Don't добавлять градиенты, второй акцент или заливные статус-кнопки.",
+      "Don't чинить контраст белого на #FF6B1A сменой токена."
+    ]
+  }
+}

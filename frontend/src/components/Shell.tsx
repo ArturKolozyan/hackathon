@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { TeamMark, ThemeToggle, Wordmark } from "./Brand";
@@ -6,6 +7,11 @@ import { TeamMark, ThemeToggle, Wordmark } from "./Brand";
 export function Shell() {
   const { user, setUser } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    document.querySelector<HTMLElement>(".nav a.active")?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [location.pathname]);
 
   async function logout() {
     try {
@@ -19,6 +25,9 @@ export function Shell() {
 
   return (
     <div className="app">
+      <a className="skip" href="#content">
+        К содержанию
+      </a>
       <header className="topbar">
         <Wordmark to="/" />
         <div className="who">
@@ -31,7 +40,7 @@ export function Shell() {
         </div>
       </header>
       <div className="shell">
-        <nav className="nav">
+        <nav className="nav" aria-label="Разделы">
           <NavLink to="/" end>
             Инбокс
           </NavLink>
@@ -41,6 +50,7 @@ export function Shell() {
           <NavLink to="/settings">Настройки</NavLink>
           {user?.role === "admin" && (
             <>
+              <span className="nav-label">Админ</span>
               <NavLink to="/admin/templates">Шаблоны</NavLink>
               <NavLink to="/admin/users">Люди</NavLink>
               <NavLink to="/admin/audit">Логи</NavLink>
@@ -49,7 +59,7 @@ export function Shell() {
           <TeamMark />
         </nav>
         <div className="workspace">
-          <main>
+          <main id="content">
             <Outlet />
           </main>
           <TeamMark />

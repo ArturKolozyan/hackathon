@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ApiError, api, type Template, type User } from "../api";
+import { EmptyState, ErrorState, InlineConfirm, LoadingBlock } from "../components/ui";
 import { formatMoney } from "../format";
 
 type Draft = {
@@ -29,6 +30,8 @@ export function TemplatesPage() {
   const [editing, setEditing] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
+  const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
@@ -41,7 +44,9 @@ export function TemplatesPage() {
   }, [showArchived]);
 
   useEffect(() => {
-    load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"));
+    load()
+      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"))
+      .finally(() => setReady(true));
   }, [load]);
 
   function update<K extends keyof Draft>(key: K, value: Draft[K]) {
@@ -101,7 +106,7 @@ export function TemplatesPage() {
           {showArchived ? "Скрыть архив" : "Показать архив"}
         </button>
       </div>
-      <form className="panel form-grid" onSubmit={submit}>
+      <form id="template-form" className="panel form-grid" onSubmit={submit} aria-busy={busy}>
         <h2>{editing ? "Правка шаблона" : "Новый шаблон"}</h2>
         <label>
           Название
@@ -154,9 +159,9 @@ export function TemplatesPage() {
           </select>
         </label>
         {error && (
-          <p className="error span-2" role="alert">
-            {error}
-          </p>
+          <div className="span-2">
+            <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />
+          </div>
         )}
         <div className="row-actions span-2">
           <button type="submit" className="primary" disabled={busy}>
@@ -176,6 +181,12 @@ export function TemplatesPage() {
           )}
         </div>
       </form>
+      {!ready && !error && <LoadingBlock label="Загружаем шаблоны…" />}
+      {ready && !error && items.length === 0 && (
+        <EmptyState title={showArchived ? "Архив пуст" : "Шаблонов ещё нет"}>
+          {showArchived ? "Снятых шаблонов нет." : "Создайте первый — периоды появятся в инбоксе."}
+        </EmptyState>
+      )}
       <div className="list">
         {items.map((item) => (
           <article key={item.id} className="card">
@@ -200,27 +211,52 @@ export function TemplatesPage() {
               )}
             </div>
             <div className="card-actions">
-              <button
-                type="button"
-                className="ghost"
-                onClick={() => {
-                  setEditing(item.id);
-                  setDraft({
-                    title: item.title,
-                    description: item.description ?? "",
-                    amount: item.amount,
-                    currency: item.currency,
-                    day_of_month: String(item.day_of_month),
-                    starts_on: item.starts_on,
-                    responsible_user_id: item.responsible.id,
-                  });
-                }}
-              >
-                Изменить
-              </button>
-              <button type="button" className="ghost" onClick={() => void archive(item, !item.is_archived)}>
-                {item.is_archived ? "Вернуть" : "В архив"}
-              </button>
+              {confirmArchive === item.id ? (
+                <InlineConfirm
+                  title="Новые периоды не появятся. История останется."
+                  confirmLabel="В архив"
+                  onConfirm={() => {
+                    setConfirmArchive(null);
+                    void archive(item, true);
+                  }}
+                  onCancel={() => setConfirmArchive(null)}
+                />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
+                      setEditing(item.id);
+                      document.getElementById("template-form")?.scrollIntoView({ block: "start" });
+                      setDraft({
+                        title: item.title,
+                        description: item.description ?? "",
+                        amount: item.amount,
+                        currency: item.currency,
+                        day_of_month: String(item.day_of_month),
+                        starts_on: item.starts_on,
+                        responsible_user_id: item.responsible.id,
+                      });
+                    }}
+                  >
+                    Изменить
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost"
+                    onClick={() => {
+                      if (item.is_archived) {
+                        void archive(item, false);
+                        return;
+                      }
+                      setConfirmArchive(item.id);
+                    }}
+                  >
+                    {item.is_archived ? "Вернуть" : "В архив"}
+                  </button>
+                </>
+              )}
             </div>
           </article>
         ))}

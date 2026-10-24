@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 import { api, type User } from "./api";
+import { LoadingBlock } from "./components/ui";
 
 type AuthState = {
   user: User | null;
@@ -33,7 +34,13 @@ export function useAuth(): AuthState {
 
 export function RequireAuth() {
   const { user, ready } = useAuth();
-  if (!ready) return <p className="boot">Загрузка…</p>;
+  if (!ready) {
+    return (
+      <div className="boot">
+        <LoadingBlock label="Проверяем сессию…" />
+      </div>
+    );
+  }
   if (!user) return <Navigate to="/login" replace />;
   return <Outlet />;
 }
