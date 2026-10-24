@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, api, type OccurrenceList } from "../api";
 import { OccurrenceCard } from "../components/OccurrenceCard";
+import { EmptyState, ErrorState, LoadingBlock } from "../components/ui";
 
 export function HistoryPage() {
   const [data, setData] = useState<OccurrenceList | null>(null);
@@ -28,13 +29,11 @@ export function HistoryPage() {
         </div>
       </div>
       <p className="caption">Правка фактической даты заново считает, вовремя закрыли или с опозданием. Сумма оплаченного периода не меняется вместе с шаблоном.</p>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
+      {error && <ErrorState message={error} onRetry={() => void load()} />}
+      {!data && !error && <LoadingBlock label="Загружаем историю…" />}
+      {data && data.items.length === 0 && (
+        <EmptyState title="История пустая">Закрытых периодов ещё нет. Они появятся здесь после «Оплачено».</EmptyState>
       )}
-      {!data && !error && <p className="muted">Загрузка…</p>}
-      {data && data.items.length === 0 && <p className="panel empty">История пустая.</p>}
       {data && (
         <div className="cards">
           {data.items.map((item) => (

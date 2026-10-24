@@ -198,6 +198,7 @@ def test_force_ipv6_binds_v6_and_does_not_leak_token(monkeypatch):
 
     monkeypatch.setattr(socket, "create_connection", fake_connect)
     client = TelegramClient("12345:SUPERSECRET", force_ipv6=True)
+    assert "SUPERSECRET" not in repr(client)
     try:
         try:
             client.get_me()

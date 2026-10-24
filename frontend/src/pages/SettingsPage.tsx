@@ -2,6 +2,7 @@ import { FormEvent, useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, type Me, type Sent, type TeamTelegram, type TelegramLink, type TelegramSelf } from "../api";
 import { canManage, useAuth } from "../auth";
+import { ErrorState, LoadingBlock, useToast } from "../components/ui";
 
 function personLabel(self: TelegramSelf): string {
   if (self.username) return `@${self.username}`;
@@ -17,8 +18,9 @@ export function SettingsPage() {
   const [personalLink, setPersonalLink] = useState<TelegramLink | null>(null);
   const [teamLink, setTeamLink] = useState<TelegramLink | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const toast = useToast();
   const [confirmUnlink, setConfirmUnlink] = useState(false);
   const [confirmTeam, setConfirmTeam] = useState(false);
 
@@ -34,7 +36,9 @@ export function SettingsPage() {
   }, [admin]);
 
   useEffect(() => {
-    load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"));
+    load()
+      .catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Не загрузилось"))
+      .finally(() => setReady(true));
   }, [load]);
 
   useEffect(() => {
@@ -48,7 +52,6 @@ export function SettingsPage() {
   async function run(action: () => Promise<void>) {
     setBusy(true);
     setError(null);
-    setNotice(null);
     try {
       await action();
     } catch (err) {
@@ -61,9 +64,9 @@ export function SettingsPage() {
   async function copy(url: string) {
     try {
       await navigator.clipboard.writeText(url);
-      setNotice("Ссылка скопирована");
+      toast?.push("Ссылка скопирована");
     } catch {
-      setNotice("Скопируйте ссылку вручную");
+      toast?.push("Скопируйте ссылку вручную");
     }
   }
 
@@ -84,12 +87,9 @@ export function SettingsPage() {
           <h1>Профиль</h1>
         </div>
       </div>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-      {notice && <p className="caption">{notice}</p>}
+      {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
+      {!ready && !error && <LoadingBlock label="Загружаем настройки…" />}
+      {self && (
       <div className="stack">
         <ProfileCard
           onPasswordChanged={() => {
@@ -167,8 +167,9 @@ export function SettingsPage() {
             <button
               type="button"
               className="ghost"
-              aria-pressed={self?.reminders_enabled ?? true}
-              disabled={!self || busy}
+              aria-pressed={self.reminders_enabled}
+              aria-label={self.reminders_enabled ? "Личные напоминания включены" : "Личные напоминания выключены"}
+              disabled={busy}
               onClick={() =>
                 run(async () => {
                   setSelf(
@@ -194,6 +195,9 @@ export function SettingsPage() {
               </span>
             </div>
             <p className="desc">{teamLabel}</p>
+            {team?.status === "connected" && (
+              <p className="desc">Новая ссылка заменит текущий чат. Прежний перестанет получать напоминания.</p>
+            )}
             {team?.source === "env" && (
               <p className="desc">Сейчас напоминания идут в чат из TELEGRAM_CHAT_ID. Подключение из веба его заменит.</p>
             )}
@@ -217,7 +221,7 @@ export function SettingsPage() {
                 onClick={() =>
                   run(async () => {
                     setTeam(await api<TeamTelegram>("/api/v1/telegram/team-chat/test", { method: "POST" }));
-                    setNotice("Сообщение уйдёт в чат в ближайшие секунды");
+                    toast?.push("Сообщение уйдёт в чат в ближайшие секунды");
                   })
                 }
               >
@@ -252,7 +256,11 @@ export function SettingsPage() {
             {team && !team.bot_ready && (
               <p className="desc">Бот ещё не представился. Подождите, пока worker вызовет getMe.</p>
             )}
-            {team?.test_error && <p className="error">{team.test_error}</p>}
+            {team?.test_error && (
+              <p className="error" role="alert">
+                {team.test_error}
+              </p>
+            )}
             {team?.test_sent_at && !team.test_pending && !team.test_error && (
               <p className="desc">Тестовое отправлено.</p>
             )}
@@ -270,6 +278,7 @@ export function SettingsPage() {
           </section>
         )}
       </div>
+      )}
     </div>
   );
 }

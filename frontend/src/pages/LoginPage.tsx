@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation } from "react-router-dom";
 import { ApiError, api, type Me } from "../api";
 import { useAuth } from "../auth";
 import { TeamMark, ThemeToggle, Wordmark } from "../components/Brand";
+import { LoadingBlock } from "../components/ui";
 
 const adminEmail = import.meta.env.VITE_DEMO_ADMIN_EMAIL || "admin@invoice.local";
 const adminPassword = import.meta.env.VITE_DEMO_ADMIN_PASSWORD || "change-me";
@@ -20,7 +21,13 @@ export function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (!ready) return <p className="boot">Загрузка…</p>;
+  if (!ready) {
+    return (
+      <div className="boot">
+        <LoadingBlock label="Открываем вход…" />
+      </div>
+    );
+  }
   if (user) return <Navigate to="/" replace />;
 
   async function submit(event: FormEvent) {
@@ -42,6 +49,9 @@ export function LoginPage() {
 
   return (
     <div className="login-page">
+      <a className="skip" href="#login-form">
+        К форме входа
+      </a>
       <header className="topbar">
         <Wordmark />
         <ThemeToggle />
@@ -52,7 +62,7 @@ export function LoginPage() {
           <h1>Сверху то, что горит.</h1>
           <p>Просрочено, потом ближайшие сроки, потом остальное. Закрыл период — карточка уходит в историю, следующий месяц не ждёт.</p>
         </section>
-        <form className="panel login-form" onSubmit={submit}>
+        <form id="login-form" className="panel login-form" onSubmit={submit} aria-busy={busy}>
           <h2>Вход</h2>
           <label>
             Почта

@@ -57,6 +57,7 @@ nginx в `web` резолвит имя `api` на каждый запрос. `do
 | Сервис | Роль |
 |--------|------|
 | `db` | PostgreSQL 16, том `pgdata` |
+| `backup` | Раз в сутки в 00:00 МСК `pg_dump` в `./backups`, 7 последних. На VPS это `/opt/invoice-keeper/backups`. Восстановление: [docs/infra.md](docs/infra.md) |
 | `api` | FastAPI, миграции Alembic, сид, `/api/v1` |
 | `worker` | Горизонт периодов и Telegram: long polling, напоминания, кнопка «Оплачено». На VPS — сеть хоста |
 | `web` | Собранный React за nginx, `/api` проксируется на `api`. На хосте только `127.0.0.1:8080` |

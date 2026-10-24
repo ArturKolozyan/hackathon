@@ -1,20 +1,78 @@
 # Push в main и ручной запуск. Секреты приложения остаются в /opt/invoice-keeper/.env.
+# pull_request гоняет тесты и сборку, на VPS не ходит.
 name: Deploy
 
 on:
   push:
     branches: [main]
+  pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
+  backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: invoice
+          POSTGRES_PASSWORD: change-me
+          POSTGRES_DB: invoice_keeper
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U invoice -d invoice_keeper"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install
+        run: python -m pip install -r backend/requirements.txt
+      - name: pytest
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+psycopg://invoice:change-me@127.0.0.1:5432/invoice_keeper
+        run: python -m pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install and build
+        working-directory: frontend
+        run: npm ci && npm run build
+
+  backup-script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Backup schedule selftest
+        run: sh ops/backup/selftest.sh
+
   deploy:
+    needs: [backend, web, backup-script]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -40,18 +98,25 @@ jobs:
             # а health по HTTP при этом был бы зелёным.
             COMPOSE="docker compose -f docker-compose.yml -f compose.telegram-host.yml"
             $COMPOSE up --build -d
+            # loop.sh читается один раз при старте. Правка скрипта без смены
+            # compose контейнер не пересоздаёт — делаем это на каждом деплое.
+            $COMPOSE up -d --force-recreate --no-deps backup
             # up -d не ждёт, пока nginx и Caddy начнут слушать.
             # Приложение: nginx на loopback :8080. Caddy: :80 с Host rekeeper.ru
             # (до сертификата это 308 на https — для «слушает» достаточно).
             # Worker должен быть running и в сети host, иначе Telegram снова без IPv6.
+            # backup: running и хотя бы один invoice-keeper-*.dump.
+            # Контейнер при старте догоняет дамп за сегодня, если файла ещё нет.
             # https:// и curl -k не используем: без сертификата деплой падал бы зря, -k его не доказывает.
             caddy_code=none
             worker_state=missing
             worker_net=missing
+            backup_state=missing
             for _ in $(seq 1 36); do
               app_ok=0
               caddy_ok=0
               worker_ok=0
+              backup_ok=0
               app=$(curl -fsS --max-time 5 http://127.0.0.1:8080/api/v1/health || true)
               if [ -n "$app" ]; then
                 app_ok=1
@@ -68,13 +133,23 @@ jobs:
                   worker_ok=1
                 fi
               fi
-              if [ "$app_ok" = 1 ] && [ "$caddy_ok" = 1 ] && [ "$worker_ok" = 1 ]; then
+              backup_id=$($COMPOSE ps -q backup || true)
+              if [ -n "$backup_id" ]; then
+                backup_state=$(docker inspect -f '{{.State.Status}}' "$backup_id" || true)
+                if [ "$backup_state" = running ] && [ -d backups ]; then
+                  dump=$(find backups -maxdepth 1 -name 'invoice-keeper-*.dump' -print -quit 2>/dev/null || true)
+                  if [ -n "$dump" ]; then
+                    backup_ok=1
+                  fi
+                fi
+              fi
+              if [ "$app_ok" = 1 ] && [ "$caddy_ok" = 1 ] && [ "$worker_ok" = 1 ] && [ "$backup_ok" = 1 ]; then
                 printf '%s\n' "$app"
                 exit 0
               fi
               sleep 5
             done
-            echo "healthcheck failed: app http://127.0.0.1:8080/api/v1/health, caddy :80 Host rekeeper.ru (last HTTP ${caddy_code}), worker host-network (state ${worker_state}, net ${worker_net})" >&2
+            echo "healthcheck failed: app http://127.0.0.1:8080/api/v1/health, caddy :80 Host rekeeper.ru (last HTTP ${caddy_code}), worker host-network (state ${worker_state}, net ${worker_net}), backup (state ${backup_state}, dump in backups/)" >&2
             $COMPOSE ps >&2 || true
-            $COMPOSE logs --tail=80 api web caddy worker >&2 || true
+            $COMPOSE logs --tail=80 api web caddy worker backup >&2 || true
             exit 1

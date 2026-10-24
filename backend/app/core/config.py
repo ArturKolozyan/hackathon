@@ -1,6 +1,7 @@
 from functools import lru_cache
 from zoneinfo import ZoneInfo
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,7 +30,7 @@ class Settings(BaseSettings):
     # Канонический адрес. Письмо-напоминание дописывает его в конец. Пустая строка — без ссылки.
     app_public_url: str = "https://rekeeper.ru"
     worker_interval_seconds: int = 60
-    telegram_bot_token: str = ""
+    telegram_bot_token: str = Field(default="", repr=False)
     telegram_chat_id: str = ""
     telegram_force_ipv6: bool = True
     email_enabled: bool = False

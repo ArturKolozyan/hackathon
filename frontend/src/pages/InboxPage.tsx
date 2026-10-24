@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, api, type Inbox, type Occurrence, type Summary, type TeamTelegram, type TelegramSelf } from "../api";
 import { canManage, useAuth } from "../auth";
 import { OccurrenceCard } from "../components/OccurrenceCard";
+import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { chipTone, formatMoney } from "../format";
 
 export function InboxPage() {
@@ -56,40 +57,50 @@ export function InboxPage() {
           <p className="kicker">Инбокс</p>
           <h1>Что сделать сейчас</h1>
         </div>
-        <div className="head-actions">
-          <label className="as-of">
-            Итоги на дату
-            <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} />
-          </label>
-          {asOf && (
-            <button type="button" className="ghost" onClick={() => setAsOf("")}>
-              Сейчас
-            </button>
-          )}
-          <button
-            type="button"
-            className={mine ? "primary" : "ghost"}
-            aria-pressed={mine}
-            onClick={() => setParams(mine ? {} : { mine: "1" })}
-          >
-            {mine ? "Только мои" : "Вся команда"}
-          </button>
-        </div>
+        <Segmented
+          label="Чья очередь"
+          value={mine ? "mine" : "all"}
+          options={[
+            { value: "all", label: "Вся команда" },
+            { value: "mine", label: "Только мои" },
+          ]}
+          onChange={(value) => setParams(value === "mine" ? { mine: "1" } : {})}
+        />
       </div>
       {summary && (
         <>
+          <div className="head-actions totals-tools">
+            <label className="as-of">
+              Итоги на дату
+              <input type="date" value={asOf} onChange={(event) => setAsOf(event.target.value)} />
+            </label>
+            {asOf && (
+              <button type="button" className="ghost" onClick={() => setAsOf("")}>
+                Сбросить дату
+              </button>
+            )}
+          </div>
           <div className="totals">
             {summary.by_currency.map((row) => {
               const chip = chipTone(row);
-              const tone = chip.tone === "rest" ? "neutral" : chip.tone;
-              const caption = chip.tone === "paid" ? "Закрыто" : "К оплате";
+              const open = Number(row.open_amount);
+              const closed = !(open > 0);
+              const tone = closed ? "paid" : chip.tone === "rest" ? "neutral" : chip.tone;
+              const slice =
+                chip.tone === "overdue" ? "просрочено" : chip.tone === "soon" ? "скоро" : chip.tone === "paid" ? "закрыто" : "остальное";
+              const differs = !closed && Number(chip.amount) !== open;
               return (
                 <article key={row.currency} className="total">
                   <span className="code">
-                    {caption} · {row.currency}
+                    {closed ? "Закрыто" : "К оплате"} · {row.currency}
                   </span>
-                  <strong className="money rule">{formatMoney(chip.amount, row.currency)}</strong>
-                  <span className={`pill pill-${tone}`}>{chip.label}</span>
+                  <strong className="money rule">{formatMoney(closed ? row.paid_amount : row.open_amount, row.currency)}</strong>
+                  <span className={`pill pill-${tone}`}>{closed ? "закрыто" : slice}</span>
+                  {differs && (
+                    <span className="muted slice-note">
+                      из них {slice} {formatMoney(chip.amount, row.currency)}
+                    </span>
+                  )}
                 </article>
               );
             })}
@@ -103,7 +114,7 @@ export function InboxPage() {
             {!mine && (
               <>
                 {" "}
-                {summary.counts.overdue} просрочено · {summary.counts.due_soon} скоро · {summary.counts.upcoming} впереди ·{" "}
+                {summary.counts.overdue} просрочено · {summary.counts.due_soon} скоро · {summary.counts.upcoming} ещё не скоро ·{" "}
                 {summary.counts.paid} в истории
               </>
             )}
@@ -126,13 +137,24 @@ export function InboxPage() {
           </Link>
         </aside>
       )}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
+      {error && <ErrorState message={error} onRetry={() => void load()} />}
+      {!inbox && !error && <LoadingBlock label="Загружаем очередь…" />}
+      {inbox && totalOpen === 0 && (
+        <EmptyState
+          title={mine ? "У вас в очереди пусто" : "В очереди пусто"}
+          action={
+            mine ? (
+              <button type="button" className="ghost" onClick={() => setParams({})}>
+                Показать всю команду
+              </button>
+            ) : undefined
+          }
+        >
+          {mine
+            ? "Чужие платежи скрыты фильтром. Снимите его или закройте свои, когда появятся."
+            : "Либо всё закрыто, либо шаблонов ещё нет. История хранит то, что уже оплатили."}
+        </EmptyState>
       )}
-      {!inbox && !error && <p className="muted">Загрузка…</p>}
-      {inbox && totalOpen === 0 && <p className="panel empty">В очереди пусто. Либо всё закрыто, либо шаблонов ещё нет.</p>}
       {inbox && (
         <>
           <Group title="Просрочено" tone="overdue" items={inbox.overdue} today={inbox.today} onChanged={load} />

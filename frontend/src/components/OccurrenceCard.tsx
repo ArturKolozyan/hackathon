@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, api, type Occurrence } from "../api";
 import { formatMoney, shortDue, statusPill } from "../format";
+import { InlineConfirm, useToast } from "./ui";
 
 type Props = {
   item: Occurrence;
@@ -16,21 +17,25 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
   const [note, setNote] = useState("");
   const [receiptUrl, setReceiptUrl] = useState(item.receipt_url ?? "");
   const [receiptNote, setReceiptNote] = useState(item.receipt_note ?? "");
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const toast = useToast();
 
   useEffect(() => {
     setReceiptUrl(item.receipt_url ?? "");
     setReceiptNote(item.receipt_note ?? "");
   }, [item.receipt_url, item.receipt_note]);
 
-  async function run(action: () => Promise<void>) {
+  async function run(action: () => Promise<void>, done: string) {
     setBusy(true);
     setError(null);
     try {
       await action();
       setOpen(false);
       setReceiptOpen(false);
+      setConfirmRevoke(false);
+      toast?.push(done);
       onChanged();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Не сохранилось");
@@ -78,6 +83,17 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
             {error}
           </p>
         )}
+        {confirmRevoke && (
+          <InlineConfirm
+            title={`Вернуть «${item.title}» в инбокс? Оплата снимется.`}
+            confirmLabel="Вернуть в инбокс"
+            busy={busy}
+            onConfirm={() => {
+              void run(() => api(`/api/v1/payment-occurrences/${item.id}/revoke`, { method: "POST" }), "Период снова в инбоксе");
+            }}
+            onCancel={() => setConfirmRevoke(false)}
+          />
+        )}
         {open && (
           <form
             className="pay-form"
@@ -98,7 +114,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
                   method: "POST",
                   body: JSON.stringify(body),
                 });
-              });
+              }, mode === "history" ? "Дата сохранена" : "Период закрыт и ушёл в историю");
             }}
           >
             <label>
@@ -142,14 +158,16 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
             className="pay-form"
             onSubmit={(event) => {
               event.preventDefault();
-              void run(() =>
-                api(`/api/v1/payment-occurrences/${item.id}`, {
-                  method: "PATCH",
-                  body: JSON.stringify({
-                    receipt_url: receiptUrl.trim() || null,
-                    receipt_note: receiptNote.trim() || null,
+              void run(
+                () =>
+                  api(`/api/v1/payment-occurrences/${item.id}`, {
+                    method: "PATCH",
+                    body: JSON.stringify({
+                      receipt_url: receiptUrl.trim() || null,
+                      receipt_note: receiptNote.trim() || null,
+                    }),
                   }),
-                }),
+                "Чек сохранён",
               );
             }}
           >
@@ -178,7 +196,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
           </form>
         )}
       </div>
-      {!open && !receiptOpen && (
+      {!open && !receiptOpen && !confirmRevoke && (
         <div className="card-actions">
           {mode === "inbox" ? (
             <button type="button" className="primary" onClick={() => setOpen(true)}>
@@ -189,15 +207,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
               <button type="button" className="outline" onClick={() => setOpen(true)}>
                 Дата
               </button>
-              <button
-                type="button"
-                className="ghost"
-                disabled={busy}
-                onClick={() => {
-                  if (!window.confirm("Вернуть период в инбокс?")) return;
-                  void run(() => api(`/api/v1/payment-occurrences/${item.id}/revoke`, { method: "POST" }));
-                }}
-              >
+              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirmRevoke(true)}>
                 В инбокс
               </button>
             </>

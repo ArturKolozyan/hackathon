@@ -47,6 +47,28 @@ export function shortDue(iso: string): string {
   return `${day}.${month}`;
 }
 
+const MONTHS_GENITIVE = [
+  "января",
+  "февраля",
+  "марта",
+  "апреля",
+  "мая",
+  "июня",
+  "июля",
+  "августа",
+  "сентября",
+  "октября",
+  "ноября",
+  "декабря",
+];
+
+export function longDue(iso: string): string {
+  const [year, month, day] = iso.slice(0, 10).split("-");
+  const index = Number(month) - 1;
+  if (!year || !MONTHS_GENITIVE[index] || !day) return iso;
+  return `${Number(day)} ${MONTHS_GENITIVE[index]} ${year}`;
+}
+
 function daysWord(count: number): string {
   const abs = Math.abs(count);
   const tail = abs % 10;
