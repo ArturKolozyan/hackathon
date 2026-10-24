@@ -52,6 +52,21 @@ const FIELDS: Record<string, string> = {
   remind_archived_overdue: "напоминание просрочки архива",
 };
 
+/** Action kinds for the Логи filter, grouped by category. */
+export const ACTION_GROUPS: { value: string; label: string; actions: string[] }[] = [
+  { value: "payments", label: "Оплаты", actions: ["occurrence.paid", "occurrence.unpaid", "occurrence.paid_at", "occurrence.receipt", "occurrence.update"] },
+  { value: "templates", label: "Шаблоны", actions: ["template.create", "template.update", "template.delete"] },
+  { value: "people", label: "Люди и приглашения", actions: ["user.create", "user.update", "user.delete", "user.invite", "user.invite_accept"] },
+  { value: "budget", label: "Бюджет", actions: ["budget.create", "budget.update", "budget.delete"] },
+  {
+    value: "channels",
+    label: "Telegram и вебхук",
+    actions: ["telegram.team_connect", "telegram.team_disconnect", "telegram.user_link", "telegram.user_unlink", "team.webhook"],
+  },
+  { value: "auth", label: "Входы и выходы", actions: ["auth.login.success", "auth.login.failure", "auth.logout"] },
+  { value: "organization", label: "Настройки организации", actions: ["organization.update"] },
+];
+
 export function actionLabel(action: string): string {
   return ACTIONS[action] ?? action.replaceAll(".", " · ").replaceAll("_", " ");
 }

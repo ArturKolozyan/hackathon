@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
-import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Calendar, Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { HINTS } from "../hints";
 
 export type FieldOption = { value: string; label: string };
 
@@ -105,11 +106,13 @@ function useFixedBox(open: boolean, anchor: RefObject<HTMLElement | null>, align
 export function SelectField({
   value,
   onChange,
-  options,
+  options: allOptions,
   ariaLabel,
   required,
   className,
   align = "start",
+  searchable,
+  hint,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -118,14 +121,23 @@ export function SelectField({
   required?: boolean;
   className?: string;
   align?: "start" | "end";
+  /** Show a search box in the menu (use for long lists, e.g. people). */
+  searchable?: boolean;
+  hint?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  const [needle, setNeedle] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
   const listId = useId();
-  const selected = options.find((option) => option.value === value);
+  const selected = allOptions.find((option) => option.value === value);
+  const search = Boolean(searchable && allOptions.length > 7);
+  const options = search && needle.trim()
+    ? allOptions.filter((option) => option.label.toLowerCase().includes(needle.trim().toLowerCase()))
+    : allOptions;
   const box = useFixedBox(open, buttonRef, align);
   const close = () => {
     setOpen(false);
@@ -134,11 +146,15 @@ export function SelectField({
   useDismiss(open, rootRef, close);
 
   useEffect(() => {
-    if (!open) return;
-    const index = Math.max(0, options.findIndex((option) => option.value === value));
+    if (!open) {
+      setNeedle("");
+      return;
+    }
+    const index = Math.max(0, allOptions.findIndex((option) => option.value === value));
     setActive(index);
-    listRef.current?.focus();
-  }, [open, options, value]);
+    if (search) searchRef.current?.focus();
+    else listRef.current?.focus();
+  }, [open, allOptions, value, search]);
 
   function choose(next: string) {
     onChange(next);
@@ -161,6 +177,7 @@ export function SelectField({
         type="button"
         className="field-btn"
         aria-label={ariaLabel}
+        data-hint={hint}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={listId}
@@ -186,8 +203,10 @@ export function SelectField({
           role="listbox"
           tabIndex={0}
           aria-label={ariaLabel}
-          style={{ top: box.top, left: box.left, width: box.width }}
+          style={{ top: box.top, left: box.left, width: Math.max(box.width, search ? 260 : 0) }}
           onKeyDown={(event) => {
+            const typing = event.target === searchRef.current;
+            if (typing && (event.key === " " || event.key === "Home" || event.key === "End")) return;
             if (event.key === "ArrowDown") {
               event.preventDefault();
               move(1);
@@ -207,6 +226,21 @@ export function SelectField({
             }
           }}
         >
+          {search && (
+            <input
+              ref={searchRef}
+              className="field-search"
+              type="search"
+              value={needle}
+              placeholder="Найти…"
+              aria-label="Поиск по списку"
+              onChange={(event) => {
+                setNeedle(event.target.value);
+                setActive(0);
+              }}
+            />
+          )}
+          {search && options.length === 0 && <p className="field-empty">Ничего не нашлось</p>}
           {options.map((option, index) => (
             <button
               key={option.value || `empty-${index}`}
@@ -226,6 +260,160 @@ export function SelectField({
   );
 }
 
+/**
+ * Multi-choice dropdown filter: "Отделы: 2 выбрано" summary, checkmarks in the menu.
+ * mode "filter": an empty selection means "all" (top item clears the filter).
+ * mode "pick": an empty selection means "none" (top item selects everything).
+ */
+export function MultiSelectField({
+  label,
+  value,
+  onChange,
+  options,
+  className,
+  align = "start",
+  allLabel = "все",
+  disabled,
+  mode = "filter",
+}: {
+  label: string;
+  value: string[];
+  onChange: (value: string[]) => void;
+  options: FieldOption[];
+  className?: string;
+  align?: "start" | "end";
+  allLabel?: string;
+  disabled?: boolean;
+  mode?: "filter" | "pick";
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
+  const box = useFixedBox(open, buttonRef, align);
+  const close = () => {
+    setOpen(false);
+    buttonRef.current?.focus();
+  };
+  useDismiss(open, rootRef, close);
+
+  useEffect(() => {
+    if (!open) return;
+    setActive(0);
+    listRef.current?.focus();
+  }, [open]);
+
+  const picked = options.filter((option) => value.includes(option.value));
+  const everything = options.length > 0 && picked.length === options.length;
+  const topOn = mode === "filter" ? picked.length === 0 : everything;
+  const summary =
+    picked.length === 0
+      ? `${label}: ${mode === "filter" ? allLabel : "не выбрано"}`
+      : everything && mode === "pick"
+        ? `${label}: ${allLabel}`
+        : picked.length === 1
+        ? `${label}: ${picked[0].label}`
+        : `${label}: ${picked.length} выбрано`;
+
+  function toggle(id: string) {
+    onChange(value.includes(id) ? value.filter((item) => item !== id) : [...value, id]);
+  }
+
+  function top() {
+    if (mode === "filter") onChange([]);
+    else onChange(everything ? [] : options.map((option) => option.value));
+  }
+
+  return (
+    <div className={className ? `field ${className}` : "field"} ref={rootRef}>
+      <button
+        ref={buttonRef}
+        type="button"
+        className={mode === "filter" && picked.length > 0 ? "field-btn is-filtered" : "field-btn"}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={listId}
+        disabled={disabled}
+        onClick={() => setOpen((next) => !next)}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setOpen(true);
+          }
+        }}
+      >
+        <span>{summary}</span>
+        <ChevronDown size={16} strokeWidth={1.75} aria-hidden />
+      </button>
+      {open && box && (
+        <div
+          ref={listRef}
+          id={listId}
+          className="field-pop"
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label={label}
+          tabIndex={0}
+          style={{ top: box.top, left: box.left, width: Math.max(box.width, 240) }}
+          onKeyDown={(event) => {
+            const count = options.length + 1;
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActive((current) => (current + 1) % count);
+            } else if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActive((current) => (current - 1 + count) % count);
+            } else if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              if (active === 0) top();
+              else {
+                const option = options[active - 1];
+                if (option) toggle(option.value);
+              }
+            }
+          }}
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={topOn}
+            className={active === 0 ? "field-option is-active" : "field-option"}
+            onMouseEnter={() => setActive(0)}
+            onClick={top}
+          >
+            <span className="field-check" aria-hidden="true">
+              {topOn && <Check size={16} strokeWidth={2} />}
+            </span>
+            {allLabel.charAt(0).toUpperCase() + allLabel.slice(1)}
+          </button>
+          <div className="field-sep" role="presentation" />
+          {options.map((option, index) => {
+            const on = value.includes(option.value);
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="option"
+                aria-selected={on}
+                className={index + 1 === active ? "field-option is-active" : "field-option"}
+                onMouseEnter={() => setActive(index + 1)}
+                onClick={() => toggle(option.value)}
+              >
+                <span className="field-check" aria-hidden="true">
+                  {on && <Check size={16} strokeWidth={2} />}
+                </span>
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DateField({
   value,
   onChange,
@@ -234,6 +422,8 @@ export function DateField({
   min,
   max,
   mode = "date",
+  placeholder,
+  hint,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -242,6 +432,8 @@ export function DateField({
   min?: string;
   max?: string;
   mode?: "date" | "month";
+  placeholder?: string;
+  hint?: string;
 }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -261,7 +453,11 @@ export function DateField({
     if (next) setCursor({ year: next.year, month: next.month });
   }, [open, value]);
 
-  const label = value ? (mode === "month" ? ruMonth(value) : ruDate(value)) : mode === "month" ? "мм.гггг" : "дд.мм.гггг";
+  const label = value
+    ? mode === "month"
+      ? ruMonth(value)
+      : ruDate(value)
+    : placeholder ?? (mode === "month" ? "мм.гггг" : "дд.мм.гггг");
   const days = mode === "date" ? daysOf(cursor.year, cursor.month) : [];
 
   function pick(iso: string) {
@@ -276,6 +472,7 @@ export function DateField({
         ref={buttonRef}
         type="button"
         className={value ? "field-btn" : "field-btn is-placeholder"}
+        data-hint={hint}
         aria-label={ariaLabel}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -294,6 +491,7 @@ export function DateField({
               type="button"
               className="icon-btn"
               aria-label="Назад"
+              data-hint={mode === "month" ? HINTS.yearPrev : HINTS.monthPrev}
               onClick={() => setCursor((current) => shiftMonth(current.year, current.month, mode === "month" ? -12 : -1))}
             >
               <ChevronLeft size={16} strokeWidth={1.75} aria-hidden />
@@ -303,6 +501,7 @@ export function DateField({
               type="button"
               className="icon-btn"
               aria-label="Дальше"
+              data-hint={mode === "month" ? HINTS.yearNext : HINTS.monthNext}
               onClick={() => setCursor((current) => shiftMonth(current.year, current.month, mode === "month" ? 12 : 1))}
             >
               <ChevronRight size={16} strokeWidth={1.75} aria-hidden />
@@ -362,6 +561,7 @@ export function DateField({
             <button
               type="button"
               className="ghost date-clear"
+              data-hint={HINTS.dateClear}
               onClick={() => {
                 onChange("");
                 close();

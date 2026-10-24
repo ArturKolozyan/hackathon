@@ -1,34 +1,13 @@
-import { FormEvent, useCallback, useEffect, useState } from "react";
-import { ApiError, api, type DirectoryUser, type Template } from "../api";
-import { DateField, SelectField } from "../components/fields";
-import { EmptyState, ErrorState, InlineConfirm, LoadingBlock } from "../components/ui";
-import { formatMoney } from "../format";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Plus, Search } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ApiError, api, type Template } from "../api";
+import { PageControls } from "../components/PageControls";
+import { EmptyState, ErrorState, InlineConfirm, LoadingBlock, Segmented, SwitchCard } from "../components/ui";
+import { formatMoney, shortDue } from "../format";
+import { HINTS } from "../hints";
 
-type Draft = {
-  title: string;
-  description: string;
-  amount: string;
-  currency: string;
-  next_payment_date: string;
-  periodicity: string;
-  interval_months: string;
-  responsible_user_id: string;
-  applies_from: string;
-};
-
-const emptyDraft: Draft = {
-  title: "",
-  description: "",
-  amount: "",
-  currency: "RUB",
-  next_payment_date: "",
-  periodicity: "monthly",
-  interval_months: "2",
-  responsible_user_id: "",
-  applies_from: "",
-};
-
-function periodPhrase(item: Template): string {
+export function periodPhrase(item: Pick<Template, "periodicity" | "interval_months">): string {
   if (item.periodicity === "once") return "разово";
   if (item.periodicity === "yearly") return "ежегодно";
   if (item.periodicity === "quarterly") return "раз в квартал";
@@ -38,24 +17,17 @@ function periodPhrase(item: Template): string {
 }
 
 export function TemplatesPage() {
+  const navigate = useNavigate();
   const [items, setItems] = useState<Template[]>([]);
-  const [people, setPeople] = useState<DirectoryUser[]>([]);
-  const [draft, setDraft] = useState<Draft>(emptyDraft);
-  const [editing, setEditing] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   const [remindOverdue, setRemindOverdue] = useState(true);
-  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const [templates, users] = await Promise.all([
-      api<Template[]>(`/api/v1/recurring-payments?include_archived=${showArchived ? "true" : "false"}`),
-      api<DirectoryUser[]>("/api/v1/users"),
-    ]);
-    setItems(templates);
-    setPeople(users.filter((person) => person.is_active));
+    setItems(await api<Template[]>(`/api/v1/recurring-payments?include_archived=${showArchived ? "true" : "false"}`));
   }, [showArchived]);
 
   useEffect(() => {
@@ -64,48 +36,12 @@ export function TemplatesPage() {
       .finally(() => setReady(true));
   }, [load]);
 
-  function update<K extends keyof Draft>(key: K, value: Draft[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
-  }
-
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    const payload = {
-      title: draft.title,
-      description: draft.description.trim() || null,
-      amount: draft.amount.replace(",", "."),
-      currency: draft.currency,
-      next_payment_date: draft.next_payment_date,
-      periodicity: draft.periodicity,
-      interval_months: draft.periodicity === "every_n" ? Number(draft.interval_months) : undefined,
-      responsible_user_id: draft.responsible_user_id || null,
-    };
-    try {
-      if (editing) {
-        await api(`/api/v1/recurring-payments/${editing}`, { method: "PATCH", body: JSON.stringify(payload) });
-      } else {
-        await api("/api/v1/recurring-payments", { method: "POST", body: JSON.stringify(payload) });
-      }
-      setDraft(emptyDraft);
-      setEditing(null);
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Не сохранилось");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function archive(item: Template, archived: boolean, remind = true) {
     setError(null);
     try {
       await api(`/api/v1/recurring-payments/${item.id}`, {
         method: "PATCH",
-        body: JSON.stringify(
-          archived ? { is_archived: true, remind_archived_overdue: remind } : { is_archived: false },
-        ),
+        body: JSON.stringify(archived ? { is_archived: true, remind_archived_overdue: remind } : { is_archived: false }),
       });
       await load();
     } catch (err) {
@@ -113,151 +49,104 @@ export function TemplatesPage() {
     }
   }
 
+  const shown = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return items;
+    return items.filter(
+      (item) =>
+        item.title.toLowerCase().includes(needle) ||
+        (item.responsible?.full_name ?? "").toLowerCase().includes(needle) ||
+        (item.description ?? "").toLowerCase().includes(needle),
+    );
+  }, [items, query]);
+
   return (
     <div className="page">
-      <div className="page-toolbar">
-        <button type="button" className="ghost" onClick={() => setShowArchived((value) => !value)}>
-          {showArchived ? "Скрыть архив" : "Показать архив"}
-        </button>
-      </div>
-      <form id="template-form" className="panel form-grid" onSubmit={submit} aria-busy={busy}>
-        <h2>{editing ? "Правка шаблона" : "Новый шаблон"}</h2>
-        <label>
-          Название
-          <input value={draft.title} onChange={(event) => update("title", event.target.value)} required maxLength={200} />
-        </label>
-        <label>
-          Комментарий
-          <input value={draft.description} onChange={(event) => update("description", event.target.value)} />
-        </label>
-        <label>
-          Сумма
-          <input value={draft.amount} onChange={(event) => update("amount", event.target.value)} inputMode="decimal" required />
-        </label>
-        <label>
-          Валюта
-          <SelectField
-            value={draft.currency}
-            onChange={(currency) => update("currency", currency)}
-            options={[
-              { value: "RUB", label: "RUB" },
-              { value: "USD", label: "USD" },
-              { value: "EUR", label: "EUR" },
-            ]}
-          />
-        </label>
-        <label>
-          Дата ближайшей оплаты
-          <DateField required value={draft.next_payment_date} onChange={(value) => update("next_payment_date", value)} />
-        </label>
-        <label>
-          Периодичность
-          <select value={draft.periodicity} onChange={(event) => update("periodicity", event.target.value)}>
-            <option value="monthly">Ежемесячно</option>
-            <option value="quarterly">Раз в квартал</option>
-            <option value="semiannual">Раз в полгода</option>
-            <option value="yearly">Ежегодно</option>
-            <option value="once">Разово</option>
-            <option value="every_n">Каждые N месяцев</option>
-          </select>
-        </label>
-        {draft.periodicity === "every_n" && (
-          <label>
-            Интервал, месяцев
+      <PageControls
+        left={
+          <label className="tb-search">
+            <Search size={16} strokeWidth={1.75} aria-hidden />
             <input
-              type="number"
-              min={1}
-              max={36}
-              value={draft.interval_months}
-              onChange={(event) => update("interval_months", event.target.value)}
-              required
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Название или ответственный"
+              aria-label="Поиск по шаблонам"
             />
           </label>
-        )}
-        <label className="span-2">
-          Ответственный
-          <SelectField
-            value={draft.responsible_user_id}
-            onChange={(id) => update("responsible_user_id", id)}
+        }
+        center={
+          <Segmented
+            label="Какие шаблоны"
+            value={showArchived ? "archive" : "active"}
             options={[
-              { value: "", label: "Без ответственного" },
-              ...people.map((person) => ({ value: person.id, label: person.full_name })),
+              { value: "active", label: "Активные", hint: HINTS.templatesActive },
+              { value: "archive", label: "С архивом", hint: HINTS.templatesWithArchive },
             ]}
+            onChange={(value) => setShowArchived(value === "archive")}
           />
-        </label>
-        {editing && draft.applies_from && (
-          <p className="caption span-2">Изменения применятся с периода {draft.applies_from}.</p>
-        )}
-        {error && (
-          <div className="span-2">
-            <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />
-          </div>
-        )}
-        <div className="row-actions span-2">
-          <button type="submit" className="primary" disabled={busy}>
-            {busy ? "Сохраняю…" : editing ? "Сохранить" : "Создать"}
+        }
+        right={
+          <button type="button" className="primary" data-hint={HINTS.templateNew} onClick={() => navigate("/templates/new")}>
+            <Plus size={16} strokeWidth={2} aria-hidden />
+            Новый шаблон
           </button>
-          {editing && (
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => {
-                setEditing(null);
-                setDraft(emptyDraft);
-              }}
-            >
-              Отмена
-            </button>
-          )}
-        </div>
-      </form>
+        }
+      />
+      {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
       {!ready && !error && <LoadingBlock label="Загружаем шаблоны…" />}
       {ready && !error && items.length === 0 && (
-        <EmptyState title={showArchived ? "Архив пуст" : "Шаблонов ещё нет"}>
+        <EmptyState
+          title={showArchived ? "Архив пуст" : "Шаблонов ещё нет"}
+          action={
+            showArchived ? undefined : (
+              <button type="button" className="primary" data-hint={HINTS.templateNew} onClick={() => navigate("/templates/new")}>
+                Создать шаблон
+              </button>
+            )
+          }
+        >
           {showArchived ? "Снятых шаблонов нет." : "Создайте первый — периоды появятся в инбоксе."}
         </EmptyState>
       )}
-      <div className="list">
-        {items.map((item) => (
-          <article key={item.id} className="card">
-            <div className="card-main">
-              <div className="card-top">
+      {ready && items.length > 0 && shown.length === 0 && (
+        <EmptyState title="Ничего не нашлось">Попробуйте другое название.</EmptyState>
+      )}
+      <div className="row-list">
+        {shown.map((item) => (
+          <article key={item.id} className="row-card">
+            <div className="row-main">
+              <div className="row-title">
                 <h3>{item.title}</h3>
-                <strong className="money">{formatMoney(item.amount, item.currency)}</strong>
+                {item.is_archived && <span className="pill pill-neutral">архив</span>}
+                {item.debt_count > 0 && <span className="pill pill-overdue">долг {item.debt_count}</span>}
               </div>
-              <p className="phrase">
-                <span>{item.next_payment_date ? `ближайшая ${item.next_payment_date}` : `${item.day_of_month}-е число`}</span>
-                <span>{periodPhrase(item)}</span>
-                <span>{item.responsible?.full_name ?? "без ответственного"}</span>
-                <span>
-                  {item.open_count} открыто · {item.paid_count} закрыто
-                </span>
+              <p className="row-meta">
+                {[
+                  item.next_payment_date ? `ближайшая ${shortDue(item.next_payment_date)}` : `${item.day_of_month}-е число`,
+                  periodPhrase(item),
+                  item.responsible?.full_name ?? "без ответственного",
+                  `${item.open_count} открыто · ${item.paid_count} закрыто`,
+                ].join(" · ")}
               </p>
-              {item.description && <p className="desc">{item.description}</p>}
-              {item.is_archived && (
-                <p className="meta">
-                  <span className="pill pill-neutral">архив</span>
-                  <span>новые периоды не создаются, история на месте</span>
-                </p>
-              )}
+              {item.description && <p className="row-meta">{item.description}</p>}
             </div>
-            <div className="card-actions">
+            <strong className="money row-value">{formatMoney(item.amount, item.currency)}</strong>
+            <div className="row-actions">
               {confirmArchive === item.id ? (
-                <div className="stack">
+                <div className="stack row-confirm">
                   {item.debt_count > 0 && (
                     <p className="error" role="alert">
-                      Неоплаченных прошлых периодов: {item.debt_count}. Они останутся в инбоксе и итогах, их можно отметить
-                      оплаченными. Новые периоды не создаются.
+                      Неоплаченных прошлых периодов: {item.debt_count}. Они останутся в инбоксе и итогах. Новые периоды не
+                      создаются.
                     </p>
                   )}
-                  <label className="check">
-                    <input
-                      type="checkbox"
-                      checked={remindOverdue}
-                      onChange={(event) => setRemindOverdue(event.target.checked)}
-                    />
-                    Напоминать о просрочке архивного платежа
-                  </label>
+                  <SwitchCard
+                    title="Напоминать о просрочке"
+                    description="Старые долги этого шаблона продолжат приходить в напоминаниях"
+                    checked={remindOverdue}
+                    onChange={setRemindOverdue}
+                  />
                   <InlineConfirm
                     title="Новые периоды не появятся. История и долг останутся."
                     confirmLabel="В архив"
@@ -270,30 +159,13 @@ export function TemplatesPage() {
                 </div>
               ) : (
                 <>
-                  <button
-                    type="button"
-                    className="ghost"
-                    onClick={() => {
-                      setEditing(item.id);
-                      document.getElementById("template-form")?.scrollIntoView({ block: "start" });
-                      setDraft({
-                        title: item.title,
-                        description: item.description ?? "",
-                        amount: item.amount,
-                        currency: item.currency,
-                        next_payment_date: item.next_payment_date ?? item.starts_on,
-                        periodicity: item.periodicity === "every_n" ? "every_n" : item.periodicity,
-                        interval_months: String(item.interval_months ?? 2),
-                        responsible_user_id: item.responsible?.id ?? "",
-                        applies_from: item.applies_from ?? "",
-                      });
-                    }}
-                  >
+                  <button type="button" className="ghost" data-hint={HINTS.templateEdit} onClick={() => navigate(`/templates/${item.id}/edit`)}>
                     Изменить
                   </button>
                   <button
                     type="button"
                     className="ghost"
+                    data-hint={item.is_archived ? HINTS.templateRestore : HINTS.templateArchive}
                     onClick={() => {
                       if (item.is_archived) {
                         void archive(item, false);

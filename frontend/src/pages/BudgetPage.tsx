@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { ApiError, api, type BudgetLine, type BudgetReport } from "../api";
 import { canManage, useAuth } from "../auth";
 import { DateField } from "../components/fields";
-import { ErrorState, LoadingBlock, Segmented } from "../components/ui";
+import { PageControls } from "../components/PageControls";
+import { ErrorState, LoadingBlock, SaveStatus, Segmented, useDebounced, useSaveState } from "../components/ui";
 import { formatMoney } from "../format";
+import { HINTS } from "../hints";
 
 type Kind = "month" | "year";
 
@@ -19,9 +22,7 @@ export function BudgetPage() {
   const [monthKey, setMonthKey] = useState(currentMonth);
   const [yearKey, setYearKey] = useState(String(new Date().getFullYear()));
   const [report, setReport] = useState<BudgetReport | null>(null);
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const periodKey = kind === "month" ? monthKey : yearKey;
 
   const load = useCallback(async () => {
@@ -31,9 +32,6 @@ export function BudgetPage() {
         `/api/v1/budgets/report?period_type=${kind}&period_key=${encodeURIComponent(periodKey)}`,
       );
       setReport(next);
-      const values: Record<string, string> = {};
-      for (const row of next.rows) values[row.currency] = row.plan_amount ?? "";
-      setDrafts(values);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Бюджет не загрузился");
     }
@@ -43,34 +41,10 @@ export function BudgetPage() {
     void load();
   }, [load]);
 
-  async function save(row: BudgetLine) {
-    const raw = (drafts[row.currency] ?? "").trim().replace(",", ".");
-    setBusy(row.currency);
-    setError(null);
-    try {
-      if (!raw) {
-        if (row.id) {
-          await api(`/api/v1/budgets/${row.id}`, { method: "DELETE" });
-        }
-      } else if (row.id) {
-        await api(`/api/v1/budgets/${row.id}`, { method: "PATCH", body: JSON.stringify({ amount: raw }) });
-      } else {
-        await api("/api/v1/budgets", {
-          method: "POST",
-          body: JSON.stringify({ period_type: kind, period_key: periodKey, currency: row.currency, amount: raw }),
-        });
-      }
-      await load();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Не сохранилось");
-    } finally {
-      setBusy(null);
-    }
-  }
-
   return (
     <div className="page">
-      <div className="page-toolbar">
+      <PageControls
+        center={
         <Segmented
           label="Масштаб плана"
           value={kind}
@@ -80,25 +54,42 @@ export function BudgetPage() {
           ]}
           onChange={setKind}
         />
-      </div>
-      <div className="head-actions period-pick">
-        {kind === "month" ? (
-          <label>
-            Месяц
-            <DateField mode="month" value={monthKey} onChange={setMonthKey} />
-          </label>
+        }
+        left={
+        kind === "month" ? (
+          <DateField mode="month" value={monthKey} onChange={setMonthKey} ariaLabel="Месяц" />
         ) : (
-          <label>
-            Год
+          <div className="tb-group cal-nav">
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Предыдущий год"
+              data-hint={HINTS.yearPrev}
+              onClick={() => setYearKey(String((Number(yearKey) || new Date().getFullYear()) - 1))}
+            >
+              <ChevronLeft size={18} strokeWidth={1.75} aria-hidden />
+            </button>
             <input
+              className="tb-year"
+              aria-label="Год"
               inputMode="numeric"
               value={yearKey}
               maxLength={4}
               onChange={(event) => setYearKey(event.target.value.replace(/\D/g, "").slice(0, 4))}
             />
-          </label>
-        )}
-      </div>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Следующий год"
+              data-hint={HINTS.yearNext}
+              onClick={() => setYearKey(String((Number(yearKey) || new Date().getFullYear()) + 1))}
+            >
+              <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
+            </button>
+          </div>
+        )
+        }
+      />
       {error && <ErrorState message={error} onRetry={() => void load()} />}
       {!report && !error && <LoadingBlock label="Загружаем бюджет…" />}
       {report && (
@@ -139,31 +130,90 @@ export function BudgetPage() {
                   </div>
                 )}
                 {admin && (
-                  <form
-                    className="pay-form"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      void save(row);
-                    }}
-                  >
-                    <label>
-                      Сумма плана
-                      <input
-                        inputMode="decimal"
-                        value={drafts[row.currency] ?? ""}
-                        placeholder="пусто — убрать план"
-                        onChange={(event) => setDrafts((prev) => ({ ...prev, [row.currency]: event.target.value }))}
-                      />
-                    </label>
-                    <button type="submit" className="primary" disabled={busy === row.currency}>
-                      {busy === row.currency ? "Сохраняю…" : "Сохранить"}
-                    </button>
-                  </form>
+                  <PlanInput key={`${periodKey}-${row.currency}-${row.id ?? "new"}`} row={row} kind={kind} periodKey={periodKey} onSaved={load} />
                 )}
               </article>
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+const CURRENCY_SIGN: Record<string, string> = { RUB: "₽", USD: "$", EUR: "€" };
+
+/** Plan amount saved on blur / after a pause; empty removes the plan. */
+function PlanInput({
+  row,
+  kind,
+  periodKey,
+  onSaved,
+}: {
+  row: BudgetLine;
+  kind: Kind;
+  periodKey: string;
+  onSaved: () => Promise<void>;
+}) {
+  const [value, setValue] = useState(row.plan_amount ?? "");
+  const [problem, setProblem] = useState<string | null>(null);
+  const save = useSaveState();
+  const id = `plan-${row.currency}`;
+
+  const saver = useDebounced<string>((next) => {
+    const raw = next.trim().replace(/\s/g, "").replace(",", ".");
+    if (raw && (!Number.isFinite(Number(raw)) || Number(raw) <= 0)) {
+      setProblem("Сумма — положительное число");
+      return;
+    }
+    setProblem(null);
+    if (raw === (row.plan_amount ?? "") || (raw && Number(raw) === Number(row.plan_amount ?? NaN))) return;
+    void save.run(async () => {
+      if (!raw) {
+        if (row.id) await api(`/api/v1/budgets/${row.id}`, { method: "DELETE" });
+      } else if (row.id) {
+        await api(`/api/v1/budgets/${row.id}`, { method: "PATCH", body: JSON.stringify({ amount: raw }) });
+      } else {
+        await api("/api/v1/budgets", {
+          method: "POST",
+          body: JSON.stringify({ period_type: kind, period_key: periodKey, currency: row.currency, amount: raw }),
+        });
+      }
+      await onSaved();
+    });
+  }, 800);
+
+  return (
+    <div className={problem ? "form-field plan-field is-invalid" : "form-field plan-field"}>
+      <div className="plan-head">
+        <label className="form-label" htmlFor={id}>
+          План на {kind === "month" ? "месяц" : "год"}
+        </label>
+        <SaveStatus save={save} />
+      </div>
+      <div className="input-with-suffix">
+        <input
+          id={id}
+          inputMode="decimal"
+          value={value}
+          placeholder="Без плана"
+          aria-invalid={Boolean(problem)}
+          onChange={(event) => {
+            setValue(event.target.value);
+            saver.schedule(event.target.value);
+          }}
+          onBlur={() => saver.flush()}
+        />
+        <span className="input-suffix" aria-hidden="true">
+          {CURRENCY_SIGN[row.currency] ?? row.currency}
+        </span>
+      </div>
+      {problem ? (
+        <p className="field-error" role="alert">
+          {problem}
+        </p>
+      ) : (
+        <p className="field-hint">Сохраняется само. Очистите поле, чтобы убрать план.</p>
       )}
     </div>
   );

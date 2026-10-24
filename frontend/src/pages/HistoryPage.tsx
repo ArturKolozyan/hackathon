@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
+import { Download } from "lucide-react";
 import { ApiError, api, downloadCsv, type OccurrenceList } from "../api";
 import { OccurrenceCard } from "../components/OccurrenceCard";
 import { DateField, SelectField } from "../components/fields";
+import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, LoadingBlock } from "../components/ui";
+import { HINTS } from "../hints";
 
 type Filters = {
   status: string;
@@ -27,6 +30,7 @@ export function HistoryPage() {
   const [data, setData] = useState<OccurrenceList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const dirty = Boolean(filters.status || filters.currency || filters.date_from || filters.date_to);
 
   const load = useCallback(async () => {
     setError(null);
@@ -54,49 +58,61 @@ export function HistoryPage() {
 
   return (
     <div className="page">
-      <div className="page-toolbar">
-        <button type="button" className="primary" onClick={() => void exportCsv()}>
-          Выгрузить CSV
-        </button>
-      </div>
-      <form className="panel form-grid" onSubmit={(event) => event.preventDefault()}>
-        <label>
-          Статус
-          <SelectField
-            value={filters.status}
-            onChange={(status) => setFilters({ ...filters, status })}
-            options={[
-              { value: "", label: "Оплаченные" },
-              { value: "paid", label: "Оплачен" },
-              { value: "overdue", label: "Просрочен" },
-              { value: "due_soon", label: "Скоро" },
-              { value: "upcoming", label: "Не наступил" },
-            ]}
+      <PageControls
+        left={
+        <>
+        <SelectField
+          className="tb-field"
+          ariaLabel="Статус"
+          value={filters.status}
+          onChange={(status) => setFilters({ ...filters, status })}
+          options={[
+            { value: "", label: "Оплаченные" },
+            { value: "paid", label: "Оплачен" },
+            { value: "overdue", label: "Просрочен" },
+            { value: "due_soon", label: "Скоро" },
+            { value: "upcoming", label: "Не наступил" },
+          ]}
+        />
+        <SelectField
+          className="tb-field"
+          ariaLabel="Валюта"
+          value={filters.currency}
+          onChange={(currency) => setFilters({ ...filters, currency })}
+          options={[
+            { value: "", label: "Все валюты" },
+            { value: "RUB", label: "RUB" },
+            { value: "USD", label: "USD" },
+            { value: "EUR", label: "EUR" },
+          ]}
+        />
+        <div className="tb-group tb-range">
+          <DateField
+            value={filters.date_from}
+            onChange={(date_from) => setFilters({ ...filters, date_from })}
+            ariaLabel="Срок с"
+            placeholder="Срок с"
+            max={filters.date_to || undefined}
           />
-        </label>
-        <label>
-          Валюта
-          <SelectField
-            value={filters.currency}
-            onChange={(currency) => setFilters({ ...filters, currency })}
-            options={[
-              { value: "", label: "Все" },
-              { value: "RUB", label: "RUB" },
-              { value: "USD", label: "USD" },
-              { value: "EUR", label: "EUR" },
-            ]}
+          <span className="tb-dash" aria-hidden="true">
+            –
+          </span>
+          <DateField
+            value={filters.date_to}
+            onChange={(date_to) => setFilters({ ...filters, date_to })}
+            ariaLabel="Срок по"
+            placeholder="по"
+            min={filters.date_from || undefined}
           />
-        </label>
-        <label>
-          Срок с
-          <DateField value={filters.date_from} onChange={(date_from) => setFilters({ ...filters, date_from })} />
-        </label>
-        <label>
-          Срок по
-          <DateField value={filters.date_to} onChange={(date_to) => setFilters({ ...filters, date_to })} />
-        </label>
-      </form>
-      {exportError && <p className="error">{exportError}</p>}
+        </div>
+        {dirty && (
+          <button type="button" className="ghost" data-hint={HINTS.filtersReset} onClick={() => setFilters(emptyFilters)}>
+            Сбросить
+          </button>
+        )}
+        </>
+        }
+      />
       {error && <ErrorState message={error} onRetry={() => void load()} />}
       {!data && !error && <LoadingBlock label="Загружаем историю…" />}
       {data && data.items.length === 0 && (
@@ -113,6 +129,15 @@ export function HistoryPage() {
               onChanged={load}
             />
           ))}
+        </div>
+      )}
+      {data && data.items.length > 0 && (
+        <div className="page-foot">
+          {exportError && <p className="error">{exportError}</p>}
+          <button type="button" className="ghost" data-hint={HINTS.exportCsv} onClick={() => void exportCsv()}>
+            <Download size={16} strokeWidth={1.75} aria-hidden />
+            Выгрузить CSV
+          </button>
         </div>
       )}
     </div>

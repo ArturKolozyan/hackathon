@@ -14,6 +14,7 @@ import {
 } from "../api";
 import { DateField, SelectField } from "./fields";
 import { MarkdownMessage } from "./MarkdownMessage";
+import { HINTS } from "../hints";
 
 const MAX_SECONDS = 25;
 const SUGGESTIONS = ["Что горит на этой неделе?", "Что просрочено?", "Сколько потратили за месяц?"];
@@ -434,6 +435,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
           className="chat-launcher"
           aria-expanded={false}
           aria-controls="assistant-panel"
+          data-hint={HINTS.assistant}
           onClick={() => onOpenChange(true)}
         >
           <MessageCircle size={22} strokeWidth={1.75} aria-hidden />
@@ -460,6 +462,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                   aria-expanded={menu}
                   aria-haspopup="menu"
                   aria-label="Настройки чата"
+                  data-hint={HINTS.chatSettings}
                   onClick={() => {
                     setMenu((value) => !value);
                     setConfirmClear(false);
@@ -468,7 +471,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                   <Settings size={18} strokeWidth={1.75} aria-hidden />
                 </button>
               )}
-              <button type="button" className="icon-btn chat-icon" aria-label="Закрыть чат" onClick={() => onOpenChange(false)}>
+              <button type="button" className="icon-btn chat-icon" aria-label="Закрыть чат" data-hint={HINTS.chatClose} onClick={() => onOpenChange(false)}>
                 <X size={18} strokeWidth={1.75} aria-hidden />
               </button>
               {menu && (
@@ -487,7 +490,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                       </div>
                     </div>
                   ) : (
-                    <button type="button" className="chat-danger" role="menuitem" onClick={() => setConfirmClear(true)}>
+                    <button type="button" className="chat-danger" role="menuitem" data-hint={HINTS.chatClear} onClick={() => setConfirmClear(true)}>
                       <Trash2 size={16} strokeWidth={1.75} aria-hidden />
                       Очистить чат
                     </button>
@@ -517,7 +520,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                     <p>Спросите про очередь или надиктуйте платёж. В базу попадёт только после «Подтвердить».</p>
                     <div className="chat-suggest">
                       {SUGGESTIONS.map((prompt) => (
-                        <button key={prompt} type="button" onClick={() => void send(prompt)}>
+                        <button key={prompt} type="button" data-hint={HINTS.chatSuggest} onClick={() => void send(prompt)}>
                           {prompt}
                         </button>
                       ))}
@@ -611,6 +614,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                         : "Голосовой ввод, до 25 секунд"
                     }
                     disabled={transcribing || pending}
+                    data-hint={HINTS.chatMic}
                     onPointerDown={onPointerDown}
                     onPointerUp={onPointerUp}
                     onPointerCancel={onPointerUp}
@@ -618,7 +622,7 @@ export function AssistantWidget({ open, onOpenChange }: { open: boolean; onOpenC
                     <Mic size={18} strokeWidth={1.75} aria-hidden />
                   </button>
                 )}
-                <button type="submit" className="chat-round chat-send" disabled={!canSend} aria-label="Отправить">
+                <button type="submit" className="chat-round chat-send" disabled={!canSend} aria-label="Отправить" data-hint={HINTS.chatSend}>
                   <SendHorizontal size={18} strokeWidth={1.75} aria-hidden />
                 </button>
               </form>
@@ -691,10 +695,10 @@ function MessageView({
               </>
             ) : (
               <>
-                <button type="button" className="primary" disabled={busy || action.status === "running"} onClick={onConfirm}>
+                <button type="button" className="primary" disabled={busy || action.status === "running"} data-hint={HINTS.chatConfirm} onClick={onConfirm}>
                   Подтвердить
                 </button>
-                <button type="button" className="outline" disabled={busy} onClick={onEdit}>
+                <button type="button" className="outline" disabled={busy} data-hint={HINTS.chatEdit} onClick={onEdit}>
                   Изменить
                 </button>
               </>

@@ -3,6 +3,7 @@
 Бухгалтерия: аренда и электричество в рублях, подписка в евро.
 Инфраструктура: сервер в долларах, домен раз в год, сертификат раз в квартал.
 Текущие точки каденции помечаются доставленными, пачки писем при старте нет.
+Большой демо-кабинет для показа — app.demo_data, запускается вручную.
 """
 
 import logging
@@ -19,9 +20,7 @@ from app.services import time as clock
 from app.services.accounts import create_verified_user
 from app.services.budgets import add_budget
 from app.services.occurrences import ensure_template
-from app.services.org_settings import load_org
 from app.services.owner import ensure_owner
-from app.services.reminders import notification_events
 from app.services.teams import add_member, create_team
 
 log = logging.getLogger("invoice_keeper.seed")
@@ -242,25 +241,6 @@ def _story(
 
 def _silence(db: Session, today: date) -> None:
     """Текущая точка каденции уже «доставлена»: первый тик воркера молчит."""
-    from app.services.notify import _mark, _plan
+    from app.demo_data import silence
 
-    org = load_org(db)
-    rows = db.scalars(select(PaymentOccurrence)).all()
-    for row in rows:
-        if row.paid_at is not None:
-            continue
-        template = db.get(RecurringPayment, row.recurring_payment_id)
-        if template is None:
-            continue
-        events = notification_events(
-            due=row.due_date,
-            paid_at=row.paid_at,
-            archived=template.is_archived,
-            today=today,
-            offsets=org.reminder_days,
-            overdue_repeat_days=org.overdue_repeat_days,
-            remind_archived_overdue=template.remind_archived_overdue,
-        )
-        for event in events:
-            for channel, recipient in _plan(db, row, event):
-                _mark(db, row.id, event, channel, recipient)
+    silence(db, today, keep_today=False)

@@ -11,13 +11,13 @@ import { InvitePage } from "./pages/InvitePage";
 import { FirstPasswordPage } from "./pages/FirstPasswordPage";
 import { LinkTelegramPage } from "./pages/LinkTelegramPage";
 import { LoginPage } from "./pages/LoginPage";
-import { NotificationsPage } from "./pages/NotificationsPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { PeoplePage } from "./pages/PeoplePage";
+import { PersonFormPage } from "./pages/PersonFormPage";
 import { ResetPage } from "./pages/ResetPage";
-import { OrganizationPage } from "./pages/OrganizationPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { StatsPage } from "./pages/StatsPage";
+import { TemplateFormPage } from "./pages/TemplateFormPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 
 export function App() {
@@ -40,17 +40,21 @@ export function App() {
             <Route path="/budget" element={<BudgetPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/organization" element={<OrganizationPage />} />
-            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route path="/organization" element={<Navigate to="/settings#organization" replace />} />
+            <Route path="/notifications" element={<Navigate to="/settings#notifications" replace />} />
             <Route element={<ManageOnly />}>
               <Route path="/templates" element={<TemplatesPage />} />
+              <Route path="/templates/new" element={<TemplateFormPage />} />
+              <Route path="/templates/:id/edit" element={<TemplateFormPage />} />
               <Route path="/people" element={<PeoplePage />} />
+              <Route path="/people/new" element={<PersonFormPage />} />
               <Route path="/team" element={<Navigate to="/people" replace />} />
-              <Route path="/audit" element={<AuditPage />} />
+              <Route path="/logs" element={<AuditPage />} />
             </Route>
             <Route path="/admin/templates" element={<Navigate to="/templates" replace />} />
             <Route path="/admin/users" element={<Navigate to="/people" replace />} />
-            <Route path="/admin/audit" element={<Navigate to="/audit" replace />} />
+            <Route path="/admin/audit" element={<Navigate to="/logs" replace />} />
+            <Route path="/audit" element={<Navigate to="/logs" replace />} />
           </Route>
         </Route>
       </Route>

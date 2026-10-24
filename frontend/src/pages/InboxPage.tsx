@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, api, type Inbox, type Occurrence, type Summary, type TeamTelegram, type TelegramSelf } from "../api";
 import { canManage, useAuth } from "../auth";
 import { DateField } from "../components/fields";
 import { OccurrenceCard } from "../components/OccurrenceCard";
+import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { chipTone, formatMoney } from "../format";
+import { HINTS } from "../hints";
 
 export function InboxPage() {
   const { user } = useAuth();
@@ -53,30 +56,32 @@ export function InboxPage() {
 
   return (
     <div className="page">
-      <div className="page-toolbar">
+      <PageControls
+        center={
         <Segmented
           label="Чья очередь"
           value={mine ? "mine" : "all"}
           options={[
-            { value: "all", label: "Весь отдел" },
-            { value: "mine", label: "Только мои" },
+            { value: "all", label: "Весь отдел", hint: HINTS.scopeAll },
+            { value: "mine", label: "Только мои", hint: HINTS.scopeMine },
           ]}
           onChange={(value) => setParams(value === "mine" ? { mine: "1" } : {})}
         />
-      </div>
+        }
+        left={
+        <div className="tb-group tb-date">
+          {asOf && <span className="tb-label">Итоги на</span>}
+          <DateField value={asOf} onChange={setAsOf} ariaLabel="Итоги на дату" placeholder="Итоги на дату" hint={HINTS.asOfDate} />
+          {asOf && (
+            <button type="button" className="icon-btn" aria-label="Сбросить дату" data-hint={HINTS.asOfReset} onClick={() => setAsOf("")}>
+              <X size={16} strokeWidth={1.75} aria-hidden />
+            </button>
+          )}
+        </div>
+        }
+      />
       {summary && (
         <>
-          <div className="head-actions totals-tools">
-            <label className="as-of">
-              Итоги на дату
-              <DateField value={asOf} onChange={setAsOf} />
-            </label>
-            {asOf && (
-              <button type="button" className="ghost" onClick={() => setAsOf("")}>
-                Сбросить дату
-              </button>
-            )}
-          </div>
           <div className="totals">
             {summary.by_currency.map((row) => {
               const chip = chipTone(row);
@@ -121,7 +126,7 @@ export function InboxPage() {
       {manage && teamTg && teamTg.status !== "connected" && (
         <aside className="panel hint">
           <p>Подключи Telegram, чтобы получать напоминания.</p>
-          <Link className="outline" to="/notifications">
+          <Link className="outline" to="/settings#notifications" data-hint={HINTS.toNotifications}>
             Подключить
           </Link>
         </aside>
@@ -129,7 +134,7 @@ export function InboxPage() {
       {selfTg && !selfTg.linked && (
         <aside className="panel hint">
           <p>Привяжи Telegram, чтобы кнопка «Оплачено» была твоей.</p>
-          <Link className="outline" to="/notifications">
+          <Link className="outline" to="/settings#notifications" data-hint={HINTS.toNotifications}>
             Привязать
           </Link>
         </aside>
@@ -141,7 +146,7 @@ export function InboxPage() {
           title={mine ? "У вас в очереди пусто" : "В очереди пусто"}
           action={
             mine ? (
-              <button type="button" className="ghost" onClick={() => setParams({})}>
+              <button type="button" className="ghost" data-hint={HINTS.scopeAll} onClick={() => setParams({})}>
                 Показать весь отдел
               </button>
             ) : undefined

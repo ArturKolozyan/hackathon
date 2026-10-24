@@ -3,6 +3,7 @@ import { ApiError, api, type Occurrence } from "../api";
 import { formatMoney, shortDue, statusPill } from "../format";
 import { DateField } from "./fields";
 import { InlineConfirm, useToast } from "./ui";
+import { HINTS } from "../hints";
 
 type Props = {
   item: Occurrence;
@@ -159,7 +160,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
               </>
             )}
             <div className="row-actions">
-              <button type="submit" className="primary" disabled={busy}>
+              <button type="submit" className="primary" disabled={busy} data-hint={mode === "history" ? HINTS.paidDateSave : HINTS.paidConfirm}>
                 {busy ? "Сохраняю…" : mode === "history" ? "Сохранить дату" : "Подтвердить"}
               </button>
               <button type="button" className="ghost" onClick={() => setOpen(false)}>
@@ -201,7 +202,7 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
               <input value={receiptNote} onChange={(event) => setReceiptNote(event.target.value)} maxLength={2000} placeholder="номер счёта, касса" />
             </label>
             <div className="row-actions">
-              <button type="submit" className="primary" disabled={busy}>
+              <button type="submit" className="primary" disabled={busy} data-hint={HINTS.receiptSave}>
                 {busy ? "Сохраняю…" : "Сохранить чек"}
               </button>
               <button type="button" className="ghost" onClick={() => setReceiptOpen(false)}>
@@ -214,20 +215,20 @@ export function OccurrenceCard({ item, today, mode, onChanged }: Props) {
       {!open && !receiptOpen && !confirmRevoke && (
         <div className="card-actions">
           {mode === "inbox" ? (
-            <button type="button" className="primary" onClick={() => setOpen(true)}>
+            <button type="button" className="primary" data-hint={HINTS.paid} onClick={() => setOpen(true)}>
               Оплачено
             </button>
           ) : (
             <>
-              <button type="button" className="outline" onClick={() => setOpen(true)}>
+              <button type="button" className="outline" data-hint={HINTS.paidOtherDate} onClick={() => setOpen(true)}>
                 Дата
               </button>
-              <button type="button" className="ghost" disabled={busy} onClick={() => setConfirmRevoke(true)}>
+              <button type="button" className="ghost" disabled={busy} data-hint={HINTS.revoke} onClick={() => setConfirmRevoke(true)}>
                 В инбокс
               </button>
             </>
           )}
-          <button type="button" className="ghost" onClick={() => setReceiptOpen(true)}>
+          <button type="button" className="ghost" data-hint={HINTS.receipt} onClick={() => setReceiptOpen(true)}>
             Чек
           </button>
         </div>

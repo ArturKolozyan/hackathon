@@ -1,3 +1,6 @@
+from datetime import date, datetime, time, timedelta
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import and_, func, or_, select, true
 from sqlalchemy.orm import Session, joinedload
@@ -6,6 +9,7 @@ from app.core.database import get_db
 from app.core.deps import require_manager
 from app.models import AuditLog, Membership, User
 from app.schemas.audit import AuditList, AuditOut
+from app.services import time as clock
 from app.services.access import TeamContext
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
@@ -32,10 +36,23 @@ def _team_filter(db: Session, ctx: TeamContext):
 def list_audit_logs(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    date_from: date | None = Query(default=None, description="С этой даты включительно (часовой пояс организации)"),
+    date_to: date | None = Query(default=None, description="По эту дату включительно"),
+    actor_user_id: UUID | None = Query(default=None, description="Кто сделал"),
+    action: list[str] | None = Query(default=None, description="Коды действий, например occurrence.paid"),
     ctx: TeamContext = Depends(require_manager),
     db: Session = Depends(get_db),
 ) -> AuditList:
     scope = _team_filter(db, ctx)
+    zone = clock.zone()
+    if date_from is not None:
+        scope = and_(scope, AuditLog.at >= datetime.combine(date_from, time.min, tzinfo=zone))
+    if date_to is not None:
+        scope = and_(scope, AuditLog.at < datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=zone))
+    if actor_user_id is not None:
+        scope = and_(scope, AuditLog.actor_user_id == actor_user_id)
+    if action:
+        scope = and_(scope, AuditLog.action.in_(action))
     total = int(db.scalar(select(func.count()).select_from(AuditLog).where(scope)) or 0)
     rows = db.scalars(
         select(AuditLog)

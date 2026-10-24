@@ -1,5 +1,6 @@
 import { Moon, Sun } from "lucide-react";
 import { Link } from "react-router-dom";
+import { HINTS } from "../hints";
 import { useTheme } from "../theme";
 
 export function Wordmark({ to }: { to?: string }) {
@@ -8,7 +9,7 @@ export function Wordmark({ to }: { to?: string }) {
   const image = <img src={src} alt="rekeeper" />;
   if (to) {
     return (
-      <Link to={to} className="wordmark">
+      <Link to={to} className="wordmark" data-hint={HINTS.logo}>
         {image}
       </Link>
     );
@@ -30,7 +31,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-pressed={theme === "light"}
       aria-label={toLight ? "Светлая тема" : "Тёмная тема"}
-      title={toLight ? "Светлая тема" : "Тёмная тема"}
+      data-hint={toLight ? HINTS.themeToLight : HINTS.themeToDark}
     >
       {toLight ? <Sun size={18} strokeWidth={1.75} aria-hidden /> : <Moon size={18} strokeWidth={1.75} aria-hidden />}
     </button>

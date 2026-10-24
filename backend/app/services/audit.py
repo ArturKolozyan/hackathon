@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -37,10 +38,11 @@ def record(
     entity_id: uuid.UUID | None = None,
     meta: dict | None = None,
     team_id: uuid.UUID | None = None,
+    at: datetime | None = None,
 ) -> None:
     db.add(
         AuditLog(
-            at=clock.now(),
+            at=at or clock.now(),
             team_id=team_id,
             actor_user_id=actor.id if actor is not None else None,
             action=action,

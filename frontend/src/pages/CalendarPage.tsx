@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { ApiError, api, type CalendarMonth, type Occurrence } from "../api";
 import { OccurrenceCard } from "../components/OccurrenceCard";
+import { PageControls } from "../components/PageControls";
 import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import {
   addIsoDays,
@@ -18,6 +19,7 @@ import {
   weekStart,
 } from "../format";
 import { useMediaQuery } from "../useMediaQuery";
+import { HINTS } from "../hints";
 
 const WEEKDAYS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];
 
@@ -42,6 +44,11 @@ function monthsFor(view: View, iso: string): { year: number; month: number }[] {
   return [first, last];
 }
 
+function dowIndex(iso: string): number {
+  const { year, month, day } = isoParts(iso);
+  return (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
+}
+
 function cellsOf(year: number, month: number): Array<string | null> {
   const first = new Date(Date.UTC(year, month - 1, 1));
   const offset = (first.getUTCDay() + 6) % 7;
@@ -50,6 +57,7 @@ function cellsOf(year: number, month: number): Array<string | null> {
   for (let day = 1; day <= days; day += 1) {
     cells.push(`${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`);
   }
+  while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
 
@@ -135,7 +143,6 @@ export function CalendarPage() {
     }
     document.addEventListener("keydown", onKey);
     detailRef.current?.querySelector<HTMLElement>("h2")?.focus();
-    detailRef.current?.scrollIntoView({ block: "nearest" });
     return () => document.removeEventListener("keydown", onKey);
   }, [picked]);
 
@@ -191,35 +198,49 @@ export function CalendarPage() {
   const weekDays = anchor ? Array.from({ length: 7 }, (_, index) => addIsoDays(weekStart(anchor), index)) : [];
   const month = anchor ? isoParts(anchor) : null;
   const cells = month ? cellsOf(month.year, month.month) : [];
+  const rows = Math.max(1, Math.ceil(cells.length / 7));
+
+  function openDay(iso: string) {
+    setView("day");
+    setAnchor(iso);
+  }
 
   return (
-    <div className="page page-cal">
-      <div className="cal-toolbar">
-        <div className="cal-nav">
-          <button type="button" className="icon-btn" aria-label="Назад" disabled={!anchor} onClick={() => step(-1)}>
+    <div className={`page page-cal view-${view}`}>
+      <PageControls
+        left={
+        <div className="tb-group cal-nav">
+          <button type="button" className="icon-btn" aria-label="Назад" data-hint={HINTS.calPrev} disabled={!anchor} onClick={() => step(-1)}>
             <ChevronLeft size={18} strokeWidth={1.75} aria-hidden />
           </button>
-          <p className="cal-label">{label}</p>
-          <button type="button" className="icon-btn" aria-label="Дальше" disabled={!anchor} onClick={() => step(1)}>
+          <button type="button" className="icon-btn" aria-label="Дальше" data-hint={HINTS.calNext} disabled={!anchor} onClick={() => step(1)}>
             <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
           </button>
-        </div>
-        <div className="cal-modes">
-          <button type="button" className="cal-today" disabled={!today} onClick={() => today && setAnchor(today)}>
-            Сегодня
+          <button
+            type="button"
+            className="cal-label"
+            disabled={!today}
+            data-hint={HINTS.calToday}
+            aria-label={`${label}. Перейти к сегодня`}
+            onClick={() => today && setAnchor(today)}
+          >
+            {label}
           </button>
-          <Segmented
-            label="Вид календаря"
-            value={view}
-            options={[
-              { value: "day", label: "День" },
-              { value: "week", label: "Неделя" },
-              { value: "month", label: "Месяц" },
-            ]}
-            onChange={setView}
-          />
         </div>
-      </div>
+        }
+        center={
+        <Segmented
+          label="Вид календаря"
+          value={view}
+          options={[
+            { value: "day", label: "День" },
+            { value: "week", label: "Неделя" },
+            { value: "month", label: "Месяц" },
+          ]}
+          onChange={setView}
+        />
+        }
+      />
       {error && <ErrorState message={error} onRetry={() => void reload(picked?.id)} />}
       {loading && !anchor && <LoadingBlock label="Загружаем календарь…" />}
       {anchor && view === "month" && month && (
@@ -231,9 +252,9 @@ export function CalendarPage() {
               </span>
             ))}
           </div>
-          <div className="month-grid">
+          <div className="month-grid" style={{ "--rows": rows } as CSSProperties}>
             {cells.map((iso, index) => {
-              if (!iso) return <div key={`pad-${index}`} className="month-pad" />;
+              if (!iso) return <div key={`pad-${index}`} className="month-cell is-pad" aria-hidden="true" />;
               const items = byDate.get(iso) ?? [];
               const day = Number(iso.slice(-2));
               const classes = [
@@ -252,16 +273,20 @@ export function CalendarPage() {
                         type="button"
                         className="cal-num"
                         aria-pressed={agenda === iso}
+                        data-hint={HINTS.calAgenda}
                         aria-label={`${longDue(iso)}, платежей: ${items.length}`}
                         onClick={() => setAgenda(iso)}
                       >
                         {day}
                       </button>
                     ) : (
-                      <button type="button" className="cal-num" aria-current={iso === today ? "date" : undefined} onClick={() => {
-                        setView("day");
-                        setAnchor(iso);
-                      }}>
+                      <button
+                        type="button"
+                        className="cal-num"
+                        aria-current={iso === today ? "date" : undefined}
+                        data-hint={HINTS.calOpenDay}
+                        onClick={() => openDay(iso)}
+                      >
                         <span className="sr-only">{longDue(iso)}</span>
                         <span aria-hidden="true">{day}</span>
                       </button>
@@ -273,15 +298,8 @@ export function CalendarPage() {
                       <OperationCard key={item.id} item={item} iso={iso} compact onOpen={setPicked} />
                     ))}
                   {!narrow && items.length > 2 && (
-                    <button
-                      type="button"
-                      className="cal-more"
-                      onClick={() => {
-                        setView("day");
-                        setAnchor(iso);
-                      }}
-                    >
-                      +{items.length - 2}
+                    <button type="button" className="cal-more" data-hint={HINTS.calMore} onClick={() => openDay(iso)}>
+                      ещё {items.length - 2}
                     </button>
                   )}
                 </div>
@@ -304,60 +322,78 @@ export function CalendarPage() {
       )}
       {anchor && view === "week" && (
         <div className="week-board">
-          {weekDays.map((iso) => {
+          {weekDays.map((iso, index) => {
             const items = byDate.get(iso) ?? [];
-            const index = (new Date(Date.UTC(isoParts(iso).year, isoParts(iso).month - 1, isoParts(iso).day)).getUTCDay() + 6) % 7;
+            const classes = ["week-col", isWeekend(iso) ? "weekend" : "", iso === today ? "today" : ""]
+              .filter(Boolean)
+              .join(" ");
             return (
-              <section key={iso} className={isWeekend(iso) ? "week-col weekend" : "week-col"} aria-label={longDue(iso)}>
+              <section key={iso} className={classes} aria-label={longDue(iso)}>
                 <header className="week-head">
                   <span className="cal-dow">{WEEKDAYS[index]}</span>
                   <button
                     type="button"
                     className={iso === today ? "cal-num today-num" : "cal-num"}
-                    onClick={() => {
-                      setView("day");
-                      setAnchor(iso);
-                    }}
+                    aria-current={iso === today ? "date" : undefined}
+                    data-hint={HINTS.calOpenDay}
+                    onClick={() => openDay(iso)}
                   >
                     {isoParts(iso).day}
                   </button>
                 </header>
-                {items.length === 0 && <p className="muted week-empty">Пусто</p>}
-                {items.map((item) => (
-                  <OperationCard key={item.id} item={item} iso={iso} onOpen={setPicked} />
-                ))}
+                <div className="week-body">
+                  {items.length === 0 && <p className="muted week-empty">Пусто</p>}
+                  {items.map((item) => (
+                    <OperationCard key={item.id} item={item} iso={iso} onOpen={setPicked} />
+                  ))}
+                </div>
               </section>
             );
           })}
         </div>
       )}
       {anchor && view === "day" && (
-        <div className="day-board">
-          {dayItems.length === 0 && !loading && (
-            <EmptyState title="В этот день пусто">Периодов с таким сроком нет. Листайте день или откройте месяц.</EmptyState>
-          )}
-          {dayItems.map((item) => (
-            <OperationCard key={item.id} item={item} iso={anchor} onOpen={setPicked} />
-          ))}
+        <div className={isWeekend(anchor) ? "day-board weekend" : "day-board"}>
+          <header className="day-head">
+            <span className="cal-dow">{WEEKDAYS[dowIndex(anchor)]}</span>
+            <span className={anchor === today ? "cal-num today-num" : "cal-num"}>{isoParts(anchor).day}</span>
+            {dayItems.length > 0 && <span className="cal-count">платежей: {dayItems.length}</span>}
+          </header>
+          <div className="day-body">
+            {dayItems.length === 0 && !loading && (
+              <EmptyState title="В этот день пусто">Периодов с таким сроком нет. Листайте день или откройте месяц.</EmptyState>
+            )}
+            {dayItems.map((item) => (
+              <OperationCard key={item.id} item={item} iso={anchor} onOpen={setPicked} />
+            ))}
+          </div>
         </div>
       )}
       {picked && today && (
-        <section className="cal-detail" ref={detailRef} aria-labelledby="cal-detail-title">
-          <div className="row-between">
-            <h2 id="cal-detail-title" tabIndex={-1}>
-              {picked.title}
-            </h2>
-            <button type="button" className="ghost" onClick={() => setPicked(null)}>
-              Закрыть
-            </button>
-          </div>
-          <OccurrenceCard
-            item={picked}
-            today={today}
-            mode={picked.status === "paid" ? "history" : "inbox"}
-            onChanged={() => void reload(picked.id)}
-          />
-        </section>
+        <div className="modal-back" onMouseDown={(event) => event.target === event.currentTarget && setPicked(null)}>
+          <section
+            className="modal cal-detail"
+            ref={detailRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cal-detail-title"
+          >
+            <div className="modal-head">
+              <h2 id="cal-detail-title" tabIndex={-1}>
+                {picked.title}
+              </h2>
+              <button type="button" className="icon-btn" aria-label="Закрыть" data-hint={HINTS.close} onClick={() => setPicked(null)}>
+                <X size={18} strokeWidth={1.75} aria-hidden />
+              </button>
+            </div>
+            <OccurrenceCard
+              item={picked}
+              today={today}
+              mode={picked.status === "paid" ? "history" : "inbox"}
+              onChanged={() => void reload(picked.id)}
+            />
+          </section>
+        </div>
       )}
     </div>
   );
@@ -379,6 +415,7 @@ function OperationCard({
     <button
       type="button"
       className={`op-card tone-${tone}`}
+      data-hint={HINTS.calOperation}
       onClick={() => onOpen(item)}
       aria-label={`${item.title}, ${statusShort(item.status)}, ${formatMoney(item.amount, item.currency)}, ${longDue(iso)}`}
     >

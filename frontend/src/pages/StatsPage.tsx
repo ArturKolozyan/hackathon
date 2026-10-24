@@ -2,8 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, api, type Stats } from "../api";
 import { useAuth } from "../auth";
-import { DateField, SelectField } from "../components/fields";
+import { DateField, MultiSelectField, SelectField } from "../components/fields";
+import { PageControls } from "../components/PageControls";
+import { EmptyState, ErrorState, LoadingBlock, Segmented } from "../components/ui";
 import { formatMoney, shortDue } from "../format";
+import { HINTS } from "../hints";
 
 type Period = "open" | "month" | "range";
 
@@ -46,10 +49,6 @@ export function StatsPage() {
     load().catch((err: unknown) => setError(err instanceof ApiError ? err.message : "Статистика не загрузилась"));
   }, [load]);
 
-  function toggleTeam(id: string) {
-    setTeams((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  }
-
   async function openTeam(teamId: string) {
     await switchTeam(teamId);
     navigate("/");
@@ -65,88 +64,82 @@ export function StatsPage() {
 
   return (
     <div className="page">
-      <div className="panel filters">
-        <div className="check-row">
-          {(user?.memberships ?? []).map((row) => (
-            <label key={row.team_id}>
-              <input
-                type="checkbox"
-                checked={teams.includes(row.team_id)}
-                onChange={() => toggleTeam(row.team_id)}
+      <PageControls
+        left={
+          <>
+            {(user?.memberships ?? []).length > 1 && (
+              <MultiSelectField
+                className="tb-field"
+                label="Отделы"
+                value={teams}
+                onChange={setTeams}
+                options={(user?.memberships ?? []).map((row) => ({ value: row.team_id, label: row.team_name }))}
               />
-              {row.team_name}
-            </label>
-          ))}
-        </div>
-        <label>
-          Статус
-          <SelectField
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: "", label: "Все" },
-              { value: "overdue", label: "Просрочено" },
-              { value: "due_soon", label: "Скоро" },
-              { value: "upcoming", label: "Впереди" },
-              { value: "paid", label: "Оплачено" },
-            ]}
-          />
-        </label>
-        <label>
-          Валюта
-          <SelectField
-            value={currency}
-            onChange={setCurrency}
-            options={[
-              { value: "", label: "Все" },
-              { value: "RUB", label: "RUB" },
-              { value: "USD", label: "USD" },
-              { value: "EUR", label: "EUR" },
-            ]}
-          />
-        </label>
-        <label>
-          Ответственный
-          <SelectField
-            value={responsible}
-            onChange={setResponsible}
-            options={[{ value: "", label: "Все" }, ...people.map((person) => ({ value: person.id, label: person.full_name }))]}
-          />
-        </label>
-        <label>
-          Период
-          <SelectField
+            )}
+            <SelectField
+              className="tb-field"
+              ariaLabel="Статус"
+              value={status}
+              onChange={setStatus}
+              options={[
+                { value: "", label: "Все статусы" },
+                { value: "overdue", label: "Просрочено" },
+                { value: "due_soon", label: "Скоро" },
+                { value: "upcoming", label: "Впереди" },
+                { value: "paid", label: "Оплачено" },
+              ]}
+            />
+            <SelectField
+              className="tb-field"
+              ariaLabel="Валюта"
+              value={currency}
+              onChange={setCurrency}
+              options={[
+                { value: "", label: "Все валюты" },
+                { value: "RUB", label: "RUB" },
+                { value: "USD", label: "USD" },
+                { value: "EUR", label: "EUR" },
+              ]}
+            />
+            <SelectField
+              className="tb-field"
+              ariaLabel="Ответственный"
+              value={responsible}
+              onChange={setResponsible}
+              options={[
+                { value: "", label: "Все ответственные" },
+                ...people.map((person) => ({ value: person.id, label: person.full_name })),
+              ]}
+            />
+            {period === "month" ? (
+            <DateField mode="month" value={month} onChange={setMonth} ariaLabel="Месяц" />
+          ) : period === "range" ? (
+            <div className="tb-group tb-range">
+              <DateField value={dateFrom} onChange={setDateFrom} ariaLabel="С" placeholder="С" max={dateTo || undefined} />
+              <span className="tb-dash" aria-hidden="true">
+                –
+              </span>
+              <DateField value={dateTo} onChange={setDateTo} ariaLabel="По" placeholder="по" min={dateFrom || undefined} />
+            </div>
+          ) : null}
+          </>
+        }
+        center={
+          <Segmented
+            label="Период"
             value={period}
-            onChange={(value) => setPeriod(value as Period)}
             options={[
               { value: "open", label: "Открытые" },
               { value: "month", label: "Месяц" },
               { value: "range", label: "Диапазон" },
             ]}
+            onChange={setPeriod}
           />
-        </label>
-        {period === "month" && (
-          <label>
-            Месяц
-            <DateField mode="month" value={month} onChange={setMonth} />
-          </label>
-        )}
-        {period === "range" && (
-          <>
-            <label>
-              С
-              <DateField value={dateFrom} onChange={setDateFrom} />
-            </label>
-            <label>
-              По
-              <DateField value={dateTo} onChange={setDateTo} />
-            </label>
-          </>
-        )}
-      </div>
-      {error && <p className="error" role="alert">{error}</p>}
-      {!stats && !error && <p className="muted">Загрузка…</p>}
-      {empty && <p className="panel empty">По этим фильтрам пусто.</p>}
+        }
+      />
+      {error && <ErrorState message={error} onRetry={() => void load().catch(() => undefined)} />}
+      {!stats && !error && <LoadingBlock label="Загружаем статистику…" />}
+      {empty && <EmptyState title="Пусто">По этим фильтрам ничего нет.</EmptyState>}
       {stats && !empty && (
         <>
           <div className="stat-grid">
@@ -176,7 +169,7 @@ export function StatsPage() {
                       </p>
                     </div>
                     <div className="card-actions">
-                      <button type="button" className="outline" onClick={() => void openTeam(item.team_id)}>
+                      <button type="button" className="outline" data-hint={HINTS.statsOpenTeam} onClick={() => void openTeam(item.team_id)}>
                         В инбокс
                       </button>
                     </div>
@@ -191,7 +184,7 @@ export function StatsPage() {
             </header>
             <div className="stat-grid">
               {stats.by_team.map((row) => (
-                <button key={row.team_id} type="button" className="panel stat-team" onClick={() => void openTeam(row.team_id)}>
+                <button key={row.team_id} type="button" className="panel stat-team" data-hint={HINTS.statsOpenTeam} onClick={() => void openTeam(row.team_id)}>
                   <h3>{row.team_name}</h3>
                   <p className="meta">
                     {row.to_pay.length === 0
